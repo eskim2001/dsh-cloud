@@ -9,7 +9,7 @@
 
 <p align="center">
   面向 DeepSeek Harness 的多租户托管平台。<br>
-  <sub>Cloud-hosted and self-hosted multi-tenant platform for DeepSeek Harness (dsh) — isolated Docker instances, persistent agent workspaces, resource quotas and owner-based access control.</sub>
+  <sub>Self-hosted or cloud-hosted multi-tenant platform for deploying and hosting DeepSeek Harness (dsh) instances.</sub>
 </p>
 
 <p align="center">
