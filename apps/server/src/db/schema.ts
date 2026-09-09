@@ -159,6 +159,41 @@ export const instanceMetric = pgTable(
   (t) => [index('instance_metric_instance_sampled_idx').on(t.instanceId, t.sampledAt)],
 )
 
+/**
+ * 平台发布的镜像版本（D21）。**运行时唯一真相**：新建实例用 `is_default` 那一版，
+ * 用户面能自助升到的版本 = 这张表 ∩ 宿主上真有。
+ *
+ * 「至多一个默认」由部分唯一索引兜住——不靠应用层自觉。
+ */
+export const imageRelease = pgTable(
+  'image_release',
+  {
+    id: text('id').primaryKey(),
+    /** 完整镜像引用，如 `dsh-instance:0.1.0`（也可以带 registry）。 */
+    ref: text('ref').notNull().unique(),
+    isDefault: boolean('is_default').notNull().default(false),
+    publishedAt: timestamp('published_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('image_release_default_unique').on(t.isDefault).where(sql`${t.isDefault}`)],
+)
+
+/**
+ * 注册表上有什么（D23）：GHCR tag 的**本地快照**，每次「同步」整批重建。
+ *
+ * 刻意与 `image_release` 分开：这里只放**上游事实**，可以随时丢弃重来；发布决定在
+ * `image_release` 里。合表的话，同步的删除语句必须豁免已发布行——漏一处就删掉默认版本。
+ * 宿主上有没有这个镜像**不存**：那是运行时事实（`docker rmi` 随时会变），存了必漂。
+ */
+export const imageCatalog = pgTable('image_catalog', {
+  /** 完整镜像引用（含仓库与 tag）。 */
+  ref: text('ref').primaryKey(),
+  /** manifest list 的 digest（`Docker-Content-Digest`），只用于展示/比对。 */
+  digest: text('digest').notNull(),
+  syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export type InstanceRow = typeof instance.$inferSelect
 export type InstanceStatus = InstanceRow['status']
 export type InstanceMetricRow = typeof instanceMetric.$inferSelect
+export type ImageReleaseRow = typeof imageRelease.$inferSelect
+export type ImageCatalogRow = typeof imageCatalog.$inferSelect

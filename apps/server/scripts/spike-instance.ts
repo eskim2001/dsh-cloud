@@ -17,6 +17,7 @@ import type Docker from 'dockerode'
 import { InstanceSpecSchema, networkName } from '@dsh-cloud/instance-spec'
 import { createDocker } from '../src/docker/client.js'
 import { HostStorage } from '../src/instance/host-storage.js'
+import { imageRepo } from '../src/instance/image-catalog.js'
 import { InstanceOrchestrator } from '../src/instance/orchestrator.js'
 
 const SLUG = 'spike'
@@ -135,7 +136,7 @@ async function main(): Promise<void> {
 
   const docker = createDocker()
   const ingressName = process.env.TRAEFIK_CONTAINER ?? 'dsh-ingress'
-  const orch = new InstanceOrchestrator(docker, ingressName)
+  const orch = new InstanceOrchestrator(docker, ingressName, imageRepo(IMAGE))
   const storage = new HostStorage(docker, {
     root: process.env.HOST_STORAGE_ROOT ?? '/var/lib/dsh',
     helperImage: process.env.STORAGE_HELPER_IMAGE ?? 'alpine:3.20',

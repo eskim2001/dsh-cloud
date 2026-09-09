@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm'
+import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import type { Db } from './client.js'
 import { instance, session, user } from './schema.js'
 
@@ -129,13 +129,51 @@ export async function revokeUserSessions(db: Db, userId: string): Promise<void> 
   await db.delete(session).where(eq(session.userId, userId))
 }
 
-/** 启动时把 ADMIN_EMAILS 里的账号提权。只升不降，且只动还不是 admin 的行。 */
-export async function promoteToAdmin(db: Db, emails: string[]): Promise<number> {
-  if (emails.length === 0) return 0
+/** 按 id / 邮箱取账号——改角色和 seed 引导都要先知道「这个人现在是不是 admin」。 */
+export async function findUserById(
+  db: Db,
+  userId: string,
+): Promise<{ id: string; role: string } | undefined> {
+  const rows = await db
+    .select({ id: user.id, role: user.role })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1)
+  return rows[0]
+}
+
+/** 邮箱大小写不敏感：别假设库里存的就是小写。 */
+export async function findUserByEmail(
+  db: Db,
+  email: string,
+): Promise<{ id: string; role: string } | undefined> {
+  const rows = await db
+    .select({ id: user.id, role: user.role })
+    .from(user)
+    .where(sql`lower(${user.email}) = ${email.toLowerCase()}`)
+    .limit(1)
+  return rows[0]
+}
+
+/** 平台管理员数量。降级最后一名管理员会把自己锁在门外，改角色前必须看它。 */
+export async function countAdmins(db: Db): Promise<number> {
+  const rows = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(user)
+    .where(eq(user.role, 'admin'))
+  return rows[0]?.n ?? 0
+}
+
+/** 改角色。用户不存在 → false。 */
+export async function setUserRole(
+  db: Db,
+  userId: string,
+  role: 'user' | 'admin',
+): Promise<boolean> {
   const rows = await db
     .update(user)
-    .set({ role: 'admin', updatedAt: new Date() })
-    .where(and(inArray(user.email, emails), ne(user.role, 'admin')))
+    .set({ role, updatedAt: new Date() })
+    .where(eq(user.id, userId))
     .returning({ id: user.id })
-  return rows.length
+  return rows.length > 0
 }

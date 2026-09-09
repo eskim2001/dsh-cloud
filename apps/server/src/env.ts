@@ -23,16 +23,6 @@ const EnvSchema = z.object({
   /** 控制面监听端口（只绑回环，由 Traefik 接入）。 */
   PORT: z.coerce.number().int().positive().default(3000),
 
-  /** 实例容器基础镜像（pin 到 digest 见 isPinnedImage）。 */
-  INSTANCE_IMAGE: z.string().min(1),
-
-  /**
-   * 用户能在实例详情页**自助升级**到的版本，逗号分隔的精确 tag。
-   * 平台只把「已回归过」的 tag 写进来——用户看不见其它本地镜像。
-   * 空 = 用户不能自选版本（升级由管理员做）。
-   */
-  INSTANCE_STABLE_IMAGES: z.string().default(''),
-
   /** 生成对外 URL 用（本地开发是 http，线上是 https）。 */
   PUBLIC_SCHEME: z.enum(['http', 'https']).default('https'),
 
@@ -50,23 +40,16 @@ const EnvSchema = z.object({
 
   /**
    * 实例路由挂的 entryPoint。生产是 `websecure`（TLS 终结在 Traefik）；
-   * 本地也是 `websecure`（证书是 mkcert 签的，见 docker/traefik/dynamic-dev/tls.yml）。
+   * 本地也是 `websecure`（证书是自签的，见 docker/traefik/dynamic-dev/tls.yml）。
    */
   TRAEFIK_ENTRYPOINT: z.string().default('websecure'),
 
   /**
    * 实例 router 用的 ACME resolver 名（对应 traefik.yml 里的 certificatesResolvers）。
    * 留空 = 不挂 resolver，证书由 file provider 的静态证书按 SNI 匹配——
-   * 本地 mkcert 就是这一档。
+   * 本地自签就是这一档。
    */
   TRAEFIK_CERT_RESOLVER: z.string().default(''),
-
-  /**
-   * 平台管理员邮箱，逗号分隔。**启动时**把已存在的这些账号提权为 admin
-   * （只升不降：从这里删掉不会撤权，撤权走管理台）。
-   * 这是「第一个管理员从哪来」的答案——不需要手改数据库。
-   */
-  ADMIN_EMAILS: z.string().default(''),
 
   /** 每个用户默认能开几个实例；单个用户的覆盖值在 user.instance_quota。 */
   MAX_INSTANCES_PER_USER: z.coerce.number().int().positive().default(3),
@@ -84,6 +67,19 @@ const EnvSchema = z.object({
    * 真正跑的是宿主自己的（`nsenter -t 1 -m` 后 PATH 解析到宿主根）。
    */
   STORAGE_HELPER_IMAGE: z.string().min(1).default('alpine:3.20'),
+
+  /**
+   * 平台自己的实例镜像仓库（D22）。发布准入和「宿主上可发布」都按它过滤——
+   * 不再从默认版本推断（那样表一空就没法发布第一版）。本地 build.sh 打的是同一个全名。
+   */
+  INSTANCE_IMAGE_REPO: z.string().min(1).default('ghcr.io/eskim2001/dsh-instance'),
+
+  /**
+   * 同步 GHCR tag 用的凭据（D23）。包是**公开**的，不设也能匿名读；
+   * 换成私有包时两个都要设，只设一个会被忽略（免得出现半截 Basic 头）。
+   */
+  INSTANCE_IMAGE_REGISTRY_USER: z.string().default(''),
+  INSTANCE_IMAGE_REGISTRY_TOKEN: z.string().default(''),
 })
 
 export type Env = z.infer<typeof EnvSchema>
@@ -104,20 +100,4 @@ export function trustedOrigins(env: Env): string[] {
     .map((s) => s.trim())
     .filter((s) => s !== '')
   return [base, ...extra]
-}
-
-/** 逗号分隔的管理员邮箱，统一小写去空（邮箱大小写不敏感）。 */
-export function adminEmails(raw: string): string[] {
-  return raw
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter((s) => s !== '')
-}
-
-/** 逗号分隔的稳定版镜像 tag，去空。**不去重、不改大小写**——tag 区分大小写。 */
-export function stableImages(raw: string): string[] {
-  return raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s !== '')
 }

@@ -3,9 +3,8 @@ import { createAuth } from './auth.js'
 import { createDb } from './db/client.js'
 import { listAllInstances, updateInstance } from './db/instance-repo.js'
 import { deleteMetricsBefore, insertMetric } from './db/metric-repo.js'
-import { promoteToAdmin } from './db/user-repo.js'
 import { createDocker, isNotFound } from './docker/client.js'
-import { adminEmails, loadEnv } from './env.js'
+import { loadEnv } from './env.js'
 import { bootInstances } from './instance/boot.js'
 import { HostStorage } from './instance/host-storage.js'
 import { startMetricsSampler } from './instance/metrics-sampler.js'
@@ -18,13 +17,13 @@ import { networkName } from '@dsh-cloud/instance-spec'
 const env = loadEnv()
 const { db } = createDb(env.DATABASE_URL)
 
-// 第一个管理员从 ADMIN_EMAILS 来。账号得先注册（提权只对已存在的行生效）。
-const promoted = await promoteToAdmin(db, adminEmails(env.ADMIN_EMAILS))
-if (promoted > 0) console.log(`已提权 ${promoted} 个管理员账号`)
-
 const auth = createAuth(env, db)
 const docker = createDocker()
-const orchestrator = new InstanceOrchestrator(docker, env.TRAEFIK_CONTAINER)
+const orchestrator = new InstanceOrchestrator(
+  docker,
+  env.TRAEFIK_CONTAINER,
+  env.INSTANCE_IMAGE_REPO,
+)
 const storage = new HostStorage(docker, {
   root: env.HOST_STORAGE_ROOT,
   helperImage: env.STORAGE_HELPER_IMAGE,

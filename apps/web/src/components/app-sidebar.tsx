@@ -1,4 +1,4 @@
-import { BoxesIcon, MonitorSmartphoneIcon, ShieldCheckIcon, UserIcon, UsersIcon } from 'lucide-react'
+import { BoxesIcon, ImagesIcon, MonitorSmartphoneIcon, ShieldCheckIcon, UserIcon, UsersIcon } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation } from 'react-router-dom'
@@ -23,6 +23,8 @@ interface NavItem {
   title: string
   url: string
   icon: LucideIcon
+  /** 只在路径完全相等时高亮——有子页面的入口（如 /admin）要置位，否则子页会把父项也点亮。 */
+  end?: boolean
 }
 
 export function AppSidebar() {
@@ -34,7 +36,10 @@ export function AppSidebar() {
     { title: t('nav.instances'), url: '/instances', icon: BoxesIcon },
     // 平台管理只给管理员看。藏起来不是安全边界——服务端每条管理面路由都自己查 role。
     ...(user?.role === 'admin'
-      ? [{ title: t('nav.admin'), url: '/admin', icon: ShieldCheckIcon }]
+      ? [
+          { title: t('nav.admin'), url: '/admin', icon: ShieldCheckIcon, end: true },
+          { title: t('nav.adminImages'), url: '/admin/images', icon: ImagesIcon },
+        ]
       : []),
   ]
   const settingsNav: NavItem[] = [
@@ -52,7 +57,9 @@ export function AppSidebar() {
             <SidebarMenuItem key={item.url}>
               <SidebarMenuButton
                 tooltip={item.title}
-                isActive={pathname === item.url || pathname.startsWith(`${item.url}/`)}
+                isActive={
+                  pathname === item.url || (item.end !== true && pathname.startsWith(`${item.url}/`))
+                }
                 render={<NavLink to={item.url} />}
               >
                 <item.icon />

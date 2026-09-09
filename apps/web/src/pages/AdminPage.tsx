@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { LogPanel } from '@/components/log-panel.js'
 import { PageHeader } from '@/components/page-header.js'
 import { StatusBadge } from '@/components/status-badge.js'
@@ -53,11 +54,13 @@ import {
   setAdminInstanceImage,
   setInstanceQuota,
   setUserQuota,
+  setUserRole,
   unbanUser,
   type AdminInstance,
   type AdminUser,
 } from '@/lib/api.js'
 import { formatMb } from '@/lib/format.js'
+import { sessionKey, useSession } from '@/lib/use-session.js'
 
 const usersKey = ['admin', 'users'] as const
 const instancesKey = ['admin', 'instances'] as const
@@ -75,6 +78,8 @@ function errorTextOf(error: unknown, fallback: string): string | null {
 export default function AdminPage() {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const session = useSession()
 
   const users = useQuery({ queryKey: usersKey, queryFn: listAdminUsers })
   // 实例状态由服务端从 Docker 现算，会漂（crash-loop / 外部停掉 / 宿主重启）→ 低频兜底
@@ -104,6 +109,19 @@ export default function AdminPage() {
       setUserQuota(id, value),
     onSuccess: invalidateUsers,
   })
+  const role = useMutation({
+    mutationFn: ({ id, next }: { id: string; next: 'user' | 'admin' }) =>
+      setUserRole(id, next),
+    onSuccess: (_result, variables) => {
+      // 降的是自己：下一个 /api/admin/* 请求就 403，别去刷列表，直接回首页
+      if (variables.id === session.data?.id) {
+        void queryClient.invalidateQueries({ queryKey: sessionKey })
+        navigate('/')
+        return
+      }
+      void invalidateUsers()
+    },
+  })
   const instanceQuota = useMutation({
     mutationFn: ({
       id,
@@ -123,14 +141,21 @@ export default function AdminPage() {
     onSuccess: invalidateInstances,
   })
 
-  // 改配额的错误在对话框里原样显示（见 errorTextOf），这里再报一遍只会盖住真话
-  const failed = ban.isError || unban.isError || quota.isError
+  // 服务端文案（如「不能降级最后一名管理员」）比笼统的「操作失败」有用
+  const failed = ban.isError || unban.isError || quota.isError || role.isError
 
   return (
     <>
       <PageHeader title={t('admin.title')} description={t('admin.description')} />
 
-      {failed && <p className="mb-4 text-sm text-destructive">{t('admin.actionFailed')}</p>}
+      {failed && (
+        <p className="mb-4 text-sm text-destructive">
+          {errorTextOf(
+            role.error ?? ban.error ?? unban.error ?? quota.error,
+            t('admin.actionFailed'),
+          )}
+        </p>
+      )}
 
       <Card className="mb-6">
         <CardHeader>
@@ -189,22 +214,36 @@ export default function AdminPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      {user.banned ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={unban.isPending && unban.variables === user.id}
-                          onClick={() => unban.mutate(user.id)}
-                        >
-                          {t('admin.users.unban')}
-                        </Button>
-                      ) : (
-                        <BanButton
+                      <div className="flex items-center justify-end gap-1">
+                        <RoleButton
+                          isAdmin={user.role === 'admin'}
+                          self={user.id === session.data?.id}
                           email={user.email}
-                          pending={ban.isPending && ban.variables?.id === user.id}
-                          onConfirm={(reason) => ban.mutate({ id: user.id, reason })}
+                          pending={role.isPending && role.variables?.id === user.id}
+                          onConfirm={() =>
+                            role.mutate({
+                              id: user.id,
+                              next: user.role === 'admin' ? 'user' : 'admin',
+                            })
+                          }
                         />
-                      )}
+                        {user.banned ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={unban.isPending && unban.variables === user.id}
+                            onClick={() => unban.mutate(user.id)}
+                          >
+                            {t('admin.users.unban')}
+                          </Button>
+                        ) : (
+                          <BanButton
+                            email={user.email}
+                            pending={ban.isPending && ban.variables?.id === user.id}
+                            onConfirm={(reason) => ban.mutate({ id: user.id, reason })}
+                          />
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -648,6 +687,52 @@ function InstanceImageForm({
         </Button>
       </div>
     </div>
+  )
+}
+
+/**
+ * 授予 / 撤销管理员。两个方向都弹确认——提权和降权都是敏感动作。
+ * 「不能降级最后一名管理员」由后端拦（400），文案显示在页面顶部。
+ */
+function RoleButton({
+  isAdmin,
+  self,
+  email,
+  pending,
+  onConfirm,
+}: {
+  isAdmin: boolean
+  self: boolean
+  email: string
+  pending: boolean
+  onConfirm: () => void
+}) {
+  const { t } = useTranslation()
+  const label = isAdmin ? t('admin.users.revokeAdmin') : t('admin.users.grantAdmin')
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger render={<Button variant="ghost" size="sm" disabled={pending} />}>
+        {label}
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{label}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {isAdmin
+              ? t('admin.users.revokeAdminConfirm', { email })
+              : t('admin.users.grantAdminConfirm', { email })}
+            {self && isAdmin && (
+              <span className="mt-1 block">{t('admin.users.selfDemoteHint')}</span>
+            )}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>{label}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 

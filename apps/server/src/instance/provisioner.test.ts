@@ -22,21 +22,31 @@ vi.mock('../db/instance-repo.js', () => ({
   QuotaExceededError: class QuotaExceededError extends Error {},
 }))
 vi.mock('../db/user-repo.js', () => ({ findUserQuota: vi.fn() }))
+vi.mock('../db/image-release-repo.js', () => ({
+  findDefaultImageRelease: vi.fn(),
+  isImageRelease: vi.fn(),
+}))
+vi.mock('../db/image-catalog-repo.js', () => ({ isImageInCatalog: vi.fn() }))
 
 const { findInstanceById, updateInstance, createInstanceRecord, retainInstanceRecord, deleteInstanceRecord } = await import('../db/instance-repo.js')
+const { findDefaultImageRelease, isImageRelease } = await import('../db/image-release-repo.js')
+const { isImageInCatalog } = await import('../db/image-catalog-repo.js')
 const findById = vi.mocked(findInstanceById)
 const update = vi.mocked(updateInstance)
+const findDefaultRelease = vi.mocked(findDefaultImageRelease)
+const isPublished = vi.mocked(isImageRelease)
+const inCatalog = vi.mocked(isImageInCatalog)
 
 const env = {
   BASE_DOMAIN: 'app.example.com',
   PLATFORM_SECRET: 'test-secret',
-  INSTANCE_IMAGE: 'dsh-instance:0.1.0',
-  INSTANCE_STABLE_IMAGES: 'dsh-instance:0.1.1',
   MAX_INSTANCES_PER_USER: 3,
+  INSTANCE_IMAGE_REPO: 'dsh-instance',
 } as Env
 
-/** 升级目标：白名单里的那一版。 */
-const NEW_IMAGE = 'dsh-instance:0.1.1'
+/** 升级目标：已发布的那一版。 */
+const NEW_IMAGE = 'dsh-instance:0.1.1_1'
+const DEFAULT_REF = 'dsh-instance:0.1.0_1'
 
 function row(over: Partial<InstanceRow> = {}): InstanceRow {
   return {
@@ -46,7 +56,7 @@ function row(over: Partial<InstanceRow> = {}): InstanceRow {
     deletedAt: null,
     ownerId: 'u1',
     status: 'running',
-    image: 'dsh-instance:0.1.0',
+    image: 'dsh-instance:0.1.0_1',
     previousImage: null,
     containerId: 'c-1',
     cpus: 1,
@@ -75,6 +85,7 @@ interface Fakes {
     removeContainer: ReturnType<typeof vi.fn>
     createInstance: ReturnType<typeof vi.fn>
     listImageTags: ReturnType<typeof vi.fn>
+    ensureImage: ReturnType<typeof vi.fn>
   }
 }
 
@@ -86,7 +97,8 @@ function build(): Fakes {
   const snapshot = vi.fn(async () => undefined)
   const restoreSnapshot = vi.fn(async () => undefined)
   const removeContainer = vi.fn(async () => undefined)
-  const listImageTags = vi.fn(async () => ['dsh-instance:0.1.0', 'dsh-instance:0.1.1'])
+  const listImageTags = vi.fn(async () => ['dsh-instance:0.1.0_1', 'dsh-instance:0.1.1_1'])
+  const ensureImage = vi.fn(async () => undefined)
   const createInstance = vi.fn(async () => ({
     slug: 'alice',
     containerName: 'dsh-instance-alice',
@@ -115,6 +127,7 @@ function build(): Fakes {
     removeInstance: vi.fn(),
     createInstance,
     listImageTags,
+    ensureImage,
   } as unknown as InstanceOrchestrator
 
   return {
@@ -131,6 +144,7 @@ function build(): Fakes {
       removeContainer,
       createInstance,
       listImageTags,
+      ensureImage,
     },
   }
 }
@@ -150,6 +164,16 @@ const quota = { cpus: 1, memoryMb: 2048, pidsLimit: 512, diskMb: 10_240 }
 beforeEach(() => {
   vi.clearAllMocks()
   update.mockImplementation(async (_db, _id, patch) => ({ ...row(), ...patch }) as InstanceRow)
+  // 库里有一个默认版本，且任何目标都算「已发布」——要测拒绝的用例自己覆盖
+  findDefaultRelease.mockResolvedValue({
+    id: 'r-1',
+    ref: DEFAULT_REF,
+    isDefault: true,
+    publishedAt: new Date(0),
+  })
+  isPublished.mockResolvedValue(true)
+  // 默认 catalog 里没有目标版本——要测「catalog 里有」的用例自己覆盖
+  inCatalog.mockResolvedValue(false)
 })
 
 describe('storage ownership across lifecycle operations', () => {
@@ -190,6 +214,29 @@ describe('storage ownership across lifecycle operations', () => {
     expect(fakes.calls.restoreSnapshot).toHaveBeenCalledWith('unique-data-key')
     expect(fakes.calls.ensure).toHaveBeenCalledWith('unique-data-key', quota.diskMb)
     expect(fakes.calls.createInstance).toHaveBeenLastCalledWith(expect.objectContaining({ slug: 'alice' }), expect.objectContaining({ dataDir: '/var/lib/dsh/unique-data-key' }))
+  })
+})
+
+describe('新建：镜像取自库里的默认版本（D21）', () => {
+  it('落库的是默认版本那一行', async () => {
+    vi.mocked(createInstanceRecord).mockResolvedValue(row({ image: DEFAULT_REF }))
+    const fakes = build()
+    await makeProvisioner(fakes).create({ slug: 'alice', ownerId: 'u1', ...quota })
+    expect(createInstanceRecord).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ image: DEFAULT_REF }),
+      3,
+    )
+  })
+
+  it('库里没有默认版本 → 响亮失败，不落库也不起容器', async () => {
+    findDefaultRelease.mockResolvedValue(undefined)
+    const fakes = build()
+    await expect(
+      makeProvisioner(fakes).create({ slug: 'alice', ownerId: 'u1', ...quota }),
+    ).rejects.toThrow(ImageRejectedError)
+    expect(createInstanceRecord).not.toHaveBeenCalled()
+    expect(fakes.calls.createInstance).not.toHaveBeenCalled()
   })
 })
 
@@ -320,8 +367,9 @@ function statefulDb(initial: InstanceRow): { current: () => InstanceRow } {
 }
 
 describe('换镜像：准入', () => {
-  it('不在稳定版白名单 → 拒绝，什么都没动', async () => {
+  it('没发布过 → 拒绝，什么都没动', async () => {
     findById.mockResolvedValue(row())
+    isPublished.mockResolvedValue(false)
     const fakes = build()
 
     await expect(makeProvisioner(fakes).setImage('i-1', 'dsh-instance:0.9.9')).rejects.toThrow(
@@ -342,36 +390,59 @@ describe('换镜像：准入', () => {
     expect(fakes.calls.snapshot).not.toHaveBeenCalled()
   })
 
-  it('宿主上没有这个 tag → 拒绝（不去 registry 拉，失败信息看不懂）', async () => {
+  it('tag 不是发布序列的形状 → 拒绝（公开仓库里谁都能推 :latest）', async () => {
     findById.mockResolvedValue(row())
     const fakes = build()
-    fakes.calls.listImageTags.mockResolvedValue(['dsh-instance:0.1.0'])
+    fakes.calls.listImageTags.mockResolvedValue(['dsh-instance:latest'])
+
+    await expect(
+      makeProvisioner(fakes).setImage('i-1', 'dsh-instance:latest'),
+    ).rejects.toThrow(/不符合发布序列/)
+    expect(fakes.calls.snapshot).not.toHaveBeenCalled()
+  })
+
+  it('宿主上没有、catalog 里也没有 → 拒绝', async () => {
+    findById.mockResolvedValue(row())
+    const fakes = build()
+    fakes.calls.listImageTags.mockResolvedValue(['dsh-instance:0.1.0_1'])
+
+    await expect(
+      makeProvisioner(fakes).setImage('i-1', NEW_IMAGE, { allowAny: true }),
+    ).rejects.toThrow(/宿主上没有镜像/)
+    expect(fakes.calls.snapshot).not.toHaveBeenCalled()
+  })
+
+  it('管理员 allowAny：catalog 里有但宿主上没有 → 放行（真正用到时自动拉）', async () => {
+    const db = statefulDb(row())
+    const fakes = build()
+    fakes.calls.listImageTags.mockResolvedValue(['dsh-instance:0.1.0_1'])
+    inCatalog.mockResolvedValue(true)
+
+    const updated = await makeProvisioner(fakes).setImage('i-1', 'dsh-instance:0.1.2_1', {
+      allowAny: true,
+    })
+    expect(updated.image).toBe('dsh-instance:0.1.2_1')
+    expect(db.current().image).toBe('dsh-instance:0.1.2_1')
+    expect(fakes.calls.snapshot).toHaveBeenCalledWith('alice')
+  })
+
+  it('用户面不吃 catalog 兜底：宿主上没有就拒（升级不该变成一次长 pull）', async () => {
+    findById.mockResolvedValue(row())
+    const fakes = build()
+    fakes.calls.listImageTags.mockResolvedValue(['dsh-instance:0.1.0_1'])
+    inCatalog.mockResolvedValue(true)
 
     await expect(makeProvisioner(fakes).setImage('i-1', NEW_IMAGE)).rejects.toThrow(
       /宿主上没有镜像/,
     )
-    expect(fakes.calls.snapshot).not.toHaveBeenCalled()
-  })
-
-  it('管理员 allowAny 绕过白名单，但仍必须本地已有', async () => {
-    const db = statefulDb(row())
-    const fakes = build()
-    fakes.calls.listImageTags.mockResolvedValue(['dsh-instance:0.1.0', 'dsh-instance:0.1.2'])
-
-    const updated = await makeProvisioner(fakes).setImage('i-1', 'dsh-instance:0.1.2', {
-      allowAny: true,
-    })
-    expect(updated.image).toBe('dsh-instance:0.1.2')
-    expect(db.current().image).toBe('dsh-instance:0.1.2')
-    expect(fakes.calls.snapshot).toHaveBeenCalledWith('alice')
   })
 
   it('目标就是当前版本 → 幂等，不碰任何东西', async () => {
     findById.mockResolvedValue(row())
     const fakes = build()
 
-    const updated = await makeProvisioner(fakes).setImage('i-1', 'dsh-instance:0.1.0')
-    expect(updated.image).toBe('dsh-instance:0.1.0')
+    const updated = await makeProvisioner(fakes).setImage('i-1', 'dsh-instance:0.1.0_1')
+    expect(updated.image).toBe('dsh-instance:0.1.0_1')
     expect(fakes.calls.snapshot).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
   })
@@ -388,7 +459,7 @@ describe('换镜像：升级', () => {
     expect(fakes.calls.snapshot).toHaveBeenCalledWith('alice')
     expect(update).toHaveBeenCalledWith({}, 'i-1', {
       image: NEW_IMAGE,
-      previousImage: 'dsh-instance:0.1.0',
+      previousImage: 'dsh-instance:0.1.0_1',
       containerId: null,
     })
     expect(fakes.calls.createInstance).toHaveBeenCalled()
@@ -422,7 +493,7 @@ describe('换镜像：升级', () => {
     )
 
     expect(fakes.calls.restoreSnapshot).toHaveBeenCalledWith('alice')
-    expect(db.current().image).toBe('dsh-instance:0.1.0')
+    expect(db.current().image).toBe('dsh-instance:0.1.0_1')
     expect(db.current().previousImage).toBeNull()
     // 两次 createInstance：新镜像失败一次，回滚后旧镜像成功一次
     expect(fakes.calls.createInstance).toHaveBeenCalledTimes(2)
@@ -452,7 +523,7 @@ describe('换镜像：回滚', () => {
 
   it('恢复快照 → 落库回旧镜像（清空 previous_image）→ 重建', async () => {
     const db = statefulDb(
-      row({ image: NEW_IMAGE, previousImage: 'dsh-instance:0.1.0' }),
+      row({ image: NEW_IMAGE, previousImage: 'dsh-instance:0.1.0_1' }),
     )
     const fakes = build()
 
@@ -460,12 +531,40 @@ describe('换镜像：回滚', () => {
 
     expect(fakes.calls.restoreSnapshot).toHaveBeenCalledWith('alice')
     expect(update).toHaveBeenCalledWith({}, 'i-1', {
-      image: 'dsh-instance:0.1.0',
+      image: 'dsh-instance:0.1.0_1',
       previousImage: null,
       containerId: null,
     })
     expect(fakes.calls.createInstance).toHaveBeenCalled()
-    expect(updated.image).toBe('dsh-instance:0.1.0')
+    expect(updated.image).toBe('dsh-instance:0.1.0_1')
     expect(db.current().previousImage).toBeNull()
+  })
+})
+
+describe('重建前的镜像兜底（D23）', () => {
+  it('restart / create 都先确保镜像在宿主上（被 prune 掉也能自愈）', async () => {
+    statefulDb(row())
+    const fakes = build()
+
+    await makeProvisioner(fakes).restart('i-1')
+    expect(fakes.calls.ensureImage).toHaveBeenCalledWith('dsh-instance:0.1.0_1')
+
+    fakes.calls.ensureImage.mockClear()
+    vi.mocked(createInstanceRecord).mockResolvedValue(row())
+    await makeProvisioner(fakes).create({ slug: 'alice', ownerId: 'u1', ...quota })
+    expect(fakes.calls.ensureImage).toHaveBeenCalledWith(DEFAULT_REF)
+  })
+
+  it('拉不到镜像 → 标 error，不建容器（别把「镜像没了」报成「规格错了」）', async () => {
+    const db = statefulDb(row())
+    const fakes = build()
+    fakes.calls.ensureImage.mockRejectedValue(
+      new Error('拉取镜像 dsh-instance:0.1.0_1 失败：manifest unknown'),
+    )
+
+    await expect(makeProvisioner(fakes).restart('i-1')).rejects.toThrow(/拉取镜像/)
+    expect(db.current().status).toBe('error')
+    expect(db.current().lastError).toContain('manifest unknown')
+    expect(fakes.calls.createInstance).not.toHaveBeenCalled()
   })
 })

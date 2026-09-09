@@ -13,12 +13,14 @@ import {
   updateInstance,
   type NewInstance,
 } from '../db/instance-repo.js'
+import { findDefaultImageRelease, isImageRelease } from '../db/image-release-repo.js'
+import { isImageInCatalog } from '../db/image-catalog-repo.js'
 import { isNotFound } from '../docker/client.js'
 import type { InstanceRow } from '../db/schema.js'
-import { stableImages, type Env } from '../env.js'
+import type { Env } from '../env.js'
 import { gateToken } from './gate-token.js'
 import type { HostStorage } from './host-storage.js'
-import { imageRepo } from './image-catalog.js'
+import { imageRepo, isReleaseTag } from './image-catalog.js'
 import type { InstanceOrchestrator } from './orchestrator.js'
 
 export interface ProvisionInput {
@@ -120,11 +122,17 @@ export class InstanceProvisioner {
   ) {}
 
   async create(input: ProvisionInput): Promise<InstanceRow> {
+    // 新建用哪一版由库里的默认版本决定（D21）——没有就响亮失败，别拿一个过期 env 顶上
+    const release = await findDefaultImageRelease(this.db)
+    if (release === undefined) {
+      throw new ImageRejectedError('平台还没有默认镜像版本：在「镜像管理」里发布一版并设为默认')
+    }
+
     const newInstance: NewInstance = {
       id: crypto.randomUUID(),
       slug: input.slug,
       ownerId: input.ownerId,
-      image: this.env.INSTANCE_IMAGE,
+      image: release.ref,
       cpus: input.cpus,
       memoryMb: input.memoryMb,
       pidsLimit: input.pidsLimit,
@@ -320,7 +328,7 @@ export class InstanceProvisioner {
    * 停机时间 = 停容器 + 复制已用数据 + 启动。数据越多越久（100MB 秒级，
    * 10GB 一两分钟）——快照的价钱，UI 上要写清楚。
    *
-   * `allowAny` 只给管理员用：用户只能在 `INSTANCE_STABLE_IMAGES` 里选。
+   * `allowAny` 只给管理员用：用户只能在**已发布**的版本里选（D21）。
    */
   async setImage(
     id: string,
@@ -423,29 +431,40 @@ export class InstanceProvisioner {
   }
 
   /**
-   * 目标镜像准入。四道：引用合法 → 是我们自己的仓库 → 用户可选范围 → 宿主上真的有。
+   * 目标镜像准入。四道：引用合法 → 是我们自己的仓库 → 用户可选范围 → 拿得到（catalog ∪ 宿主）。
    *
-   * 「本地存在」这一关必须过：否则 Docker 会去 registry 拉，而控制面在私有网络里
-   * 未必连得上，失败信息还很难看懂（用户会以为是平台坏了）。
+   * 「拿得到」不再要求**宿主上已有**（D23）：catalog 里有就放行，真正用到时 `ensureImage`
+   * 会拉下来。放宽是为了 `setImage`——它先停容器、打快照才重建，若在重建那一步才发现
+   * 镜像要现拉，窗口会拖到几分钟。校验阶段就让它失败，什么都没动。
+   *
+   * 用户面（`allowAny=false`）仍然只认「已发布 ∩ 宿主已有」：升级本来就要停容器打快照，
+   * 再叠一次长 pull 会让停机窗口难以预期。
    */
   private async assertImageAllowed(image: string, allowAny: boolean): Promise<void> {
     if (!ImageRefSchema.safeParse(image).success) {
       throw new ImageRejectedError(`镜像引用不合法：${image}`)
     }
 
-    const platform = imageRepo(this.env.INSTANCE_IMAGE)
+    // 「哪个仓库是我们的」是配置，不再从默认版本推断（D22）——表空也判得出来。
+    const platform = this.env.INSTANCE_IMAGE_REPO
     if (imageRepo(image) !== platform) {
       throw new ImageRejectedError(`只能换成平台的实例镜像（${platform}），收到 ${image}`)
     }
 
-    if (!allowAny && !stableImages(this.env.INSTANCE_STABLE_IMAGES).includes(image)) {
+    // 仓库是公开的，任何 collaborator 都能推 `:latest` 之类的 tag——形状不对的直接挡在门外
+    if (!isReleaseTag(image)) {
+      throw new ImageRejectedError(`镜像 tag 不符合发布序列（<dsh版本>_<修订号>）：${image}`)
+    }
+
+    if (!allowAny && !(await isImageRelease(this.db, image))) {
       throw new ImageRejectedError(`${image} 不在平台提供的版本列表里`)
     }
 
     const local = await this.orchestrator.listImageTags()
-    if (!local.includes(image)) {
-      throw new ImageRejectedError(`宿主上没有镜像 ${image}`)
-    }
+    if (local.includes(image)) return
+
+    if (allowAny && (await isImageInCatalog(this.db, image))) return
+    throw new ImageRejectedError(`宿主上没有镜像 ${image}`)
   }
 
   private specOf(row: InstanceRow): InstanceSpec {
@@ -476,10 +495,14 @@ export class InstanceProvisioner {
     else await this.storage.ensure(row.storageKey, row.diskMb)
     await this.storage.assertMounted(row.storageKey)
 
+    // ★ 镜像也要**先有**。宿主上被 prune 掉之后再重建，Docker 只会甩一句
+    // `No such image`；这里补拉一次，把「镜像没了」和「规格写错了」区分开。
+    await this.orchestrator.ensureImage(row.image)
+
     const ctx: RenderContext = {
-      // 用实例自己记录的 tag，不是平台环境变量：升级是**按实例**的
+      // 用实例自己记录的 tag，不是平台的当前版本：升级是**按实例**的
       // （管理台显示的就是实际在跑的版本，可灰度、可回滚）。
-      // INSTANCE_IMAGE 只决定新建实例时记什么。
+      // 库里的默认版本只决定新建实例时记什么（D21）。
       baseImage: row.image,
       baseDomain: this.env.BASE_DOMAIN,
       gateToken: gateToken(row.slug, this.env.PLATFORM_SECRET),

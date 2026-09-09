@@ -1,9 +1,18 @@
+import type { Readable } from 'node:stream'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { ImageRefSchema } from '@dsh-cloud/instance-spec'
 import { z } from 'zod'
+import type { ImageCatalogRow, ImageReleaseRow } from '../db/schema.js'
 import type { AdminInstanceRow, AdminUserRow } from '../db/user-repo.js'
 import type { Env } from '../env.js'
 import type { QuotaInput } from '../instance/provisioner.js'
-import { platformTags } from '../instance/image-catalog.js'
+import {
+  compareImageRefs,
+  imageRepo,
+  isReleaseTag,
+  platformTags,
+} from '../instance/image-catalog.js'
+import { RegistryError, type SyncImagesResult } from '../instance/image-sync.js'
 import {
   isImageFailure,
   ShrinkBelowUsageError,
@@ -12,10 +21,63 @@ import {
 import { resolveRuntimeStatus, type ContainerStates } from '../instance/runtime-status.js'
 import type { LogStreamOptions } from './log-stream.js'
 import { LogsQuerySchema } from './log-stream.js'
+import { streamImagePull } from './pull-stream.js'
 
 const BanBodySchema = z.object({ reason: z.string().max(200).optional() })
 const QuotaBodySchema = z.object({ quota: z.number().int().min(0).max(100).nullable() })
+const RoleBodySchema = z.object({ role: z.enum(['user', 'admin']) })
 const ImageBodySchema = z.object({ image: z.string().min(1).max(255) })
+/** 镜像版本用 body 传 ref：tag 里的 `:` / registry 里的 `/` 进 path 会被编码坑。 */
+const ImageRefBodySchema = z.object({ ref: z.string().min(1).max(255) })
+/** 拉取走 GET（`EventSource` 只支持 GET），所以 ref 从 query 传。 */
+const PullQuerySchema = z.object({ ref: z.string().min(1).max(255) })
+
+/** 三态（D23）：在 `image_release` 里 = 已发布；否则宿主上有 = 已下载；否则在 catalog 里 = 未下载。 */
+export type AdminImageState = 'published' | 'local' | 'remote'
+
+export interface AdminImage {
+  ref: string
+  state: AdminImageState
+  /** 宿主上有没有——和 `state` 分开给：已发布但被 `docker rmi` 掉的版本要能看出来。 */
+  onHost: boolean
+  isDefault: boolean
+  publishedAt: Date | null
+  /** 注册表给的 manifest digest；没同步过或只在宿主上就是 null。 */
+  digest: string | null
+}
+
+/**
+ * 版本新的排前面。tag 形如 `<dsh版本>_<修订号>`：修订号按**数字**比（字典序会把
+ * `_10` 排在 `_9` 前面），再按版本串倒序。
+ */
+function byNewestFirst(a: string, b: string): number {
+  return compareImageRefs(b, a)
+}
+
+/** 三条来源取并集后派生态：catalog（上游有）∪ releases（我们发布了）∪ 宿主（本地有）。 */
+function shapeImages(
+  releases: ImageReleaseRow[],
+  catalog: ImageCatalogRow[],
+  local: string[],
+): AdminImage[] {
+  const published = new Map(releases.map((r) => [r.ref, r]))
+  const digests = new Map(catalog.map((c) => [c.ref, c.digest]))
+  const onHost = new Set(local)
+  const refs = new Set([...digests.keys(), ...published.keys(), ...onHost])
+
+  return [...refs].sort(byNewestFirst).map((ref) => {
+    const release = published.get(ref)
+    const host = onHost.has(ref)
+    return {
+      ref,
+      state: release !== undefined ? 'published' : host ? 'local' : 'remote',
+      onHost: host,
+      isDefault: release?.isDefault ?? false,
+      publishedAt: release?.publishedAt ?? null,
+      digest: digests.get(ref) ?? null,
+    }
+  })
+}
 
 /**
  * 改实例资源配额。上限取 `instance-spec` 的 QuotaSchema（64 核 / 256GB / 4096 pids），
@@ -39,14 +101,31 @@ export interface AdminRouteDeps {
   ban(userId: string, reason: string | null): Promise<boolean>
   unban(userId: string): Promise<boolean>
   setQuota(userId: string, quota: number | null): Promise<boolean>
+  /** 授予 / 撤销管理员。`last-admin` = 降的是最后一名管理员，不能降（会自锁）。 */
+  setRole(userId: string, role: 'user' | 'admin'): Promise<'ok' | 'missing' | 'last-admin'>
   /** 改实例的 CPU / 内存 / pids。实例不存在 → false。**会重建容器**（几秒中断）。 */
   setInstanceQuota(id: string, quota: QuotaInput): Promise<boolean>
   /** 实例的镜像信息（当前 / 可回滚的上一版 / 数据文件）。实例不存在 → undefined。 */
   findInstanceImage(
     id: string,
   ): Promise<{ storageKey: string; image: string; previousImage: string | null } | undefined>
-  /** 宿主上已有的镜像 tag——管理员可选**任意**本地版本，不受稳定版白名单限制。 */
+  /** 宿主上已有的镜像 tag——管理员可选**任意**平台仓库的本地版本，不受已发布列表限制。 */
   listLocalImages(): Promise<string[]>
+
+  /** 平台已发布的镜像版本（D21）。 */
+  listImageReleases(): Promise<ImageReleaseRow[]>
+  /** 上次同步到本地的注册表快照（D23）。**可丢弃**——只回答「上游有什么」。 */
+  listImageCatalog(): Promise<ImageCatalogRow[]>
+  /** 拉一遍注册表并整批重建 catalog。到注册表那一跳失败会抛 `RegistryError`。 */
+  syncImages(): Promise<SyncImagesResult>
+  /** 打开 `docker pull` 的进度流（SSE 用，实现负责 hijack）。 */
+  pullImageStream(ref: string): Promise<Readable>
+  /** 发布一个宿主上已有的平台镜像。 */
+  publishImage(ref: string): Promise<'ok' | 'exists'>
+  /** 下架。默认版本不能下架（返回 `'default'`）。 */
+  unpublishImage(ref: string): Promise<'ok' | 'missing' | 'default'>
+  /** 设为新建实例用的默认版本。未发布返回 false。 */
+  setDefaultImage(ref: string): Promise<boolean>
   /** 升级前快照的实占（MB）。没有快照 / 读不到都返回 undefined。 */
   readSnapshot(slug: string): Promise<number | undefined>
   /** 换镜像 / 回滚。实例不存在 → false。失败会抛（见 isImageFailure）。 */
@@ -153,6 +232,21 @@ export async function registerAdminRoutes(
       return { ok: true }
     })
 
+    /**
+     * 授予 / 撤销管理员。**不能降级最后一名管理员**——那会把所有人锁在管理台外面，
+     * 只能靠 db:seed 恢复。降自己（还有别的管理员时）是允许的，改完下一个请求即生效。
+     */
+    scope.patch('/api/admin/users/:id/role', async (req: AuthedRequest, reply) => {
+      const { id } = req.params as { id: string }
+      const parsed = RoleBodySchema.safeParse(req.body)
+      if (!parsed.success) return reply.code(400).send({ error: '参数不合法' })
+
+      const result = await deps.setRole(id, parsed.data.role)
+      if (result === 'missing') return reply.code(404).send({ error: '用户不存在' })
+      if (result === 'last-admin') return reply.code(400).send({ error: '不能降级最后一名管理员' })
+      return { ok: true }
+    })
+
     /** 改实例资源配额（D17）。会重建容器——前端要提示「有几秒不可用」。 */
     scope.patch('/api/admin/instances/:id/quota', async (req: AuthedRequest, reply) => {
       const { id } = req.params as { id: string }
@@ -178,17 +272,19 @@ export async function registerAdminRoutes(
     })
 
     /**
-     * 版本信息。管理员看到的 `local` 是宿主上**全部**镜像 tag——用户面只有稳定版白名单。
+     * 版本信息。管理员看到的 `local` 是宿主上**平台仓库**的全部 tag（含未发布的）——
+     * 用户面只有已发布的版本。
      */
     scope.get('/api/admin/instances/:id/image', async (req: AuthedRequest, reply) => {
       const { id } = req.params as { id: string }
       const info = await deps.findInstanceImage(id)
       if (info === undefined) return reply.code(404).send({ error: '实例不存在' })
 
-      const local = platformTags(
-        await deps.listLocalImages().catch((): string[] => []),
-        deps.env.INSTANCE_IMAGE,
-      )
+      const base = (await deps.listImageReleases()).find((r) => r.isDefault)?.ref ?? null
+      const local =
+        base === null
+          ? []
+          : platformTags(await deps.listLocalImages().catch((): string[] => []), base)
       const snapshotMb = await deps.readSnapshot(info.storageKey).catch(() => undefined)
       return {
         image: info.image,
@@ -224,6 +320,124 @@ export async function registerAdminRoutes(
       } catch (err) {
         if (isImageFailure(err)) return reply.code(400).send({ error: err.message })
         throw err
+      }
+      return { ok: true }
+    })
+
+    // ─── 镜像版本管理（D21）───
+
+    /**
+     * 镜像总览（D23）：catalog ∪ 已发布 ∪ 宿主上本仓库的 tag，每行带**派生**的三态。
+     *
+     * 「宿主上有没有」是运行时事实，不落库——所以每次请求都重新 `docker images`。
+     * `syncedAt` 是 catalog 里最新的同步时间（表空 = 从没同步过 / 上游没 tag），
+     * 前端据此提示「先同步」。
+     */
+    scope.get('/api/admin/images', async () => {
+      const [releases, catalog] = await Promise.all([
+        deps.listImageReleases(),
+        deps.listImageCatalog(),
+      ])
+      const local = platformTags(
+        await deps.listLocalImages().catch((): string[] => []),
+        deps.env.INSTANCE_IMAGE_REPO,
+      )
+      const syncedAt = catalog.reduce<Date | null>(
+        (max, row) => (max === null || row.syncedAt > max ? row.syncedAt : max),
+        null,
+      )
+      return { images: shapeImages(releases, catalog, local), syncedAt }
+    })
+
+    /**
+     * 同步注册表的 tag 进库（D23）。慢——每个 tag 一次 HEAD，前端要显示 pending。
+     * 到注册表那一跳失败是**上游故障**（502），不是平台内部错误。
+     */
+    scope.post('/api/admin/images/sync', async (_req, reply) => {
+      try {
+        return await deps.syncImages()
+      } catch (err) {
+        if (err instanceof RegistryError) return reply.code(502).send({ error: err.message })
+        throw err
+      }
+    })
+
+    /**
+     * 把「未下载」的版本拉到宿主上（D23），SSE 推 `docker pull` 的逐行进度。
+     *
+     * 校验全部在 hijack 之前（hijack 之后只能自己写响应）。这里**不查 catalog**：
+     * 管理员有权拉平台仓库里任何形状合法的 tag，包括刚推上来还没同步过的那一版。
+     */
+    scope.get('/api/admin/images/pull', async (req: AuthedRequest, reply) => {
+      const parsed = PullQuerySchema.safeParse(req.query)
+      if (!parsed.success) return reply.code(400).send({ error: '参数不合法' })
+      const { ref } = parsed.data
+
+      if (!ImageRefSchema.safeParse(ref).success) {
+        return reply.code(400).send({ error: `镜像引用不合法：${ref}` })
+      }
+      const platform = deps.env.INSTANCE_IMAGE_REPO
+      if (imageRepo(ref) !== platform) {
+        return reply.code(400).send({ error: `只能拉平台自己的镜像（${platform}），收到 ${ref}` })
+      }
+      if (!isReleaseTag(ref)) {
+        return reply
+          .code(400)
+          .send({ error: `镜像 tag 不符合发布序列（<dsh版本>_<修订号>）：${ref}` })
+      }
+
+      return streamImagePull(req, reply, () => deps.pullImageStream(ref))
+    })
+
+    /** 发布一个宿主上已有的平台镜像。已发布 → 409。 */
+    scope.post('/api/admin/images', async (req: AuthedRequest, reply) => {
+      const parsed = ImageRefBodySchema.safeParse(req.body)
+      if (!parsed.success) return reply.code(400).send({ error: '参数不合法' })
+      const { ref } = parsed.data
+
+      if (!ImageRefSchema.safeParse(ref).success) {
+        return reply.code(400).send({ error: `镜像引用不合法：${ref}` })
+      }
+
+      const platform = deps.env.INSTANCE_IMAGE_REPO
+      if (imageRepo(ref) !== platform) {
+        return reply.code(400).send({ error: `只能发布平台自己的镜像（${platform}），收到 ${ref}` })
+      }
+      // 仓库是公开的，`:latest` 之类的 tag 谁都能推——只让发布序列的形状进库
+      if (!isReleaseTag(ref)) {
+        return reply
+          .code(400)
+          .send({ error: `镜像 tag 不符合发布序列（<dsh版本>_<修订号>）：${ref}` })
+      }
+      if (!(await deps.listLocalImages().catch((): string[] => [])).includes(ref)) {
+        return reply.code(400).send({ error: `宿主上没有镜像 ${ref}，先点「下载」` })
+      }
+
+      if ((await deps.publishImage(ref)) === 'exists') {
+        return reply.code(409).send({ error: `${ref} 已经发布过了` })
+      }
+      return { ok: true }
+    })
+
+    /** 下架。默认版本不能下架——否则新建实例就没镜像可用了。 */
+    scope.delete('/api/admin/images', async (req: AuthedRequest, reply) => {
+      const parsed = ImageRefBodySchema.safeParse(req.body)
+      if (!parsed.success) return reply.code(400).send({ error: '参数不合法' })
+
+      const result = await deps.unpublishImage(parsed.data.ref)
+      if (result === 'missing') return reply.code(404).send({ error: '这个版本没有发布过' })
+      if (result === 'default') {
+        return reply.code(400).send({ error: '默认版本不能下架，先把别的版本设为默认' })
+      }
+      return { ok: true }
+    })
+
+    /** 设为新建实例用的默认版本。 */
+    scope.patch('/api/admin/images/default', async (req: AuthedRequest, reply) => {
+      const parsed = ImageRefBodySchema.safeParse(req.body)
+      if (!parsed.success) return reply.code(400).send({ error: '参数不合法' })
+      if (!(await deps.setDefaultImage(parsed.data.ref))) {
+        return reply.code(404).send({ error: '这个版本还没有发布' })
       }
       return { ok: true }
     })

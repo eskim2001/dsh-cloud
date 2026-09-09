@@ -9,7 +9,7 @@ import { registerInstanceRoutes, type InstanceOps, type InstanceRouteDeps } from
 const env = {
   PUBLIC_SCHEME: 'http',
   BASE_DOMAIN: 'app.example.com',
-  INSTANCE_IMAGE: 'dsh-instance:0.1.0',
+  INSTANCE_IMAGE_REPO: 'dsh-instance',
 } as Env
 
 const ME = 'user-1'
@@ -102,6 +102,7 @@ async function build(
     readDisk: async () => undefined,
     listMetrics: async () => [],
     listLocalImages: async () => [],
+    listImageReleases: async () => [],
     readSnapshot: async () => undefined,
     streamLogs: async () => {},
     getUserId: async () => session,
@@ -386,6 +387,28 @@ describe('实例面：创建', () => {
       expect.objectContaining({ slug: 'alice', ownerId: ME, cpus: 1, memoryMb: 2048 }),
     )
   })
+
+  it('没有默认镜像版本 → 400，带编排层的原话（不是 500）', async () => {
+    const { app } = await build(ME, {
+      provisioner: {
+        create: async () => {
+          throw new ImageRejectedError('平台还没有默认镜像版本：先跑 db:seed')
+        },
+        restart: async () => row(),
+        stop: async () => row(),
+        start: async () => row(),
+        remove: async () => {},
+      },
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/instances',
+      payload: { slug: 'alice' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/还没有默认镜像版本/)
+  })
 })
 
 describe('实例面：状态以 Docker 为准', () => {
@@ -417,10 +440,14 @@ describe('实例面：状态以 Docker 为准', () => {
 })
 
 describe('实例面：版本', () => {
-  it('只列**本地已有**的稳定版——白名单里有但宿主上没有的不摆出来', async () => {
+  it('只列**本地已有**的已发布版本——发布了但宿主上没有的不摆出来', async () => {
     const { app } = await build(ME, {
-      env: { ...env, INSTANCE_STABLE_IMAGES: 'dsh-instance:0.1.1,dsh-instance:0.1.2' },
       getById: async () => row({ previousImage: 'dsh-instance:0.0.9' }),
+      listImageReleases: async () => [
+        { id: 'r-1', ref: 'dsh-instance:0.1.0', isDefault: true, publishedAt: new Date(0) },
+        { id: 'r-2', ref: 'dsh-instance:0.1.1', isDefault: false, publishedAt: new Date(1) },
+        { id: 'r-3', ref: 'dsh-instance:0.1.2', isDefault: false, publishedAt: new Date(2) },
+      ],
       listLocalImages: async () => ['dsh-instance:0.1.1', 'alpine:3.20'],
       readSnapshot: async () => 42,
     })
@@ -452,7 +479,7 @@ describe('实例面：版本', () => {
     expect(setImage).toHaveBeenCalledWith('i-1', 'dsh-instance:0.1.1')
   })
 
-  it('用户面**不**传 allowAny——白名单由编排层兜底', async () => {
+  it('用户面**不**传 allowAny——已发布列表由编排层兜底', async () => {
     const setImage = vi.fn(async () => row())
     const { app } = await build(ME, { getById: async () => row(), provisioner: { setImage } })
     await app.inject({

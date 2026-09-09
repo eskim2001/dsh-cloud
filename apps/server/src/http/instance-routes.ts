@@ -2,8 +2,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { OPEN_PATH, InstanceSlugSchema } from '@dsh-cloud/instance-spec'
 import { z } from 'zod'
 import { SlugTakenError, QuotaExceededError } from '../db/instance-repo.js'
-import type { InstanceMetricRow, InstanceRow } from '../db/schema.js'
-import { stableImages, type Env } from '../env.js'
+import type { ImageReleaseRow, InstanceMetricRow, InstanceRow } from '../db/schema.js'
+import type { Env } from '../env.js'
 import type { ContainerUsage } from '../instance/container-stats.js'
 import type { DiskUsage } from '../instance/host-storage.js'
 import { platformTags } from '../instance/image-catalog.js'
@@ -41,7 +41,7 @@ export interface InstanceOps {
   stop(id: string): Promise<InstanceRow>
   start(id: string): Promise<InstanceRow>
   remove(id: string, opts?: RemoveInput): Promise<void>
-  /** 换镜像（升级）。用户只能选稳定版——`allowAny` 只有管理员面传。 */
+  /** 换镜像（升级）。用户只能选已发布的版本——`allowAny` 只有管理员面传。 */
   setImage(id: string, image: string, opts?: { allowAny?: boolean }): Promise<InstanceRow>
   rollbackImage(id: string): Promise<InstanceRow>
 }
@@ -64,6 +64,8 @@ export interface InstanceRouteDeps {
   listMetrics(instanceId: string, limit: number): Promise<InstanceMetricRow[]>
   /** 宿主上已有的镜像 tag——用户可选列表要拿它过滤（本地没有的不摆出来）。 */
   listLocalImages(): Promise<string[]>
+  /** 平台已发布的镜像版本（D21）。默认版本决定「哪个仓库是我们的」。 */
+  listImageReleases(): Promise<ImageReleaseRow[]>
   /** 升级前快照的实占（MB）。没有快照 / 读不到都返回 undefined。 */
   readSnapshot(slug: string): Promise<number | undefined>
   /** 把容器日志推成 SSE。**实现负责 hijack**（见 log-stream.ts）。 */
@@ -149,6 +151,8 @@ export async function registerInstanceRoutes(
       } catch (err) {
         if (err instanceof SlugTakenError) return reply.code(409).send({ error: err.message })
         if (err instanceof QuotaExceededError) return reply.code(409).send({ error: err.message })
+        // 没有默认镜像版本这类是**请求本身**的问题（D21），不是服务端故障
+        if (isImageFailure(err)) return reply.code(400).send({ error: err.message })
         throw err
       }
     })
@@ -237,20 +241,19 @@ export async function registerInstanceRoutes(
     })
 
     /**
-     * 版本信息：当前 / 可回滚到的上一版 / **用户能自助升到的稳定版**（只列本地已有的，
+     * 版本信息：当前 / 可回滚到的上一版 / **用户能自助升到的已发布版本**（只列本地已有的，
      * 免得摆出一个选了就失败的选项）/ 升级前快照占多少宿主空间。
      */
     scope.get('/api/instances/:id/image', async (req: AuthedRequest, reply) => {
       const row = await ownedRow(req)
       if (row === undefined) return reply.code(404).send({ error: '实例不存在' })
 
+      const releases = await deps.listImageReleases()
       const local = platformTags(
         await deps.listLocalImages().catch((): string[] => []),
-        deps.env.INSTANCE_IMAGE,
+        deps.env.INSTANCE_IMAGE_REPO,
       )
-      const stable = stableImages(deps.env.INSTANCE_STABLE_IMAGES).filter((tag) =>
-        local.includes(tag),
-      )
+      const stable = releases.map((r) => r.ref).filter((ref) => local.includes(ref))
       const snapshotMb = await deps.readSnapshot(row.storageKey).catch(() => undefined)
 
       return {
