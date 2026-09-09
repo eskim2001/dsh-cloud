@@ -244,12 +244,11 @@
   `instance` 表新增 `previous_image`（**非空 = 有一份升级前的数据快照可回滚**）。快照本体在宿主上
   `<HOST_STORAGE_ROOT>/<slug>.img.prev`，**不进库、不算实例配额**；每实例只保留最近一份，
   下次升级覆盖。
-- **权限**：**用户面**只能选平台提供的稳定版——`INSTANCE_STABLE_IMAGES`（逗号分隔的精确 tag，
-  平台回归过才写进去）∩ 宿主上已有；**管理面**可任选宿主上任意本地 tag
-  （`setImage(id, image, { allowAny: true })`），仍限平台自己的镜像仓库。
+- **权限**：**用户面**只能选平台**已发布**的版本（`image_release` 表，见 D21）∩ 宿主上已有；
+  **管理面**可任选宿主上任意本地 tag（`setImage(id, image, { allowAny: true })`），仍限平台自己的镜像仓库。
 - **准入四道**（`assertImageAllowed`）：引用合法（`ImageRefSchema`）→ 是平台自己的仓库
-  （`imageRepo(image) === imageRepo(INSTANCE_IMAGE)`，挡住「换成别人的镜像」）→ 白名单
-  （用户面）/ 跳过（管理面 `allowAny`）→ **宿主上真的有**（`listImageTags()`）。
+  （`imageRepo(image) === imageRepo(默认版本)`，挡住「换成别人的镜像」）→ 已发布列表
+  （用户面，见 D21）/ 跳过（管理面 `allowAny`）→ **宿主上真的有**（`listImageTags()`）。
   最后一道必须过：否则 Docker 会去 registry 拉，控制面在私有网络里未必连得上，
   失败信息用户看不懂（会以为平台坏了）。
 - **顺序与退路**（`provisioner.setImage`）：校验（什么都没碰）→ 停容器 → 快照 →
@@ -275,4 +274,113 @@
   ② 只有一层快照，再升级会覆盖上一份；③ 停机时间随数据量增长，用户面必须给预期（已写）；
   ④ `migrate-to-img.ts` 那类一次性脚本不属于长期资产，用一次就该删。
 - **重审**：要支持多层快照、或宿主换成 LVM / btrfs 能做在线快照时。
+
+## D20 · 首个管理员：seed 引导 + 管理台授予，ADMIN_EMAILS 退役
+
+- **决策**：第一个管理员由一次性命令 `pnpm --filter @dsh-cloud/server db:seed` 建出——邮箱 / 密码来自
+  `.env.local` 的 `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`，**只在「一个管理员都没有」时生效**，
+  已有管理员就直接跳过。`ADMIN_EMAILS`（启动时按环境变量提权）整个删除。之后授予 / 撤销走管理台的
+  `PATCH /api/admin/users/:id/role`，且**最后一名管理员不可降级**。
+- **理由**：`ADMIN_EMAILS` 有三个毛病：① 只对**已存在**的账号提权，而「先配 env 再注册」是最自然的
+  顺序 → 那次启动静默地什么都不做，无日志无报错；② 零管理员时自锁——`/admin` 全 403，唯一出路是
+  手改 env 再重启进程；③ 只升不降，配置文件推断不出真实权限。seed 把「引导」和「管理」分开：
+  引导是一次性的、显式的、幂等的（重跑无副作用，也是管理员被删光后的恢复路径），管理则长期留在
+  管理台里——不必再造第二个管理入口（带参 CLI 的 create / promote / 重置密码会和界面重复，
+  密码还会进 shell 历史与进程列表）。
+- **备选**：setup 页面（首次访问引导，否——多一套「未初始化」状态机及它的绕过风险）；
+  带参 CLI（否——与管理台重复）；保留 `ADMIN_EMAILS`（否——见上）。
+- **代价**：① `user.role` 仍是唯一真相，但「谁是管理员」不再能从配置文件看出来，部署后要问数据库
+  或管理台；② seed 不重置已存在账号的密码（那要 better-auth 内部 API），所以「只有一个管理员且
+  忘了密码」目前无解，需要时再补重置流程；③ 最后一名管理员不可降级是个**不变量**，由 `app.ts` 里
+  「查目标 → 数管理员 → 写」三步实现，两步之间有个极窄的并发窗口（两个管理员同时自降），
+  单运营者场景不值得上事务。
+- **重审**：出现多运营者并发操作、或需要「管理员自助重置密码」时。
+
+## D21 · 镜像版本进库：`image_release` 表 + 管理台「镜像管理」页，运行时不再读镜像 env
+
+- **决策**：「平台用哪个镜像」不再由 env 决定，改成 `image_release` 表是**唯一真相**：
+  `ref`（完整镜像引用，唯一）/ `is_default` / `published_at`。
+  - **运行时从库里取**：新建实例记「默认版本」那一行（`provisioner.create` → `findDefaultImageRelease`）；
+    用户面能自助升到的版本 = 已发布 ∩ 宿主上真有；管理面仍可任选宿主上的平台仓库镜像（D19 不变）。
+  - **管理台新增「镜像管理」页**：发布 / 下架 / 设为默认，对应 `/api/admin/images` 四条路由
+    （ref 走 body——tag 里的 `:` 和 registry 里的 `/` 进 path 会被编码坑）。
+  - **`db:seed` 只引导第一版**：版本表为空时用 `SEED_IMAGE`（缺省 `dsh-instance:0.1.0`）建一行并设为默认；
+    非空就跳过。`SEED_IMAGE` 只被 seed 读，**不进 `src/env.ts`**（和 `SEED_ADMIN_*` 同档）。
+    → **已被 D22 取消**：`SEED_IMAGE` 删除，
+    `db:seed` 只管管理员；第一版的引导入口是管理台「镜像管理」页。
+  - `INSTANCE_IMAGE` / `INSTANCE_STABLE_IMAGES` 两个 env 变量**删除**。
+- **理由**：和 `ADMIN_EMAILS`（D20）是同一类毛病——**会变、且运行时被查询的状态，塞在启动时读一次的 env 里**。
+  具体症状：① 换一版要改 env + 重启控制面；② `INSTANCE_STABLE_IMAGES` 默认空，实例建起来后用户面
+  「换版本」下拉是空的，得有人想起来去填；③「哪个是默认版本」在 env 里只是个约定，数据库、管理台、
+  实例行三处看不出关系。
+- **「至多一个默认」由数据库兜住**：部分唯一索引 `unique index on (is_default) where is_default`
+  （与 `instance_slug_unique` 同款写法），不靠应用层自觉。换默认走事务：先把旧的置 false，
+  再把目标置 true——**顺序不能反**，否则撞索引。
+- **默认版本不可下架**（400「默认版本不能下架，先把别的版本设为默认」）：否则表里可能一个默认都没有，
+  新建实例就断了。一旦 seed 过，表里永远至少有一行、永远有默认。
+- **发布的前置**：引用合法 → 与当前默认版本**同仓库**（仓库名从默认版本推）→ 宿主上真的有。
+  表为空时不允许发布（400「先跑 db:seed」）——seed 是唯一引导入口，否则「哪个仓库是我们的」无从判断。
+  → **已被 D22 修正**：仓库名改由配置 `INSTANCE_IMAGE_REPO` 给出，发布不再依赖表里已有行，
+  空表可以直接发第一版。
+- **运行时没有默认版本 → 响亮失败**：`create` 抛 `ImageRejectedError`（「平台还没有默认镜像版本：
+  先跑 db:seed，或在「镜像管理」里指定」），`POST /api/instances` 映射成 400。**不**回退到某个 env
+  默认值——静默用过期镜像比报错更糟。（文案里的 `db:seed` 已按 D22 改成「在「镜像管理」里发布一版
+  并设为默认」；行为不变。）
+- **备选**：继续用 env（否，见上）；拿 `instance` 表里最新一版当默认（否——「最新」和「平台认可」是两回事，
+  灰度 / 回退需要一个显式指针）；已发布列表存成 JSON 一行（否——发布 / 下架 / 设默认都要读改写整行，
+  并发下会丢更新）。
+- **代价**：① 换镜像仓库（比如上新 registry）没有路径——得清空表重跑 seed；→ **已被 D22 解掉**
+  （仓库是配置项，改 `INSTANCE_IMAGE_REPO` 即可）；② 下架不影响已在用该版本的
+  实例（它保留自己的 `image`，只是不再出现在用户面列表里）；③「可发布候选」是库 ∩ 宿主两个来源，
+  镜像在不在宿主上仍要问 Docker。
+- **重审**：要支持多 registry / 镜像 digest pin / 批量滚动升级时（tag 命名与 CI 已在 D22 定下；
+  多 registry 仍待定）。
+
+## D22 · 实例镜像：单版本源 + OCI label + CI 推公开 GHCR
+
+- **决策**：镜像的来源做出来——可重复构建、可追溯、可分发。
+  - **tag = `<dsh版本>_<修订号>`**，如 `0.1.2-rc.1_1`。`_` 是唯一无歧义的分隔符：上游 dsh 全是
+    prerelease（实测 `0.1.0-rc.8` / `0.1.2-rc.1` / `0.1.5-alpha.2`，都含 `-` 和 `.`），而 `_` SemVer
+    不允许、Docker tag 允许。修订号是**单调递增整数**，从 1 开始，不是第二套 semver。
+  - **单一版本源** `docker/instance-image/VERSION`（一行）。本地 `build.sh` 和 CI 都从它读，
+    tag 与装进去的 dsh 版本不可能漂。Dockerfile **删掉 `DSH_VERSION` 的默认值**，缺参数**响亮失败**
+    （静默装一个过期版本比报错糟得多）；两条 `test` 断言（`dsh --version` / `pnpm --version` 等于传入值）
+    是「tag 与内容一致」的机器校验。
+  - **tag 不可重建**：CI 推送前 `HEAD /v2/<repo>/manifests/<tag>`，已存在就失败（「bump VERSION 的修订号」）。
+  - **事实进 OCI label**：`org.opencontainers.image.*`（`version` = `<dsh版本>_<修订号>`、`source`、
+    `revision` = git sha、`created`）+ `io.dsh-cloud.dsh.version` / `io.dsh-cloud.image.revision`。
+    tag 给人看，label 给机器读——`docker inspect` 就能回答「这版里是哪个 dsh」。
+  - **仓库** `ghcr.io/eskim2001/dsh-instance`（GitHub `eskim2001/dsh-cloud`），由
+    `.github/workflows/instance-image.yml` 推送。触发**只有 `workflow_dispatch`**：tag 不可变，
+    VERSION 是唯一旋钮，发布必须是「人 + 改修订号」的刻意动作。包**公开**，读不需要 PAT，
+    但仍要走匿名 token 换取（`ghcr.io/token?scope=repository:...`），不是裸 GET。
+  - **两个架构一个 tag**：`linux/amd64` 和 `linux/arm64` 各在**原生 runner** 上构建（公开仓库的
+    ARM runner 免费），按 digest 推、两个都成功后再合成一个 manifest list 标签。**不用 QEMU**——
+    否则 `node-pty` 这类原生模块要在模拟的 arm64 里编译，慢且容易出怪问题。任一架构失败就不建
+    tag（宁可没有，不要一个只有单架构的 tag）。
+  - **本地构建用同一个全名**（只是没推上去）：`.env.local` 里 `INSTANCE_IMAGE_REPO` 一个值同时管
+    本地和线上，下一轮同步 / 发布不用换命名。
+  - **平台仓库改成配置项 `INSTANCE_IMAGE_REPO`**，并**取消 `SEED_IMAGE` 与 seed 的镜像引导**（修正 D21）：
+    空表本来就意味着「创建不了实例」（`create` 响亮失败），不需要 seed 来引导第一版；引导入口就是
+    管理台「镜像管理」页。原先的发布守卫靠**默认版本**推「我们的仓库」，表空就无从判断——改成配置后
+    空表也能发第一版。
+  - 本轮 dsh 走 **npm 已发布版本**；从上游源码构建的变体是下一轮。
+- **理由**：D21 把「平台用哪个镜像」挪进了库，但镜像本身还是手敲 tag 的本地构建——tag 不表达内容、
+  「发布」只检查「宿主上有个同名镜像」，所以**发布 ≠ 可重复构建**。这里补的是来源：版本单源 +
+  不可变 tag + 机器可读 label + CI 产出。`INSTANCE_IMAGE_REPO` 本来也是下一轮同步 GHCR 需要的
+  （同步得知道列哪个 repo），顺手解掉 D21 代价①。
+- **备选**：tag 用平台自己的版本号（否——平台没有版本号，且与 dsh 版本的关系会漂）；
+  `-` / `.` 做分隔符（否——上游 prerelease 里就有，分不出边界）；`+` build metadata（否——Docker tag 非法）；
+  跟随 npm dist-tag（否——`latest` / `next` 是可变指针，要跟不可变的版本号）；push 触发 CI（否——
+  Dockerfile 一改要么撞守卫（红）、要么绕过守卫换 tag（漂））；私有包 + PAT（否——公开就能读，
+  少一把要轮换的凭据）；单 job 加 QEMU 出多架构（否——原生模块在模拟架构里编译，慢且易出怪问题，
+  公开仓库的 ARM runner 免费，没有理由模拟）。
+- **代价**：① base 镜像（`node:24-*` / `caddy`）仍是可变 tag，所以才需要修订号——同 tag 不同天重建
+  未必同字节；② 多架构要跑两台 runner、构建时间翻倍（换来的是发布产物在 Apple Silicon 上直接能拉，
+  不必本地再建一份）；
+  ③ DB 里存的仍是 `ref` 字符串而非 digest，回滚记录因此不是内容级可验证的；
+  ④ GHCR 新建的包**默认私有**，首次推送后要手动改成 Public，否则匿名拉取 401；
+  ⑤ 控制台侧（同步 GHCR 标签进库、三态状态机、手动「同步」按钮、「本地优先缺了自动 pull」）**未做**，
+  必须先有真实 GHCR 标签。
+- **重审**：要做源码变体 / base 镜像 digest pin，或控制台同步落地时。
 

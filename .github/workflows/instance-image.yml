@@ -15,7 +15,18 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # 每个架构都在**原生** runner 上构建（公开仓库的 ARM runner 免费）——不用 QEMU，
+    # 否则 node-pty 这类原生模块要在模拟的 arm64 里编译，慢且容易出怪问题。
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -38,6 +49,7 @@ jobs:
           echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       # 已存在的 tag 一律拒绝：同名不同字节会让「实例记的 ref」失去意义（D22）。
+      # 两个架构各查一次（同样的结论）——真正创建 tag 的是下面的 merge 任务。
       - name: Refuse to overwrite an existing tag
         env:
           TAG: ${{ steps.v.outputs.tag }}
@@ -75,22 +87,76 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 按 digest 推（不建 tag）：tag 由 merge 任务在**两个架构都成功之后**一次建好，
+      # 免得中途失败留下一个只有单架构的 tag。
       - uses: docker/build-push-action@v6
+        id: build
         with:
           context: docker/instance-image
-          platforms: linux/amd64
-          push: true
-          tags: ghcr.io/eskim2001/dsh-instance:${{ steps.v.outputs.tag }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/eskim2001/dsh-instance,push-by-digest=true,name-canonical=true,push=true
           build-args: |
             DSH_VERSION=${{ steps.v.outputs.dsh_version }}
             REVISION=${{ steps.v.outputs.revision }}
             GIT_SHA=${{ github.sha }}
             BUILD_TIME=${{ steps.v.outputs.build_time }}
 
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 必须两个架构都在：少一个就失败，绝不静默发一个单架构的 tag。
+      - name: Merge digests into one tag
+        run: |
+          set -euo pipefail
+          VERSION=$(tr -d '[:space:]' < docker/instance-image/VERSION)
+          count=$(ls /tmp/digests | wc -l | tr -d ' ')
+          if [ "$count" != "2" ]; then
+            echo "期望 2 个架构的 digest，实际 $count 个——中止，不建 tag" >&2
+            exit 1
+          fi
+          images=$(for f in /tmp/digests/*; do echo "ghcr.io/eskim2001/dsh-instance@sha256:$(cat "$f")"; done | tr '\n' ' ')
+          echo "合并：$images"
+          docker buildx imagetools create -t "ghcr.io/eskim2001/dsh-instance:$VERSION" $images
+          echo "已发布 ghcr.io/eskim2001/dsh-instance:$VERSION（amd64 + arm64）"
+
       - name: Summary
         run: |
           {
-            echo "### 已推送 \`ghcr.io/eskim2001/dsh-instance:${{ steps.v.outputs.tag }}\`"
+            echo "### 已推送 \`ghcr.io/eskim2001/dsh-instance:$(tr -d '[:space:]' < docker/instance-image/VERSION)\`（linux/amd64 + linux/arm64）"
             echo
             echo "首次推送后要把包设为 Public（GHCR 新建的包默认私有）："
             echo "https://github.com/users/eskim2001/packages/container/dsh-instance/settings"
