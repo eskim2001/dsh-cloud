@@ -10,7 +10,7 @@
  * 探测**从容器内部**发起：实例不发布宿主端口，宿主机上没有可 curl 的地址（D3）。
  *
  * 用法：
- *   docker build -f docker/instance-image/Dockerfile -t dsh-instance:0.1.0 docker/instance-image/
+ *   ./docker/instance-image/build.sh
  *   pnpm --filter @dsh-cloud/server spike
  */
 import type Docker from 'dockerode'
@@ -21,7 +21,7 @@ import { InstanceOrchestrator } from '../src/instance/orchestrator.js'
 
 const SLUG = 'spike'
 const SLUG_B = 'spike-b'
-const IMAGE = process.env.INSTANCE_IMAGE ?? 'dsh-instance:0.1.0'
+const IMAGE = process.env.SPIKE_IMAGE ?? 'ghcr.io/eskim2001/dsh-instance:0.1.2-rc.1_2'
 const TOKEN = 'spike-gate-token'
 const TOKEN_B = 'spike-b-gate-token'
 const BASE_DOMAIN = 'app.example.com'

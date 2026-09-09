@@ -117,10 +117,10 @@ pnpm --filter @dsh-cloud/server db:migrate
 ### 4. 构建实例镜像
 
 ```bash
-docker build -f docker/instance-image/Dockerfile -t dsh-instance:0.1.0 docker/instance-image/
+./docker/instance-image/build.sh
 ```
 
-该 tag 与配置模板中的 `INSTANCE_IMAGE` 一致。上游 `dsh` 版本由 [Dockerfile](docker/instance-image/Dockerfile) 中的 `DSH_VERSION` 单独指定。
+tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式是 `<dsh版本>_<修订号>`（如 `0.1.2-rc.1_2`），本地和 CI 打的是同一个全名 `ghcr.io/eskim2001/dsh-instance:<tag>`。构建完在管理台「镜像管理」页把它发布并设为默认——之后新建实例用哪一版由库里那行「默认版本」决定。见 [D22](docs/DECISIONS.md)。
 
 ### 5. 启动管理台
 
@@ -134,7 +134,7 @@ pnpm --dir apps/server dev:local
 pnpm dev:web
 ```
 
-访问 `http://localhost:5173` 并注册账号。若需将该账号设为平台管理员，将其邮箱加入控制面环境文件的 `ADMIN_EMAILS`，然后重启控制面。此配置在启动时为已存在的账号提权；移除邮箱不会撤销管理员角色。
+访问 `http://localhost:5173` 并注册账号。平台管理员**不由注册产生**：在控制面环境文件里设好 `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`，跑一次 `pnpm --dir apps/server db:seed` 就会建出第一个管理员（已有管理员时直接跳过，可重复执行）。之后的授予 / 撤销在管理台的「用户」页里做。
 
 `dev:local` 脚本会显式加载环境文件。根目录的 `dev:server` 脚本不会加载该文件，使用它时需要提前将变量设入进程环境。
 

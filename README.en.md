@@ -116,10 +116,10 @@ pnpm --filter @dsh-cloud/server db:migrate
 ### 4. Build the instance image
 
 ```bash
-docker build -f docker/instance-image/Dockerfile -t dsh-instance:0.1.0 docker/instance-image/
+./docker/instance-image/build.sh
 ```
 
-The tag matches `INSTANCE_IMAGE` in the configuration template. The upstream `dsh` version is selected separately by `DSH_VERSION` in the [Dockerfile](docker/instance-image/Dockerfile).
+The tag comes from [VERSION](docker/instance-image/VERSION) and reads `<dsh version>_<our revision>` (e.g. `0.1.2-rc.1_2`); local builds and CI use the same full name `ghcr.io/eskim2001/dsh-instance:<tag>`. Then publish it and mark it as default on the "Images" page in the console — which version new instances get is decided by the row marked default in the database. See [D22](docs/DECISIONS.md).
 
 ### 5. Start the console
 
@@ -133,7 +133,7 @@ pnpm --dir apps/server dev:local
 pnpm dev:web
 ```
 
-Open `http://localhost:5173` and register an account. To make that account a platform administrator, add its email to `ADMIN_EMAILS` in the server environment file and restart the server. This setting promotes existing accounts at startup; removing an email does not revoke its role.
+Open `http://localhost:5173` and register an account. Platform administrators are **not** created by signing up: set `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` in the server environment file and run `pnpm --dir apps/server db:seed` once to create the first admin (it skips when an admin already exists, so it is safe to re-run). Grant and revoke admin access from the "Users" page of the console afterwards.
 
 The `dev:local` script explicitly loads the environment file. The root `dev:server` script does not, so it requires the variables to already be set in the process environment.
 

@@ -3,11 +3,12 @@
 # 构建实例镜像（本地 / 手动发布用）。版本唯一源是旁边的 VERSION 文件。
 #
 #   ./docker/instance-image/build.sh                      # 打宿主架构的本地 tag，不推
-#   PLATFORM=linux/amd64 ./docker/instance-image/build.sh # 和 CI 一样的架构
+#   PLATFORM=linux/amd64 ./docker/instance-image/build.sh # 指定架构（单架构）
 #   PUSH=1 ./docker/instance-image/build.sh               # 额外推 GHCR（tag 已存在会拒绝，FORCE=1 覆盖）
 #   REPO=ghcr.io/<you>/dsh-instance ./docker/instance-image/build.sh
 #
-# 正式发布走 .github/workflows/instance-image.yml（手动 dispatch，linux/amd64）。
+# 正式发布走 .github/workflows/instance-image.yml（手动 dispatch，原生 runner 同时出
+# linux/amd64 + linux/arm64 并合成一个 tag）。
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -43,7 +44,7 @@ docker build "${args[@]}" .
 
 HOST_ARCH=$(docker version --format '{{.Server.Arch}}' 2>/dev/null || echo unknown)
 if [ -z "$PLATFORM" ] && [ "$HOST_ARCH" != "amd64" ]; then
-  echo "注意：宿主是 $HOST_ARCH，这不是 CI 发布的那份（linux/amd64）。要一致就 PLATFORM=linux/amd64。" >&2
+  echo "注意：本地 tag 只有 $HOST_ARCH 一份；CI 发布的同名 tag 是 linux/amd64 + linux/arm64。" >&2
 fi
 
 if [ "$PUSH" = "1" ]; then

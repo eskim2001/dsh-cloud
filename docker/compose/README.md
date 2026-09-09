@@ -70,7 +70,9 @@ mkcert -cert-file docker/traefik/certs/dsh.test.pem -key-file docker/traefik/cer
    pnpm --dir apps/web dev
    ```
 
-3. 实例镜像已构建（`dsh-instance:0.1.0`）。
+3. 实例镜像已构建（`./docker/instance-image/build.sh`，tag 见
+   [VERSION](../instance-image/VERSION)，形如
+   `ghcr.io/eskim2001/dsh-instance:0.1.2-rc.1_2`）。
 
 4. **改了 `BASE_DOMAIN` 之后要重建实例容器**：`DSH_TRUSTED_HOSTS` 是建容器时
    写进环境的，旧容器还认旧域名。走 `POST /api/instances/:id/restart` 或管理台的
