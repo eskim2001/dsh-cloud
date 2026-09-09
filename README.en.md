@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  A self-hosted, multi-tenant platform for DeepSeek Harness.
+  A self-hosted or cloud-hosted, multi-tenant platform for deploying and hosting DeepSeek Harness (dsh) instances.
 </p>
 
 <p align="center">
