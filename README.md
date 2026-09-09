@@ -8,93 +8,93 @@
 </p>
 
 <p align="center">
-  A self-hosted, multi-tenant platform for DeepSeek Harness.
+  面向 DeepSeek Harness 的多租户自托管平台。
 </p>
 
 <p align="center">
-  <b>English</b> · <a href="README.zh-CN.md">简体中文</a>
+  <b>简体中文</b> · <a href="README.en.md">English</a>
 </p>
 
 <p align="center">
-  <a href="#features">Features</a> ·
-  <a href="#getting-started">Getting Started</a> ·
-  <a href="#documentation">Documentation</a> ·
-  <a href="#contributing">Contributing</a>
+  <a href="#功能">功能</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#文档">文档</a> ·
+  <a href="#参与贡献">参与贡献</a>
 </p>
 
-**dshcloud** adds account management, instance provisioning and access control to [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`). Each instance runs in its own Docker container, with a dedicated network, persistent data filesystem and resource limits. Users access their instances through an authenticated subdomain; operators manage accounts, capacity and instance versions from a web console.
+**dshcloud** 为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）提供账号管理、实例创建和访问控制。每个实例运行在独立的 Docker 容器中，拥有专属网络、持久化数据文件系统和资源限制。用户通过经过认证的子域访问自己的实例，运营者通过 Web 管理台管理账号、资源容量和实例版本。
 
-> **Early development.** Use this project for evaluation and development. It is not production-ready; deployment validation and security work remain open. See [Security and Limitations](#security-and-limitations) before exposing it to the internet.
+> **项目处于早期开发阶段。** 当前适合评估与开发，尚不具备生产可用性；部署验证和安全工作仍有未决项。暴露到公网前，请先阅读[安全与限制](#安全与限制)。
 
-## Features
+## 功能
 
-- **Instance management:** Create, start, stop, rebuild and delete instances. Per-user instance-count limits allow multiple instances within an assigned quota.
-- **Resource controls:** CPU, memory and process limits, plus a hard capacity limit on each instance's `/data` filesystem. Administrators can adjust resource quotas after creation.
-- **Authenticated access:** Per-instance subdomains behind Traefik, owner authorization and an instance-specific HMAC-derived gate token. Instance containers publish no host ports.
-- **Persistent workspaces:** Workspace, configuration and installed user packages are directed to `/data`, which survives container rebuilds and image changes. Image changes take a pre-upgrade snapshot for rollback.
-- **Operations:** Account bans, quota management, image selection, Docker-backed status, usage sampling and container log streaming. See the role boundaries below.
-- **Bilingual console:** English and Simplified Chinese, light and dark themes, email/password sign-in and session management.
+- **实例管理：** 创建、启动、停止、重建和删除实例。通过每用户实例数上限，允许用户在分配的额度内拥有多个实例。
+- **资源控制：** CPU、内存、进程数限制，以及每实例 `/data` 文件系统的容量硬限制。管理员可以在创建后调整资源配额。
+- **认证访问：** Traefik 后的实例独立子域、所有者授权，以及通过 HMAC 派生的实例专属入口令牌。实例容器不发布宿主端口。
+- **持久化工作区：** 工作区、配置和用户安装的软件包均指向 `/data`，在容器重建与镜像切换时保留。镜像切换前创建快照，供回滚使用。
+- **运维管理：** 账号封禁、配额管理、镜像选择、基于 Docker 的状态查询、用量采样和容器日志流。各角色的权限边界见下文。
+- **双语管理台：** 英文与简体中文、明暗主题、邮箱密码登录和会话管理。
 
-## Screenshots
+## 截图
 
-### Instance list
+### 实例列表
 
 <p>
-  <a href="docs/screenshots/en/instances.png"><img src="docs/screenshots/en/instances.png" alt="Instance list" width="100%"></a>
+  <a href="docs/screenshots/zh-CN/instances.png"><img src="docs/screenshots/zh-CN/instances.png" alt="实例列表" width="100%"></a>
 </p>
 
-### Instance details
+### 实例详情
 
 <p>
-  <a href="docs/screenshots/en/instance.png"><img src="docs/screenshots/en/instance.png" alt="Instance details, version and upgrade" width="100%"></a>
+  <a href="docs/screenshots/zh-CN/instance.png"><img src="docs/screenshots/zh-CN/instance.png" alt="实例详情、版本与升级" width="100%"></a>
 </p>
 
 <details>
-  <summary>Administration console</summary>
+  <summary>平台管理台</summary>
   <p>
-    <a href="docs/screenshots/en/admin.png"><img src="docs/screenshots/en/admin.png" alt="Administration console" width="100%"></a>
+    <a href="docs/screenshots/zh-CN/admin.png"><img src="docs/screenshots/zh-CN/admin.png" alt="平台管理台" width="100%"></a>
   </p>
 </details>
 
 <details>
-  <summary>Sign-in page</summary>
+  <summary>登录页</summary>
   <p>
-    <a href="docs/screenshots/en/login.png"><img src="docs/screenshots/en/login.png" alt="Sign-in page" width="100%"></a>
+    <a href="docs/screenshots/zh-CN/login.png"><img src="docs/screenshots/zh-CN/login.png" alt="登录页" width="100%"></a>
   </p>
 </details>
 
-## Getting Started
+## 快速开始
 
-The instructions below start the **local development console**. Opening a `dsh` instance additionally requires the ingress setup described afterwards. The included Compose stack provides local DNS and Traefik, not a complete production installation.
+以下步骤启动的是**本地开发管理台**。打开 `dsh` 实例还需要完成后续入口配置。仓库内的 Compose 栈提供本地 DNS 和 Traefik，并非完整的生产安装方案。
 
-### Prerequisites
+### 前置条件
 
-- Node.js 22 or later and pnpm 10.10.0, as specified in [package.json](package.json).
-- A running PostgreSQL database reachable through `DATABASE_URL`.
-- Docker with Linux containers and a daemon socket accessible to the server. A custom socket can be set with `DOCKER_SOCKET`; see the [Docker client](apps/server/src/docker/client.ts).
-- For instance storage, a Docker host with loop devices, ext4 and the host utilities used by the [storage helper](apps/server/src/instance/host-storage.ts). Storage operations require short-lived privileged helper containers. On Docker Desktop, this host is its Linux VM, not macOS.
+- Node.js 22 或更新版本，以及 pnpm 10.10.0，版本要求见 [package.json](package.json)。
+- 已运行的 PostgreSQL 数据库，可通过 `DATABASE_URL` 访问。
+- 可运行 Linux 容器的 Docker，控制面能够访问其 daemon socket。自定义 socket 可通过 `DOCKER_SOCKET` 指定，见 [Docker 客户端](apps/server/src/docker/client.ts)。
+- 实例存储要求 Docker 宿主支持 loop 设备、ext4 和[存储助手](apps/server/src/instance/host-storage.ts)使用的宿主工具。存储操作需要短时运行的特权助手容器。在 Docker Desktop 上，这里的宿主是它的 Linux 虚拟机，而不是 macOS。
 
-### 1. Install dependencies
+### 1. 安装依赖
 
-Run from the repository root:
+在仓库根目录运行：
 
 ```bash
 pnpm install
 cp .env.example apps/server/.env.local
 ```
 
-### 2. Configure the server
+### 2. 配置控制面
 
-Edit the server environment file created in the previous step:
+编辑上一步创建的控制面环境文件：
 
-- Set `DATABASE_URL` to your database connection string. The example expects PostgreSQL on `127.0.0.1:55432`; it does not start a database.
-- Set `PLATFORM_SECRET` and `BETTER_AUTH_SECRET` to **separately generated** values, each at least 32 characters long. Run the following command once for each secret and keep the values private:
+- 将 `DATABASE_URL` 设为你的数据库连接串。示例指向 `127.0.0.1:55432` 上的 PostgreSQL，不会自动启动数据库。
+- 将 `PLATFORM_SECRET` 和 `BETTER_AUTH_SECRET` 设为**分别生成**的值，每个至少 32 个字符。为每个密钥分别运行一次下面的命令，并妥善保管结果：
 
 ```bash
 openssl rand -hex 32
 ```
 
-For the HTTP-only local console, set:
+仅通过 HTTP 使用本地管理台时，设置：
 
 ```dotenv
 BASE_DOMAIN=localhost
@@ -103,27 +103,27 @@ EXTRA_TRUSTED_ORIGINS=http://localhost:5173
 TRAEFIK_ROUTES_PATH=./traefik-dynamic/routes.yml
 ```
 
-The origin setting allows the Vite console to authenticate. The route path is relative to the server package when started with the command below: it writes to the directory mounted by [the local Compose stack](docker/compose/local.yml), instead of the default system path. The server creates this directory when syncing routes.
+受信来源配置用于允许 Vite 管理台完成认证。使用下文命令启动时，路由路径相对于控制面包目录解析，写入[本地 Compose 栈](docker/compose/local.yml)挂载的目录，而不是默认的系统路径。控制面同步路由时会自动创建该目录。
 
-See [.env.example](.env.example) for the complete configuration template and [env.ts](apps/server/src/env.ts) for validation rules and defaults.
+完整配置模板见 [.env.example](.env.example)，校验规则和默认值见 [env.ts](apps/server/src/env.ts)。
 
-### 3. Apply database migrations
+### 3. 执行数据库迁移
 
 ```bash
 pnpm --filter @dsh-cloud/server db:migrate
 ```
 
-### 4. Build the instance image
+### 4. 构建实例镜像
 
 ```bash
 docker build -f docker/instance-image/Dockerfile -t dsh-instance:0.1.0 docker/instance-image/
 ```
 
-The tag matches `INSTANCE_IMAGE` in the configuration template. The upstream `dsh` version is selected separately by `DSH_VERSION` in the [Dockerfile](docker/instance-image/Dockerfile).
+该 tag 与配置模板中的 `INSTANCE_IMAGE` 一致。上游 `dsh` 版本由 [Dockerfile](docker/instance-image/Dockerfile) 中的 `DSH_VERSION` 单独指定。
 
-### 5. Start the console
+### 5. 启动管理台
 
-Start the server and frontend in separate terminals, both from the repository root:
+打开两个终端，均在仓库根目录分别启动控制面和前端：
 
 ```bash
 pnpm --dir apps/server dev:local
@@ -133,113 +133,113 @@ pnpm --dir apps/server dev:local
 pnpm dev:web
 ```
 
-Open `http://localhost:5173` and register an account. To make that account a platform administrator, add its email to `ADMIN_EMAILS` in the server environment file and restart the server. This setting promotes existing accounts at startup; removing an email does not revoke its role.
+访问 `http://localhost:5173` 并注册账号。若需将该账号设为平台管理员，将其邮箱加入控制面环境文件的 `ADMIN_EMAILS`，然后重启控制面。此配置在启动时为已存在的账号提权；移除邮箱不会撤销管理员角色。
 
-The `dev:local` script explicitly loads the environment file. The root `dev:server` script does not, so it requires the variables to already be set in the process environment.
+`dev:local` 脚本会显式加载环境文件。根目录的 `dev:server` 脚本不会加载该文件，使用它时需要提前将变量设入进程环境。
 
-### 6. Enable instance access
+### 6. 启用实例访问
 
-Before creating and opening instances, follow the [local ingress guide](docker/compose/README.md) for DNS, trusted local TLS certificates and Traefik. That guide currently targets macOS with Docker Desktop.
+创建并打开实例前，请按[本地入口指南](docker/compose/README.md)配置 DNS、受信本地 TLS 证书和 Traefik。该指南目前面向 macOS 与 Docker Desktop。
 
-Keep the writable `TRAEFIK_ROUTES_PATH` from step 2 and apply the guide's HTTPS/domain and forward-auth settings. Once the certificates and DNS are configured, start the ingress stack:
+保留第 2 步中可写的 `TRAEFIK_ROUTES_PATH`，并应用指南中的 HTTPS、域名和 forward-auth 配置。完成证书与 DNS 配置后，启动入口栈：
 
 ```bash
 docker compose -f docker/compose/local.yml up -d
 ```
 
-Restart the server and sign in at `https://app.dsh.test/`, not the localhost URL. This gives the session cookie the domain scope needed for instance subdomains. If you created instances under a different `BASE_DOMAIN`, rebuild them as described in the guide.
+重启控制面，改从 `https://app.dsh.test/` 登录，不要使用 localhost 地址。这样会话 cookie 才具有实例子域需要的域作用域。如果此前使用其他 `BASE_DOMAIN` 创建过实例，请按指南重建这些实例。
 
-## Architecture
+## 架构
 
 ```text
-Browser
+浏览器
   |
   v
-Traefik (TLS and routing)
-  |-- Base domain ------> Web console / Fastify control plane
+Traefik（TLS 与路由）
+  |-- 基域 ------------> Web 管理台 / Fastify 控制面
   |                                         |-- PostgreSQL
   |                                         |-- Docker API
   |
-  `-- Instance subdomain -> Forward-auth (session + owner)
-                          -> Per-instance network
-                          -> Caddy gate -> dsh
+  `-- 实例子域 --------> Forward-auth（会话 + 所有者）
+                        -> 实例独立网络
+                        -> Caddy 入口校验 -> dsh
                                              `-- /data
 ```
 
-The control plane provisions containers, storage and routes. Traefik joins each instance's dedicated bridge network and reaches the instance without a published host port. After owner authorization, it forwards an instance-specific token that the in-container gate checks.
+控制面负责创建容器、存储和路由。Traefik 加入每个实例的独立 bridge 网络，无需发布宿主端口即可访问实例。所有者授权通过后，入口转发实例专属令牌，由容器内的入口校验层检查。
 
-The backend uses Fastify, Drizzle and dockerode; the console uses Vite, React and shadcn/ui. Runtime specifications and the Docker renderer live in [packages/instance-spec](packages/instance-spec). See the [architecture document](docs/ARCHITECTURE.md) for the full design.
+后端使用 Fastify、Drizzle 和 dockerode，管理台使用 Vite、React 和 shadcn/ui。运行时规格与 Docker renderer 位于 [packages/instance-spec](packages/instance-spec)。完整设计见[架构文档](docs/ARCHITECTURE.md)。
 
-## Security and Limitations
+## 安全与限制
 
-**Treat every instance container as an untrusted code execution environment.** Running shell commands, installing dependencies and writing files inside an instance are expected behavior, not a security exception.
+**每个实例容器都按不可信代码执行环境对待。** 在实例内运行 shell 命令、安装依赖和写入文件属于预期行为，而非安全例外。
 
-### Access and data boundaries
+### 访问与数据边界
 
-- **Instance owners** access their own `dsh`, workspace, usage metrics and logs. Being signed in is not enough to open someone else's instance.
-- **Platform administrators** manage users, quotas and image versions, and can inspect instance status and container logs. The platform provides no administrator interface for reading or browsing users' `/data` content, and the instance ingress has no administrator bypass.
-- **Usage visibility in the current implementation:** Live CPU/memory/disk usage and metric history are owner-only endpoints. The administrator console currently exposes resource allocations, not other users' live usage metrics; do not confuse quota with usage.
-- **Logs are not private file storage:** Container output may contain user content or secrets. Administrator log access does not imply that logs are free of sensitive data.
-- **Host access is a separate trust boundary:** A host or Docker operator can access underlying storage. Application-level restrictions are not encryption against the host operator. Keep platform secrets, database credentials and the Docker socket out of instance containers.
-- **Session isolation:** The trusted ingress removes platform cookies after authorization while preserving instance cookies. Control-plane writes require an exact trusted `Origin`; the authentication plugin's native account-administration endpoints are disabled.
+- **实例所有者**可以访问自己的 `dsh`、工作区、用量指标和日志。仅仅登录平台，不代表可以打开他人的实例。
+- **平台管理员**可以管理用户、配额和镜像版本，查看实例状态与容器日志。平台不提供读取或浏览用户 `/data` 内容的管理员界面，实例入口也没有管理员绕过所有者校验的通道。
+- **当前实现的用量可见性：** 实时 CPU、内存、磁盘用量及历史指标接口仅对实例所有者开放。管理员管理台目前展示资源配额，不提供他人实例的实时用量指标；配额与用量不能混为一谈。
+- **日志不等于私有文件存储：** 容器输出可能包含用户内容或密钥。管理员能够查看日志，不意味着日志中没有敏感信息。
+- **宿主访问属于另一层信任边界：** 拥有宿主或 Docker 操作权限的人可以访问底层存储。应用层权限限制并不等于对宿主运营者加密。平台密钥、数据库凭据和 Docker socket 不应进入实例容器。
+- **会话隔离：** 可信入口在授权后过滤平台 cookie，保留实例自身的 cookie。控制面写请求必须携带精确匹配受信来源的 `Origin`；认证插件自带的账号管理接口已关闭。
 
-### Operational limits
+### 运行限制
 
-- Containers run as non-root, drop Linux capabilities and use `no-new-privileges`, but still share the host kernel. This is not VM-level isolation. Outbound network access is currently unrestricted.
-- The disk quota limits the `/data` filesystem, not all host storage. Container writable layers, logs and upgrade snapshots require separate host capacity planning.
-- Image changes require downtime. Rollback restores both the previous image and its pre-upgrade data snapshot, discarding subsequent data changes. Only one pre-upgrade snapshot is retained per instance; it is not an independent backup.
-- Deleting without purging retains data and its ownership record. Reusing the subdomain creates a separate filesystem; recovering retained data requires operator verification, not automatic adoption by name.
-- Public deployment checks remain open, including network isolation and TLS/DNS configuration on the target host. See [open questions](docs/OPEN-QUESTIONS.md). The local stack and development credentials must not be treated as a hardened public deployment.
-- Billing, independent backups, a full observability stack and multi-node runtimes are not included in the current implementation. Existing status reconciliation and usage sampling are not a substitute for these capabilities.
+- 实例容器以非 root 用户运行，移除 Linux capabilities 并启用 `no-new-privileges`，但仍共享宿主内核，不具备虚拟机级隔离。当前不限制出网访问。
+- 磁盘配额限制的是 `/data` 文件系统，并非宿主全部存储。容器可写层、日志和升级快照需要另行规划宿主容量。
+- 镜像切换需要停机。回滚会同时恢复旧镜像和升级前的数据快照，丢弃快照之后的数据变化。每个实例只保留一份升级前快照，不能替代独立备份。
+- 删除实例而不清除数据时，会保留数据及其归属记录。复用子域名会创建独立文件系统；恢复旧数据需要运营人员核验，不会按名称自动接回。
+- 公网部署仍需验证目标宿主上的网络隔离及 TLS、DNS 配置，见[待验证问题](docs/OPEN-QUESTIONS.md)。不要把本地栈和开发凭据直接当作加固后的公网部署方案。
+- 当前实现不包含计费、独立备份、完整可观测性栈和多节点运行时。已有的状态对账与用量采样不能替代这些能力。
 
-Report vulnerabilities according to [SECURITY.md](SECURITY.md). Do not disclose security issues in public issues.
+请按 [SECURITY.md](SECURITY.md) 报告安全漏洞，不要在公开 issue 中披露安全问题。
 
-## Development
+## 开发
 
-Run the workspace checks from the repository root:
+在仓库根目录运行工作区检查：
 
 ```bash
 pnpm typecheck
 pnpm test
 ```
 
-Optional integration checks exercise Docker and host storage. Use a disposable development environment and review the scripts before running them:
+可选集成检查会操作 Docker 和宿主存储。请在可丢弃的开发环境中使用，并在运行前检查脚本：
 
 ```bash
 pnpm --filter @dsh-cloud/server check:storage
 pnpm --filter @dsh-cloud/server spike
 ```
 
-Their implementations are [check-storage.ts](apps/server/scripts/check-storage.ts) and [spike-instance.ts](apps/server/scripts/spike-instance.ts). These scripts use the calling process environment; unlike `dev:local`, they do not explicitly load the server environment file.
+实现分别见 [check-storage.ts](apps/server/scripts/check-storage.ts) 和 [spike-instance.ts](apps/server/scripts/spike-instance.ts)。这些脚本使用调用进程的环境变量；与 `dev:local` 不同，它们不会显式加载控制面的环境文件。
 
-Security integration tests create and clean up temporary PostgreSQL and Traefik containers without connecting to the application database. Docker and the local images `postgres:16-alpine` and `traefik:v3.5` are required:
+安全集成测试会创建并清理临时 PostgreSQL 和 Traefik 容器，不连接应用数据库。需要 Docker 及本地镜像 `postgres:16-alpine` 和 `traefik:v3.5`：
 
 ```bash
 pnpm --filter @dsh-cloud/server test:security
 ```
 
-Existing installations must follow the [security migration notes](docs/SECURITY-HARDENING.md) before starting the updated server. The migration preserves existing storage paths; it does not move or erase instance data.
+已有环境在启动更新后的控制面之前，须按[安全迁移说明](docs/SECURITY-HARDENING.md)操作。迁移保留原有存储路径，不搬动或删除实例数据。
 
-## Contributing
+## 参与贡献
 
-Bug reports, documentation improvements and focused pull requests are welcome. Include reproduction steps and your environment when reporting a bug. For changes to authentication, isolation or the data model, discuss the design and security implications before implementation.
+欢迎提交问题报告、文档改进和聚焦单一问题的 pull request。报告缺陷时请附上复现步骤和环境信息。涉及认证、隔离或数据模型的改动，请在实现前讨论设计与安全影响。
 
-Read [AGENTS.md](AGENTS.md) for repository conventions and development commands. Keep tests close to the behavior they cover, run the workspace checks, and update both README translations when changing shared documentation.
+仓库约定和开发命令见 [AGENTS.md](AGENTS.md)。测试应紧邻其覆盖的行为，提交前运行工作区检查；修改共用 README 内容时，请同步更新中英文两版。
 
-## Documentation
+## 文档
 
-The detailed guides currently contain primarily Chinese text.
+详细指南目前主要使用中文。
 
-| Guide | Contents |
+| 指南 | 内容 |
 | --- | --- |
-| [Architecture](docs/ARCHITECTURE.md) | Components, access control and isolation model |
-| [Design decisions](docs/DECISIONS.md) | Technical choices and trade-offs |
-| [Open questions](docs/OPEN-QUESTIONS.md) | Unresolved validation and known gaps |
-| [Local ingress](docker/compose/README.md) | DNS, TLS and instance access in development |
-| [Configuration](.env.example) | Server environment template |
-| [Contributor guidance](AGENTS.md) | Repository layout, conventions and checks |
-| [Security policy](SECURITY.md) | Vulnerability reporting and scope |
+| [架构](docs/ARCHITECTURE.md) | 组件、访问控制与隔离模型 |
+| [设计决策](docs/DECISIONS.md) | 技术选择与取舍 |
+| [待验证问题](docs/OPEN-QUESTIONS.md) | 未决验证与已知缺口 |
+| [本地入口](docker/compose/README.md) | 开发环境中的 DNS、TLS 与实例访问 |
+| [配置](.env.example) | 控制面环境变量模板 |
+| [贡献者指南](AGENTS.md) | 仓库结构、约定与检查 |
+| [安全策略](SECURITY.md) | 漏洞报告方式与范围 |
 
-## License
+## 许可
 
-dshcloud is licensed under the [MIT License](LICENSE). [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) is the upstream project; its code and other dependencies remain subject to their respective licenses.
+dshcloud 使用 [MIT 许可证](LICENSE)。[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 为上游项目，其代码及其他依赖分别遵循各自的许可证。
