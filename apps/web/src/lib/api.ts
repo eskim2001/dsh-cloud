@@ -209,11 +209,11 @@ export async function getInstanceMetrics(
   return res.metrics
 }
 
-/** 用户面的版本信息：只能选平台提供的稳定版（宿主上已有）。 */
+/** 用户面的版本信息：只能选平台**已发布**的版本（且宿主上已有）。 */
 export interface InstanceImageInfo {
   image: string
   previousImage: string | null
-  /** 可选版本 = 平台白名单 ∩ 宿主上已有。空 = 不能自助升级。 */
+  /** 可选版本 = 已发布列表 ∩ 宿主上已有。空 = 不能自助升级。 */
   stable: string[]
   /** 升级前快照的实占（MB）；null = 没有快照。 */
   snapshotMb: number | null
@@ -224,7 +224,7 @@ export async function getInstanceImage(id: string): Promise<InstanceImageInfo> {
 }
 
 /**
- * 升级 / 降级到某个稳定版。**会停机**——先给数据打快照再换镜像，
+ * 升级 / 降级到某个已发布版本。**会停机**——先给数据打快照再换镜像，
  * 停机时间 = 停容器 + 复制已用数据 + 启动。新镜像起不来会自动回滚。
  */
 export async function setInstanceImage(id: string, image: string): Promise<InstanceSummary> {
@@ -328,6 +328,14 @@ export async function setUserQuota(id: string, quota: number | null): Promise<vo
   })
 }
 
+/** 授予 / 撤销管理员。最后一名管理员不能降级（后端 400）。 */
+export async function setUserRole(id: string, role: 'user' | 'admin'): Promise<void> {
+  await request(`/api/admin/users/${id}/role`, {
+    method: 'PATCH',
+    body: JSON.stringify({ role }),
+  })
+}
+
 /**
  * 改实例的 CPU / 内存 / pids / 磁盘。CPU、内存、pids 变化会**重建容器**（有几秒不可用）；
  * 磁盘**扩容不停机**，缩容要停机重建（D17 / D18）。
@@ -342,7 +350,7 @@ export async function setInstanceQuota(
   })
 }
 
-/** 管理面的版本信息：`local` 是宿主上**全部** tag，管理员可任选（仍限平台自己的仓库）。 */
+/** 管理面的版本信息：`local` 是宿主上**平台仓库**的全部 tag（含未发布的），管理员可任选。 */
 export interface AdminInstanceImageInfo {
   image: string
   previousImage: string | null
@@ -364,4 +372,66 @@ export async function setAdminInstanceImage(id: string, image: string): Promise<
 
 export async function rollbackAdminInstanceImage(id: string): Promise<void> {
   await request(`/api/admin/instances/${id}/image/rollback`, { method: 'POST', body: '{}' })
+}
+
+// ─── 镜像版本管理（仅管理员，D21 / D23）────────────────────────────────────
+
+/** 三态：注册表上有 = 未下载；宿主上有 = 已下载；已发布 = 用户面可选。 */
+export type AdminImageState = 'remote' | 'local' | 'published'
+
+export interface AdminImage {
+  ref: string
+  state: AdminImageState
+  /** 宿主上有没有。已发布但被 prune 掉的版本会同时是 published 且 onHost=false。 */
+  onHost: boolean
+  /** 新建实例用这一版。至多一个（数据库部分唯一索引兜住）。 */
+  isDefault: boolean
+  publishedAt: string | null
+  /** 注册表给的 manifest digest；没同步过或只在宿主上就是 null。 */
+  digest: string | null
+}
+
+export interface AdminImages {
+  /** 新版本在前。 */
+  images: AdminImage[]
+  /** catalog 最近一次同步时间；从没同步过 → null。 */
+  syncedAt: string | null
+}
+
+export interface AdminImagesSyncResult {
+  count: number
+  skipped: number
+  syncedAt: string
+}
+
+export async function getAdminImages(): Promise<AdminImages> {
+  return request<AdminImages>('/api/admin/images')
+}
+
+/** 拉一遍注册表的 tag 进库。慢——每个 tag 一次 HEAD，页面上要显示 pending。 */
+export async function syncAdminImages(): Promise<AdminImagesSyncResult> {
+  return request<AdminImagesSyncResult>('/api/admin/images/sync', {
+    method: 'POST',
+    body: '{}',
+  })
+}
+
+/** 下载进度流的地址（SSE，`EventSource` 只支持 GET）。 */
+export function adminImagePullUrl(ref: string): string {
+  return `/api/admin/images/pull?ref=${encodeURIComponent(ref)}`
+}
+
+/** 发布一个宿主上已有的平台镜像。 */
+export async function publishAdminImage(ref: string): Promise<void> {
+  await request('/api/admin/images', { method: 'POST', body: JSON.stringify({ ref }) })
+}
+
+/** 下架。默认版本不能下架（后端 400）。 */
+export async function unpublishAdminImage(ref: string): Promise<void> {
+  await request('/api/admin/images', { method: 'DELETE', body: JSON.stringify({ ref }) })
+}
+
+/** 设为新建实例用的默认版本。 */
+export async function setDefaultAdminImage(ref: string): Promise<void> {
+  await request('/api/admin/images/default', { method: 'PATCH', body: JSON.stringify({ ref }) })
 }

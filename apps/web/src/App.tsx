@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AppLayout } from './layouts/app-layout.js'
 import { useSession } from './lib/use-session.js'
+import AdminImagesPage from './pages/AdminImagesPage.js'
 import AdminPage from './pages/AdminPage.js'
 import LoginPage from './pages/LoginPage.js'
 import InstanceDetailPage from './pages/InstanceDetailPage.js'
@@ -35,6 +36,14 @@ export default function App() {
           element={
             <RequireAdmin>
               <AdminPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/images"
+          element={
+            <RequireAdmin>
+              <AdminImagesPage />
             </RequireAdmin>
           }
         />

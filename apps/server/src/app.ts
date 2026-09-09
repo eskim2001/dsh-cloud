@@ -4,13 +4,23 @@ import cookie from '@fastify/cookie'
 import type { Auth } from './auth.js'
 import type { Db } from './db/client.js'
 import { findInstanceBySlug, listInstancesByOwner, findInstanceById } from './db/instance-repo.js'
+import {
+  listImageReleases,
+  publishImageRelease,
+  setDefaultImageRelease,
+  unpublishImageRelease,
+} from './db/image-release-repo.js'
+import { listImageCatalog } from './db/image-catalog-repo.js'
 import { listRecentMetrics } from './db/metric-repo.js'
 import {
+  countAdmins,
+  findUserById,
   listInstancesWithOwner,
   listUsersWithInstanceCount,
   revokeUserSessions,
   setUserBanned,
   setUserQuota,
+  setUserRole,
 } from './db/user-repo.js'
 import { trustedOrigins, type Env } from './env.js'
 import { registerAdminRoutes } from './http/admin-routes.js'
@@ -19,8 +29,10 @@ import { registerSessionRoutes } from './http/session-routes.js'
 import { registerInstanceRoutes } from './http/instance-routes.js'
 import { streamContainerLogs } from './http/log-stream.js'
 import type { HostStorage } from './instance/host-storage.js'
+import { syncImageCatalog } from './instance/image-sync.js'
 import type { InstanceOrchestrator } from './instance/orchestrator.js'
 import type { InstanceProvisioner } from './instance/provisioner.js'
+import { createRegistryClient } from './instance/registry.js'
 
 export interface AppDeps {
   env: Env
@@ -78,6 +90,20 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       (raw, out, err) => deps.orchestrator.demuxStream(raw, out, err),
     )
 
+  // 注册表只读客户端（D23）。公开包匿名即可，所以凭据是**可选**的——
+  // 只设一半会被忽略（见 registry.ts），免得出现半截 Basic 头。
+  const registry = createRegistryClient({
+    repo: deps.env.INSTANCE_IMAGE_REPO,
+    fetch: globalThis.fetch,
+    ...(deps.env.INSTANCE_IMAGE_REGISTRY_USER !== '' &&
+    deps.env.INSTANCE_IMAGE_REGISTRY_TOKEN !== ''
+      ? {
+          user: deps.env.INSTANCE_IMAGE_REGISTRY_USER,
+          token: deps.env.INSTANCE_IMAGE_REGISTRY_TOKEN,
+        }
+      : {}),
+  })
+
   // ① forward-auth：数据面的门（D8 ②）
   registerForwardAuth(app, {
     baseDomain: deps.env.BASE_DOMAIN,
@@ -122,6 +148,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     readDisk: (slug, quotaMb) => deps.storage.usage(slug, quotaMb),
     listMetrics: (instanceId, limit) => listRecentMetrics(deps.db, instanceId, limit),
     listLocalImages: () => deps.orchestrator.listImageTags(),
+    listImageReleases: () => listImageReleases(deps.db),
     readSnapshot: (slug) => deps.storage.snapshotUsage(slug),
     streamLogs,
     getUserId: (req) => sessionUser(req.headers).then((u) => u?.id),
@@ -147,6 +174,17 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     },
     unban: (userId) => setUserBanned(deps.db, userId, false, null),
     setQuota: (userId, quota) => setUserQuota(deps.db, userId, quota),
+    // 降级最后一名管理员 = 所有人都进不了管理台，只能靠 db:seed 恢复。
+    // 查两次再写，两个管理员同时自降的窗口极窄，单运营者场景不值得上事务。
+    setRole: async (userId, role) => {
+      const target = await findUserById(deps.db, userId)
+      if (target === undefined) return 'missing'
+      if (role === 'user' && target.role === 'admin' && (await countAdmins(deps.db)) <= 1) {
+        return 'last-admin'
+      }
+      await setUserRole(deps.db, userId, role)
+      return 'ok'
+    },
     // 实例不存在返回 false（404）；重建容器失败会抛出去，让管理员看到原因
     setInstanceQuota: async (id, quota) => {
       if ((await findInstanceById(deps.db, id)) === undefined) return false
@@ -161,8 +199,15 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         : { storageKey: row.storageKey, image: row.image, previousImage: row.previousImage }
     },
     listLocalImages: () => deps.orchestrator.listImageTags(),
+    listImageReleases: () => listImageReleases(deps.db),
+    listImageCatalog: () => listImageCatalog(deps.db),
+    syncImages: () => syncImageCatalog(deps.db, registry, deps.env.INSTANCE_IMAGE_REPO),
+    pullImageStream: (ref) => deps.orchestrator.openImagePull(ref),
+    publishImage: (ref) => publishImageRelease(deps.db, ref),
+    unpublishImage: (ref) => unpublishImageRelease(deps.db, ref),
+    setDefaultImage: (ref) => setDefaultImageRelease(deps.db, ref),
     readSnapshot: (slug) => deps.storage.snapshotUsage(slug),
-    // 管理员可选**任意**本地镜像，不受 INSTANCE_STABLE_IMAGES 限制
+    // 管理员可选**任意**平台仓库的本地镜像，不受已发布列表限制
     setInstanceImage: async (id, image) => {
       if ((await findInstanceById(deps.db, id)) === undefined) return false
       await deps.provisioner.setImage(id, image, { allowAny: true })

@@ -7,7 +7,8 @@
     "requestFailed": "请求失败，请重试",
     "comingSoon": "即将上线。",
     "signOut": "退出",
-    "cancel": "取消"
+    "cancel": "取消",
+    "close": "关闭"
   },
   "nav": {
     "platform": "平台",
@@ -16,7 +17,8 @@
     "profile": "个人资料",
     "sessions": "会话",
     "members": "成员",
-    "admin": "平台管理"
+    "admin": "平台管理",
+    "adminImages": "镜像管理"
   },
   "language": {
     "label": "语言",
@@ -171,6 +173,11 @@
       "banDescription": "{{email}} 会立刻被踢下线，并且无法再登录。",
       "banReasonPlaceholder": "原因（可选）",
       "saveQuota": "保存",
+      "grantAdmin": "设为管理员",
+      "revokeAdmin": "取消管理员",
+      "grantAdminConfirm": "把 {{email}} 设为平台管理员？管理员能封禁账号、改配额、看全站实例与容器日志。",
+      "revokeAdminConfirm": "取消 {{email}} 的管理员权限？",
+      "selfDemoteHint": "这是你自己的账号：确认后会立刻失去管理台权限，并回到首页。",
       "loadFailed": "加载用户列表失败"
     },
     "instances": {
@@ -203,6 +210,43 @@
       "diskMb": "磁盘（MB）",
       "pidsLimit": "进程数上限",
       "loadFailed": "加载实例列表失败"
+    },
+    "images": {
+      "title": "镜像版本",
+      "description": "平台发布的实例镜像。新建实例用「默认」那一版；用户面能自助升到的版本 = 已发布且宿主上真有。点「同步」从注册表拉取最新 tag。",
+      "sync": "同步",
+      "syncing": "同步中…",
+      "syncedAt": "上次同步：{{time}}",
+      "neverSynced": "还没同步过",
+      "syncResult": "已同步 {{count}} 个版本",
+      "syncSkipped": "，忽略 {{skipped}} 个非版本 tag",
+      "state": "状态",
+      "stateLabel": {
+        "remote": "未下载",
+        "local": "已下载",
+        "published": "已发布"
+      },
+      "notOnHost": "宿主上已删除；用到时会自动重新下载",
+      "digest": "Digest",
+      "ref": "版本",
+      "publishedAt": "发布时间",
+      "default": "默认",
+      "actions": "操作",
+      "download": "下载",
+      "pullTitle": "下载 {{ref}}",
+      "pullState": {
+        "pulling": "下载中…",
+        "done": "下载完成",
+        "failed": "下载失败"
+      },
+      "pullWaiting": "正在连接…",
+      "publish": "发布",
+      "setDefault": "设为默认",
+      "unpublish": "下架",
+      "unpublishTitle": "下架这个版本？",
+      "unpublishConfirm": "{{ref}} 不再出现在用户面的「换版本」列表里；已经在用它的实例不受影响。",
+      "empty": "还没有任何版本——先点右上角「同步」拉取注册表上的 tag。",
+      "loadFailed": "加载镜像版本失败"
     }
   },
   "status": {

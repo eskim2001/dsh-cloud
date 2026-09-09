@@ -10,17 +10,17 @@ const env: Env = {
   PLATFORM_SECRET: 'x'.repeat(32),
   BETTER_AUTH_SECRET: 'y'.repeat(32),
   PORT: 3000,
-  INSTANCE_IMAGE: 'placeholder',
-  INSTANCE_STABLE_IMAGES: '',
   PUBLIC_SCHEME: 'https',
   EXTRA_TRUSTED_ORIGINS: '',
   TRAEFIK_CONTAINER: 'dsh-ingress',
   TRAEFIK_ENTRYPOINT: 'websecure',
   TRAEFIK_CERT_RESOLVER: '',
-  ADMIN_EMAILS: '',
   MAX_INSTANCES_PER_USER: 3,
   HOST_STORAGE_ROOT: '/var/lib/dsh',
   STORAGE_HELPER_IMAGE: 'alpine:3.20',
+  INSTANCE_IMAGE_REPO: 'ghcr.io/eskim2001/dsh-instance',
+  INSTANCE_IMAGE_REGISTRY_USER: '',
+  INSTANCE_IMAGE_REGISTRY_TOKEN: '',
 }
 
 const { db } = createDb(env.DATABASE_URL)

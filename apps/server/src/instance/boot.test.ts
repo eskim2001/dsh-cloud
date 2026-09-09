@@ -120,4 +120,17 @@ describe('启动恢复：先挂数据，再拉容器', () => {
     await bootInstances(deps)
     expect(events).toEqual([])
   })
+
+  it('停在 provisioning 的行判死并跳过（进程在创建中途崩掉留下的僵尸行）', async () => {
+    const { deps, events, markError, warn } = build([
+      row({ slug: 'alice' }),
+      row({ slug: 'zombie', status: 'provisioning', containerId: null }),
+    ])
+    await bootInstances(deps)
+
+    // 判死排在挂载之前，且僵尸行不参与挂载/启动——没人管它才是问题
+    expect(events).toEqual(['error:i-zombie', 'ensure:alice', 'start:i-alice'])
+    expect(markError).toHaveBeenCalledWith('i-zombie', '平台重启中断了创建，请重试')
+    expect(warn).toHaveBeenCalled()
+  })
 })

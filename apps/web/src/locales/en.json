@@ -7,7 +7,8 @@
     "requestFailed": "Request failed, please retry",
     "comingSoon": "Coming soon.",
     "signOut": "Sign out",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "close": "Close"
   },
   "nav": {
     "platform": "Platform",
@@ -16,7 +17,8 @@
     "profile": "Profile",
     "sessions": "Sessions",
     "members": "Members",
-    "admin": "Platform admin"
+    "admin": "Platform admin",
+    "adminImages": "Images"
   },
   "language": {
     "label": "Language",
@@ -172,6 +174,11 @@
       "banDescription": "{{email}} will be signed out immediately and can no longer sign in.",
       "banReasonPlaceholder": "Reason (optional)",
       "saveQuota": "Save",
+      "grantAdmin": "Make admin",
+      "revokeAdmin": "Revoke admin",
+      "grantAdminConfirm": "Make {{email}} a platform admin? Admins can ban accounts, change quotas, and see every instance and container log.",
+      "revokeAdminConfirm": "Revoke admin access for {{email}}?",
+      "selfDemoteHint": "This is your own account: you will lose admin access immediately and be sent back to the home page.",
       "loadFailed": "Failed to load users"
     },
     "instances": {
@@ -204,6 +211,43 @@
       "diskMb": "Disk (MB)",
       "pidsLimit": "Process limit",
       "loadFailed": "Failed to load instances"
+    },
+    "images": {
+      "title": "Image versions",
+      "description": "Instance images published by the platform. New instances use the version marked default; what users can upgrade to on their own is published ∩ present on the host. Hit Sync to pull the latest tags from the registry.",
+      "sync": "Sync",
+      "syncing": "Syncing…",
+      "syncedAt": "Last synced: {{time}}",
+      "neverSynced": "Never synced",
+      "syncResult": "Synced {{count}} versions",
+      "syncSkipped": ", ignored {{skipped}} non-version tags",
+      "state": "State",
+      "stateLabel": {
+        "remote": "Not downloaded",
+        "local": "Downloaded",
+        "published": "Published"
+      },
+      "notOnHost": "Removed from the host; it will be pulled again on demand",
+      "digest": "Digest",
+      "ref": "Version",
+      "publishedAt": "Published",
+      "default": "Default",
+      "actions": "Actions",
+      "download": "Download",
+      "pullTitle": "Download {{ref}}",
+      "pullState": {
+        "pulling": "Downloading…",
+        "done": "Download complete",
+        "failed": "Download failed"
+      },
+      "pullWaiting": "Connecting…",
+      "publish": "Publish",
+      "setDefault": "Set as default",
+      "unpublish": "Unpublish",
+      "unpublishTitle": "Unpublish this version?",
+      "unpublishConfirm": "{{ref}} disappears from the user-facing version picker; instances already running it are unaffected.",
+      "empty": "No versions yet — hit Sync in the top right to pull tags from the registry.",
+      "loadFailed": "Failed to load image versions"
     }
   },
   "status": {

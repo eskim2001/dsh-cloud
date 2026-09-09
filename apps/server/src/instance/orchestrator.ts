@@ -1,4 +1,4 @@
-import type { Readable, Writable } from 'node:stream'
+import { Readable, type Writable } from 'node:stream'
 import type Docker from 'dockerode'
 import {
   CONTAINER_PREFIX,
@@ -9,6 +9,8 @@ import {
 } from '@dsh-cloud/instance-spec'
 import { demuxFrames, isNotFound, isNotModified } from '../docker/client.js'
 import { parseStats, type ContainerUsage } from './container-stats.js'
+import { imageRepo } from './image-catalog.js'
+import { consumeImagePull } from './image-pull.js'
 
 /**
  * 只要实例容器。Docker 的 `name` 过滤是子串匹配，前缀正好圈住我们的容器。
@@ -36,10 +38,15 @@ export interface ContainerLiveState {
  * 所有资源名都由 slug 派生，且 slug 已过白名单校验——这里不接受用户输入拼接。
  */
 export class InstanceOrchestrator {
+  /** 正在拉的镜像，按 ref 去重——两个实例同时要同一版时只拉一次。 */
+  private readonly pulling = new Map<string, Promise<void>>()
+
   constructor(
     private readonly docker: Docker,
     /** 入口容器名（Traefik）。它要被接进每个实例网络，是那里唯一的「外人」。 */
     private readonly ingressName: string,
+    /** 平台自己的镜像仓库（`INSTANCE_IMAGE_REPO`）。只有它里面的镜像允许被拉。 */
+    private readonly platformImageRepo: string,
   ) {}
 
   /** 幂等创建独立网络（D3：每实例一个，互不可达）。 */
@@ -148,8 +155,70 @@ export class InstanceOrchestrator {
     ].sort()
   }
 
+  /** 镜像在不在宿主上。**只有 404 算「没有」**——daemon 故障不是「缺镜像」，别掩盖成一次 pull。 */
+  async imageExists(ref: string): Promise<boolean> {
+    try {
+      await this.docker.getImage(ref).inspect()
+      return true
+    } catch (err) {
+      if (isNotFound(err)) return false
+      throw err
+    }
+  }
+
   /**
-   * 创建并启动实例容器；同名容器会被先移除（网络保留，数据文件系统也不动）。
+   * 确保镜像在宿主上，缺了就从注册表拉（D23）。本地优先——已有直接返回。
+   *
+   * 这是**兜底**：正常路径是管理员先在控制台点「下载」。容器被 prune 掉之后
+   * `restart` 才会走到这里，否则 Docker 直接 `No such image`。
+   */
+  async ensureImage(ref: string): Promise<void> {
+    // 先看本地：已经在宿主上就没什么可拉的，仓库校验不该拦到这种（D22 之前的实例
+    // `image` 还是裸 tag，照它拒会连「镜像就在本地」都重启不了）
+    if (await this.imageExists(ref)) return
+    this.assertPullable(ref)
+
+    const inFlight = this.pulling.get(ref)
+    if (inFlight !== undefined) return inFlight
+
+    const task = this.pullImage(ref).finally(() => this.pulling.delete(ref))
+    this.pulling.set(ref, task)
+    return task
+  }
+
+  /**
+   * 打开一条 `docker pull` 的进度流（SSE 用，调用方负责 destroy）。
+   * 镜像已在宿主上时返回空流——调用方照常读到流结束即可，不用分两条路径。
+   */
+  async openImagePull(ref: string): Promise<Readable> {
+    if (await this.imageExists(ref)) return Readable.from([])
+    this.assertPullable(ref)
+    // @types/dockerode 把 pull 的返回标成 NodeJS.ReadableStream；运行时是 stream.Readable
+    const stream = await this.docker.pull(ref)
+    return stream as unknown as Readable
+  }
+
+  /**
+   * 只允许拉平台自己仓库里的镜像。这条路径会真的出网，而 ref 来自库里的历史值——
+   * 不卡仓库，一个被改坏的 `instance.image` 就能让控制面去拉任意镜像。
+   */
+  private assertPullable(ref: string): void {
+    if (imageRepo(ref) !== this.platformImageRepo) {
+      throw new Error(`拒绝拉取非平台镜像（${this.platformImageRepo}）：${ref}`)
+    }
+  }
+
+  private async pullImage(ref: string): Promise<void> {
+    try {
+      // @types/dockerode 把 pull 的返回标成 Web 的 ReadableStream；运行时是 stream.Readable
+      const stream = (await this.docker.pull(ref)) as unknown as Readable
+      await consumeImagePull(stream, () => undefined)
+    } catch (err) {
+      throw new Error(`拉取镜像 ${ref} 失败：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  /**
    *
    * **前置条件**：该实例的数据文件系统已挂载（调用方 `applyRuntime` 负责断言）。
    * 这里不兜底——兜底会掩盖「挂载没了」，那比报错更糟。

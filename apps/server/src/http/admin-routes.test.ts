@@ -1,13 +1,22 @@
+import { Readable } from 'node:stream'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { describe, expect, it, vi } from 'vitest'
 import type { Env } from '../env.js'
+import { RegistryError } from '../instance/image-sync.js'
 import { ImageRejectedError, NoRollbackError, ShrinkBelowUsageError } from '../instance/provisioner.js'
 import { registerAdminRoutes, type AdminRouteDeps } from './admin-routes.js'
 
-const env = { MAX_INSTANCES_PER_USER: 3, INSTANCE_IMAGE: 'dsh-instance:0.1.0' } as Env
+const env = { MAX_INSTANCES_PER_USER: 3, INSTANCE_IMAGE_REPO: 'dsh-instance' } as Env
 
 const ADMIN = { id: 'admin-1', role: 'admin' }
 const USER = { id: 'user-1', role: 'user' }
+
+const release = (ref: string, isDefault = false) => ({
+  id: `r-${ref}`,
+  ref,
+  isDefault,
+  publishedAt: new Date(0),
+})
 
 /**
  * 管理面**全部**路由。新增一条就要加到这里——下面会拿它和 Fastify 实际
@@ -20,11 +29,18 @@ const EXPECTED_ROUTES = [
   { method: 'POST', url: '/api/admin/users/:id/ban' },
   { method: 'POST', url: '/api/admin/users/:id/unban' },
   { method: 'PATCH', url: '/api/admin/users/:id/quota' },
+  { method: 'PATCH', url: '/api/admin/users/:id/role' },
   { method: 'PATCH', url: '/api/admin/instances/:id/quota' },
   { method: 'GET', url: '/api/admin/instances/:id/image' },
   { method: 'PATCH', url: '/api/admin/instances/:id/image' },
   { method: 'POST', url: '/api/admin/instances/:id/image/rollback' },
   { method: 'GET', url: '/api/admin/instances/:id/logs' },
+  { method: 'GET', url: '/api/admin/images' },
+  { method: 'GET', url: '/api/admin/images/pull' },
+  { method: 'POST', url: '/api/admin/images' },
+  { method: 'POST', url: '/api/admin/images/sync' },
+  { method: 'DELETE', url: '/api/admin/images' },
+  { method: 'PATCH', url: '/api/admin/images/default' },
 ]
 
 const ATTACKS = EXPECTED_ROUTES.map((r) => ({ ...r, url: r.url.replace(':id', 'user-1') }))
@@ -66,10 +82,19 @@ async function build(
     ban: async () => true,
     unban: async () => true,
     setQuota: async () => true,
+    setRole: async () => 'ok',
     setInstanceQuota: async () => true,
     findInstanceContainer: async () => null,
     findInstanceImage: async () => ({ storageKey: 'alice', image: 'dsh-instance:0.1.0', previousImage: null }),
     listLocalImages: async () => [],
+    // 默认有一版已发布的默认镜像——版本管理用例自己覆盖
+    listImageReleases: async () => [release('dsh-instance:0.1.0_1', true)],
+    listImageCatalog: async () => [],
+    syncImages: async () => ({ count: 0, skipped: 0, syncedAt: new Date(0) }),
+    pullImageStream: async () => Readable.from([]),
+    publishImage: async () => 'ok' as const,
+    unpublishImage: async () => 'ok' as const,
+    setDefaultImage: async () => true,
     readSnapshot: async () => undefined,
     setInstanceImage: async () => true,
     rollbackInstanceImage: async () => true,
@@ -109,24 +134,42 @@ describe('平台管理面：每条路由都必须过 admin 钩子', () => {
   it('非管理员触发的动作不会落到回调上', async () => {
     const ban = vi.fn(async () => true)
     const setQuota = vi.fn(async () => true)
+    const setRole = vi.fn(async () => 'ok' as const)
     const setInstanceQuota = vi.fn(async () => true)
     const setInstanceImage = vi.fn(async () => true)
     const rollbackInstanceImage = vi.fn(async () => true)
+    const publishImage = vi.fn(async () => 'ok' as const)
+    const unpublishImage = vi.fn(async () => 'ok' as const)
+    const setDefaultImage = vi.fn(async () => true)
+    const syncImages = vi.fn(async () => ({ count: 0, skipped: 0, syncedAt: new Date(0) }))
+    const pullImageStream = vi.fn(async () => Readable.from([]))
     const { app } = await build(USER, {
       ban,
       setQuota,
+      setRole,
       setInstanceQuota,
       setInstanceImage,
       rollbackInstanceImage,
+      publishImage,
+      unpublishImage,
+      setDefaultImage,
+      syncImages,
+      pullImageStream,
     })
     for (const route of ATTACKS) {
       await call(app, route)
     }
     expect(ban).not.toHaveBeenCalled()
     expect(setQuota).not.toHaveBeenCalled()
+    expect(setRole).not.toHaveBeenCalled()
     expect(setInstanceQuota).not.toHaveBeenCalled()
     expect(setInstanceImage).not.toHaveBeenCalled()
     expect(rollbackInstanceImage).not.toHaveBeenCalled()
+    expect(publishImage).not.toHaveBeenCalled()
+    expect(unpublishImage).not.toHaveBeenCalled()
+    expect(setDefaultImage).not.toHaveBeenCalled()
+    expect(syncImages).not.toHaveBeenCalled()
+    expect(pullImageStream).not.toHaveBeenCalled()
   })
 })
 
@@ -199,6 +242,53 @@ describe('平台管理面：管理员路径', () => {
     })
     expect(res.statusCode).toBe(200)
     expect(setQuota).toHaveBeenCalledWith('u-x', null)
+  })
+
+  it('改角色：角色原样透传给回调', async () => {
+    const setRole = vi.fn(async () => 'ok' as const)
+    const { app } = await build(ADMIN, { setRole })
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/admin/users/u-x/role',
+      payload: { role: 'admin' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(setRole).toHaveBeenCalledWith('u-x', 'admin')
+  })
+
+  it('改角色：角色值非法 → 400，不动回调', async () => {
+    const setRole = vi.fn(async () => 'ok' as const)
+    const { app } = await build(ADMIN, { setRole })
+    for (const role of ['root', 'Admin', '', null, 1]) {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/api/admin/users/u-x/role',
+        payload: { role },
+      })
+      expect(res.statusCode, `role=${String(role)}`).toBe(400)
+    }
+    expect(setRole).not.toHaveBeenCalled()
+  })
+
+  it('改角色：用户不存在 → 404', async () => {
+    const { app } = await build(ADMIN, { setRole: async () => 'missing' })
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/admin/users/nobody/role',
+      payload: { role: 'admin' },
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('改角色：降级最后一名管理员 → 400 + 服务端文案', async () => {
+    const { app } = await build(ADMIN, { setRole: async () => 'last-admin' })
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/admin/users/u-x/role',
+      payload: { role: 'user' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toContain('最后一名管理员')
   })
 
   it('改实例配额：越界 / 非整数 → 400，不动回调', async () => {
@@ -274,7 +364,7 @@ describe('平台管理面：管理员路径', () => {
     expect(empty.statusCode).toBe(409)
   })
 
-  it('看版本：管理员拿到本地全部**平台**镜像（不受稳定版白名单限制，但别人的镜像不列）', async () => {
+  it('看版本：管理员拿到本地全部**平台**镜像（不受已发布列表限制，但别人的镜像不列）', async () => {
     const { app } = await build(ADMIN, {
       findInstanceImage: async () => ({
         storageKey: 'alice',
@@ -349,5 +439,255 @@ describe('平台管理面：管理员路径', () => {
     })
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toContain('没有可回滚')
+  })
+})
+
+describe('平台管理面：镜像目录与三态（D23）', () => {
+  const cat = (ref: string, digest: string) => ({
+    ref,
+    digest,
+    syncedAt: new Date('2026-09-10T00:00:00Z'),
+  })
+
+  it('列表：catalog ∪ 已发布 ∪ 宿主，三态派生 + digest + 同步时间，新版本在前', async () => {
+    const { app } = await build(ADMIN, {
+      listImageCatalog: async () => [
+        cat('dsh-instance:0.1.2_2', 'sha256:2222'),
+        cat('dsh-instance:0.1.2_1', 'sha256:1111'),
+      ],
+      listImageReleases: async () => [release('dsh-instance:0.1.2_2', true)],
+      // alpine 是别人的镜像，不该出现；0.1.1_3 只在宿主上，不在 catalog 里
+      listLocalImages: async () => ['dsh-instance:0.1.2_2', 'dsh-instance:0.1.1_3', 'alpine:3.20'],
+    })
+
+    const res = await app.inject({ method: 'GET', url: '/api/admin/images' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      syncedAt: '2026-09-10T00:00:00.000Z',
+      images: [
+        {
+          ref: 'dsh-instance:0.1.2_2',
+          state: 'published',
+          onHost: true,
+          isDefault: true,
+          publishedAt: '1970-01-01T00:00:00.000Z',
+          digest: 'sha256:2222',
+        },
+        {
+          ref: 'dsh-instance:0.1.2_1',
+          state: 'remote',
+          onHost: false,
+          isDefault: false,
+          publishedAt: null,
+          digest: 'sha256:1111',
+        },
+        {
+          ref: 'dsh-instance:0.1.1_3',
+          state: 'local',
+          onHost: true,
+          isDefault: false,
+          publishedAt: null,
+          digest: null,
+        },
+      ],
+    })
+  })
+
+  it('列表：从没同步过 → syncedAt 为 null，只剩宿主上那一版', async () => {
+    const { app } = await build(ADMIN, {
+      listImageReleases: async () => [],
+      listImageCatalog: async () => [],
+      listLocalImages: async () => ['dsh-instance:0.1.0_1'],
+    })
+    const res = await app.inject({ method: 'GET', url: '/api/admin/images' })
+    expect(res.json()).toEqual({
+      syncedAt: null,
+      images: [
+        {
+          ref: 'dsh-instance:0.1.0_1',
+          state: 'local',
+          onHost: true,
+          isDefault: false,
+          publishedAt: null,
+          digest: null,
+        },
+      ],
+    })
+  })
+
+  it('同步：透传结果；注册表不可达 → 502（是上游故障，不是平台 500）', async () => {
+    const syncImages = vi.fn(async () => ({
+      count: 2,
+      skipped: 1,
+      syncedAt: new Date('2026-09-10T01:02:03Z'),
+    }))
+    const { app } = await build(ADMIN, { syncImages })
+    const res = await app.inject({ method: 'POST', url: '/api/admin/images/sync' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ count: 2, skipped: 1, syncedAt: '2026-09-10T01:02:03.000Z' })
+
+    const { app: broken } = await build(ADMIN, {
+      syncImages: async () => {
+        throw new RegistryError('拿不到 ghcr.io 的拉取凭据（HTTP 503）')
+      },
+    })
+    const failed = await broken.inject({ method: 'POST', url: '/api/admin/images/sync' })
+    expect(failed.statusCode).toBe(502)
+    expect(failed.json().error).toContain('HTTP 503')
+  })
+
+  it('下载：ref 非法 / 非平台仓库 / 形状不对 → 400，且不碰 docker', async () => {
+    const pullImageStream = vi.fn(async () => Readable.from([]))
+    const { app } = await build(ADMIN, { pullImageStream })
+
+    const bad = ['', 'not a ref', 'evil/backdoor:0.1.0_1', 'dsh-instance:latest', 'dsh-instance:0.1.0']
+    for (const ref of bad) {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/admin/images/pull?ref=${encodeURIComponent(ref)}`,
+      })
+      expect(res.statusCode, ref).toBe(400)
+    }
+    expect(pullImageStream).not.toHaveBeenCalled()
+  })
+
+  it('下载：打不开拉取流 → 200 + 流内 error 事件（EventSource 读不到 502 的 body）', async () => {
+    const { app } = await build(ADMIN, {
+      pullImageStream: async () => {
+        throw new Error('no matching manifest for linux/arm64/v8')
+      },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/admin/images/pull?ref=${encodeURIComponent('dsh-instance:0.1.0_1')}`,
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.payload).toContain('event: error')
+    expect(res.payload).toContain('no matching manifest for linux/arm64/v8')
+  })
+
+  it('发布：宿主上没有 → 400（先点「下载」）', async () => {
+    const publishImage = vi.fn(async () => 'ok' as const)
+    const { app } = await build(ADMIN, { publishImage, listLocalImages: async () => [] })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/admin/images',
+      payload: { ref: 'dsh-instance:0.1.1_1' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toContain('宿主上没有镜像')
+    expect(publishImage).not.toHaveBeenCalled()
+  })
+
+  it('发布：不是平台自己的仓库 → 400', async () => {
+    const { app } = await build(ADMIN, {
+      listLocalImages: async () => ['evil/backdoor:0.1.0_1'],
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/admin/images',
+      payload: { ref: 'evil/backdoor:0.1.0_1' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toContain('只能发布平台自己的镜像')
+  })
+
+  it('发布：tag 不是发布序列的形状（:latest）→ 400，哪怕宿主上真有', async () => {
+    const publishImage = vi.fn(async () => 'ok' as const)
+    const { app } = await build(ADMIN, {
+      publishImage,
+      listLocalImages: async () => ['dsh-instance:latest'],
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/admin/images',
+      payload: { ref: 'dsh-instance:latest' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toContain('不符合发布序列')
+    expect(publishImage).not.toHaveBeenCalled()
+  })
+
+  it('发布：版本表为空也能发第一版（仓库名来自配置，不靠 seed 引导）', async () => {
+    const publishImage = vi.fn(async () => 'ok' as const)
+    const { app } = await build(ADMIN, {
+      publishImage,
+      listImageReleases: async () => [],
+      listLocalImages: async () => ['dsh-instance:0.1.0_1'],
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/admin/images',
+      payload: { ref: 'dsh-instance:0.1.0_1' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(publishImage).toHaveBeenCalledWith('dsh-instance:0.1.0_1')
+  })
+
+  it('发布：正常 → 200；已存在 → 409', async () => {
+    const publishImage = vi.fn(async () => 'ok' as const)
+    const { app } = await build(ADMIN, {
+      publishImage,
+      listLocalImages: async () => ['dsh-instance:0.1.1_1'],
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/admin/images',
+      payload: { ref: 'dsh-instance:0.1.1_1' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(publishImage).toHaveBeenCalledWith('dsh-instance:0.1.1_1')
+
+    const { app: dup } = await build(ADMIN, {
+      publishImage: async () => 'exists' as const,
+      listLocalImages: async () => ['dsh-instance:0.1.1_1'],
+    })
+    const again = await dup.inject({
+      method: 'POST',
+      url: '/api/admin/images',
+      payload: { ref: 'dsh-instance:0.1.1_1' },
+    })
+    expect(again.statusCode).toBe(409)
+  })
+
+  it('下架：没发布过 → 404；默认版本 → 400', async () => {
+    const { app } = await build(ADMIN, { unpublishImage: async () => 'missing' as const })
+    const missing = await app.inject({
+      method: 'DELETE',
+      url: '/api/admin/images',
+      payload: { ref: 'dsh-instance:0.9.9_1' },
+    })
+    expect(missing.statusCode).toBe(404)
+
+    const { app: isDefault } = await build(ADMIN, { unpublishImage: async () => 'default' as const })
+    const blocked = await isDefault.inject({
+      method: 'DELETE',
+      url: '/api/admin/images',
+      payload: { ref: 'dsh-instance:0.1.0_1' },
+    })
+    expect(blocked.statusCode).toBe(400)
+    expect(blocked.json().error).toContain('默认版本不能下架')
+  })
+
+  it('设为默认：没发布过 → 404；正常 → 200', async () => {
+    const setDefaultImage = vi.fn(async () => true)
+    const { app } = await build(ADMIN, { setDefaultImage })
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/admin/images/default',
+      payload: { ref: 'dsh-instance:0.1.1_1' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(setDefaultImage).toHaveBeenCalledWith('dsh-instance:0.1.1_1')
+
+    const { app: missing } = await build(ADMIN, { setDefaultImage: async () => false })
+    const notPublished = await missing.inject({
+      method: 'PATCH',
+      url: '/api/admin/images/default',
+      payload: { ref: 'dsh-instance:0.9.9_1' },
+    })
+    expect(notPublished.statusCode).toBe(404)
   })
 })
