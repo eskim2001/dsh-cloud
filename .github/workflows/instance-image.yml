@@ -1,0 +1,97 @@
+name: Instance image
+
+# 只有手动触发：tag 是不可变的，VERSION 是唯一旋钮。Dockerfile 一改就要么撞下面的
+# 守卫（红），要么绕过守卫换个 tag（漂）。发布必须是「人 + 改修订号」的刻意动作。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instance-image-${{ github.ref }}
+  # 发布不并发：取消一个正在推的 run 比排队更糟（同 tag 的第二次会被守卫拦下）。
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: v
+        run: |
+          VERSION=$(tr -d '[:space:]' < docker/instance-image/VERSION)
+          DSH_VERSION=${VERSION%_*}
+          REVISION=${VERSION##*_}
+          if [ -z "$DSH_VERSION" ] || [ "$DSH_VERSION" = "$VERSION" ] || ! [[ "$REVISION" =~ ^[1-9][0-9]*$ ]]; then
+            echo "VERSION 格式不对：期望 <dsh版本>_<修订号>（如 0.1.2-rc.1_1），实际 '$VERSION'" >&2
+            exit 1
+          fi
+          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "dsh_version=$DSH_VERSION" >> "$GITHUB_OUTPUT"
+          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # 已存在的 tag 一律拒绝：同名不同字节会让「实例记的 ref」失去意义（D22）。
+      - name: Refuse to overwrite an existing tag
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          TOKEN=$(curl -sS -u "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:eskim2001/dsh-instance:pull" \
+            | jq -r '.token // empty')
+          if [ -z "$TOKEN" ]; then
+            echo "拿不到 GHCR token（包还不存在）——按首次推送处理"
+            exit 0
+          fi
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -I \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json" \
+            "https://ghcr.io/v2/eskim2001/dsh-instance/manifests/$TAG")
+          case "$CODE" in
+            200)
+              echo "tag $TAG 已经存在——改 docker/instance-image/VERSION 里的修订号再发。" >&2
+              exit 1
+              ;;
+            404 | 401)
+              echo "tag $TAG 不存在，继续"
+              ;;
+            *)
+              echo "查询 GHCR 失败：HTTP $CODE" >&2
+              exit 1
+              ;;
+          esac
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: docker/instance-image
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/eskim2001/dsh-instance:${{ steps.v.outputs.tag }}
+          build-args: |
+            DSH_VERSION=${{ steps.v.outputs.dsh_version }}
+            REVISION=${{ steps.v.outputs.revision }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ steps.v.outputs.build_time }}
+
+      - name: Summary
+        run: |
+          {
+            echo "### 已推送 \`ghcr.io/eskim2001/dsh-instance:${{ steps.v.outputs.tag }}\`"
+            echo
+            echo "首次推送后要把包设为 Public（GHCR 新建的包默认私有）："
+            echo "https://github.com/users/eskim2001/packages/container/dsh-instance/settings"
+          } >> "$GITHUB_STEP_SUMMARY"

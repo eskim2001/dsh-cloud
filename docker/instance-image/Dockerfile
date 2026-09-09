@@ -11,9 +11,14 @@
 
 ARG NODE_IMAGE=node:24-trixie-slim
 ARG CADDY_IMAGE=caddy:2.10-alpine
-ARG DSH_VERSION=0.1.2-rc.1
+# DSH_VERSION / REVISION 没有默认值：唯一版本源是 docker/instance-image/VERSION，
+# 由 build.sh 或 CI 传进来（tag = <DSH_VERSION>_<REVISION>，见 D22）。
+ARG DSH_VERSION
+ARG REVISION
 ARG PNPM_VERSION=10.15.1
 ARG INSTALL_TOOLCHAIN=1
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=unknown
 
 # ---- Caddy：官方静态二进制 ------------------------------------------------
 FROM ${CADDY_IMAGE} AS caddy
@@ -28,7 +33,15 @@ RUN cp /usr/bin/caddy /caddy
 FROM ${NODE_IMAGE} AS installer
 
 ARG DSH_VERSION
+ARG REVISION
 ARG PNPM_VERSION
+
+# 缺参数就停：静默装一个过期 dsh（比 tag 说的版本旧）比构建失败糟得多。
+RUN if [ -z "${DSH_VERSION}" ] || [ -z "${REVISION}" ]; then \
+      echo "DSH_VERSION 和 REVISION 必须显式传入。" >&2; \
+      echo "用 docker/instance-image/build.sh 构建，或传 --build-arg DSH_VERSION=<dsh版本> --build-arg REVISION=<修订号>。" >&2; \
+      exit 1; \
+    fi
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
@@ -48,6 +61,21 @@ RUN apt-get update \
 FROM ${NODE_IMAGE} AS runtime
 
 ARG INSTALL_TOOLCHAIN
+ARG DSH_VERSION
+ARG REVISION
+ARG GIT_SHA
+ARG BUILD_TIME
+
+# tag 给人看（<dsh版本>_<修订号>），label 给机器读：`docker inspect` 就能回答「这版里是哪个 dsh」。
+LABEL org.opencontainers.image.title="dsh-instance" \
+      org.opencontainers.image.description="DeepSeek Harness instance image: Node 24 + dsh + Caddy + tini" \
+      org.opencontainers.image.version="${DSH_VERSION}_${REVISION}" \
+      org.opencontainers.image.source="https://github.com/eskim2001/dsh-cloud" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      org.opencontainers.image.licenses="MIT" \
+      io.dsh-cloud.dsh.version="${DSH_VERSION}" \
+      io.dsh-cloud.image.revision="${REVISION}"
 
 # git / curl 是 agent 的日常工具；ca-certificates 供 HTTPS。
 # 编译器默认保留（INSTALL_TOOLCHAIN=1）—— 去掉它会让 npm 装原生依赖时
