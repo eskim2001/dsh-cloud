@@ -2,15 +2,18 @@
 #
 # file provider 在 directory 模式下**只读 yml/yaml/toml**，json 会被静默忽略。
 #
-# 用 app.dsh.test 而不是 localhost：Chrome 不认 `Domain=.localhost`，
-# 跨子域登录态在浏览器里测不出来（见 docker/dns/Corefile 注释）。
+# 用 platform.lvh.me 而不是 localhost：Chrome 不认 `Domain=.localhost`，
+# 跨子域登录态在浏览器里测不出来。
 #
-# 走 websecure（:443）+ `tls: {}`：证书来自 tls.yml 里的 mkcert 静态证书。
+# *.lvh.me 是公共通配 DNS（全网解析到 127.0.0.1），不用起本地 DNS 容器，
+# 也就不会和 Clash 之类占用 :53 的程序撞车。
+#
+# 走 websecure（:443）+ `tls: {}`：证书来自 tls.yml 里的自签静态证书。
 # router 上的 tls 必须显式写，entryPoint 开了 TLS 不代表 router 自动有。
 http:
   routers:
     platform-web:
-      rule: Host(`app.dsh.test`)
+      rule: Host(`platform.lvh.me`)
       service: platform-web
       entryPoints: [websecure]
       tls: {}

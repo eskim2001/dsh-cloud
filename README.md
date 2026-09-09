@@ -66,7 +66,7 @@
 
 ## 快速开始
 
-以下步骤启动的是**本地开发管理台**。打开 `dsh` 实例还需要完成后续入口配置。仓库内的 Compose 栈提供本地 DNS 和 Traefik，并非完整的生产安装方案。
+以下步骤启动的是**本地开发管理台**。打开 `dsh` 实例还需要完成后续入口配置。仓库内的 Compose 栈提供本地 Traefik 入口（带自签 TLS），并非完整的生产安装方案。
 
 ### 前置条件
 
@@ -114,13 +114,17 @@ TRAEFIK_ROUTES_PATH=./traefik-dynamic/routes.yml
 pnpm --filter @dsh-cloud/server db:migrate
 ```
 
-### 4. 构建实例镜像
+### 4. 准备实例镜像
+
+**不用本地构建**——在管理台「镜像管理」页点「同步」，把 GHCR 上的版本拉进目录，再对某个版本「下载」→「发布」→「设为默认」即可；新建实例时会自动拉取缺的镜像。见 [D23](docs/DECISIONS.md)。
+
+只有改了 `docker/instance-image/` 才需要本地构建：
 
 ```bash
 ./docker/instance-image/build.sh
 ```
 
-tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式是 `<dsh版本>_<修订号>`（如 `0.1.2-rc.1_2`），本地和 CI 打的是同一个全名 `ghcr.io/eskim2001/dsh-instance:<tag>`。构建完在管理台「镜像管理」页把它发布并设为默认——之后新建实例用哪一版由库里那行「默认版本」决定。见 [D22](docs/DECISIONS.md)。
+tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式是 `<dsh版本>_<修订号>`（如 `0.1.2-rc.1_2`），本地和 CI 打的是同一个全名 `ghcr.io/eskim2001/dsh-instance:<tag>`。见 [D22](docs/DECISIONS.md)。
 
 ### 5. 启动管理台
 
@@ -140,15 +144,27 @@ pnpm dev:web
 
 ### 6. 启用实例访问
 
-创建并打开实例前，请按[本地入口指南](docker/compose/README.md)配置 DNS、受信本地 TLS 证书和 Traefik。该指南目前面向 macOS 与 Docker Desktop。
+创建并打开实例前还需要入口栈（面向 macOS + Docker Desktop）。完整说明见[本地入口指南](docker/compose/README.md)，这里是最短路径。
 
-保留第 2 步中可写的 `TRAEFIK_ROUTES_PATH`，并应用指南中的 HTTPS、域名和 forward-auth 配置。完成证书与 DNS 配置后，启动入口栈：
+先签一张自签证书——`docker/traefik/certs/` 在 `.gitignore` 里（私钥不进仓库），**新 clone 的机器上要先自己签**：
+
+```bash
+mkdir -p docker/traefik/certs
+```
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 825 -keyout docker/traefik/certs/lvh.me-key.pem -out docker/traefik/certs/lvh.me.pem -subj "/CN=platform.lvh.me" -addext "subjectAltName=DNS:platform.lvh.me,DNS:*.platform.lvh.me"
+```
+
+再把第 2 步那组 HTTP 配置换成入口形态：`BASE_DOMAIN=platform.lvh.me`、`PUBLIC_SCHEME=https`、`TRAEFIK_ENTRYPOINT=websecure`、`TRAEFIK_CERT_RESOLVER=`（空）、`FORWARD_AUTH_ADDRESS=http://host.docker.internal:3000/auth/verify`，`TRAEFIK_ROUTES_PATH` 保留仓库内路径。
+
+启动入口栈：
 
 ```bash
 docker compose -f docker/compose/local.yml up -d
 ```
 
-重启控制面，改从 `https://app.dsh.test/` 登录，不要使用 localhost 地址。这样会话 cookie 才具有实例子域需要的域作用域。如果此前使用其他 `BASE_DOMAIN` 创建过实例，请按指南重建这些实例。
+重启控制面，改从 `https://platform.lvh.me/` 登录（自签证书会红锁，点「继续访问」）。不要使用 localhost 地址——主机名不对，会话 cookie 落不到实例子域上。如果此前使用其他 `BASE_DOMAIN` 创建过实例，请重建这些实例。
 
 ## 架构
 

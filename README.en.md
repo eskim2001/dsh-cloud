@@ -65,7 +65,7 @@
 
 ## Getting Started
 
-The instructions below start the **local development console**. Opening a `dsh` instance additionally requires the ingress setup described afterwards. The included Compose stack provides local DNS and Traefik, not a complete production installation.
+The instructions below start the **local development console**. Opening a `dsh` instance additionally requires the ingress setup described afterwards. The included Compose stack provides local Traefik ingress (with self-signed TLS), not a complete production installation.
 
 ### Prerequisites
 
@@ -113,13 +113,17 @@ See [.env.example](.env.example) for the complete configuration template and [en
 pnpm --filter @dsh-cloud/server db:migrate
 ```
 
-### 4. Build the instance image
+### 4. Prepare the instance image
+
+**No local build needed** — on the "Images" page in the console, click "Sync" to pull GHCR tags into the catalog, then "Download" → "Publish" → "Set as default" for the version you want; missing images are pulled automatically when an instance is created. See [D23](docs/DECISIONS.md).
+
+Build locally only if you changed `docker/instance-image/`:
 
 ```bash
 ./docker/instance-image/build.sh
 ```
 
-The tag comes from [VERSION](docker/instance-image/VERSION) and reads `<dsh version>_<our revision>` (e.g. `0.1.2-rc.1_2`); local builds and CI use the same full name `ghcr.io/eskim2001/dsh-instance:<tag>`. Then publish it and mark it as default on the "Images" page in the console — which version new instances get is decided by the row marked default in the database. See [D22](docs/DECISIONS.md).
+The tag comes from [VERSION](docker/instance-image/VERSION) and reads `<dsh version>_<our revision>` (e.g. `0.1.2-rc.1_2`); local builds and CI use the same full name `ghcr.io/eskim2001/dsh-instance:<tag>`. See [D22](docs/DECISIONS.md).
 
 ### 5. Start the console
 
@@ -139,15 +143,27 @@ The `dev:local` script explicitly loads the environment file. The root `dev:serv
 
 ### 6. Enable instance access
 
-Before creating and opening instances, follow the [local ingress guide](docker/compose/README.md) for DNS, trusted local TLS certificates and Traefik. That guide currently targets macOS with Docker Desktop.
+Opening instances additionally requires the ingress stack (targets macOS with Docker Desktop). See the [local ingress guide](docker/compose/README.md) for the full picture; here is the short path.
 
-Keep the writable `TRAEFIK_ROUTES_PATH` from step 2 and apply the guide's HTTPS/domain and forward-auth settings. Once the certificates and DNS are configured, start the ingress stack:
+First generate a self-signed certificate — `docker/traefik/certs/` is in `.gitignore` (private keys never enter the repository), so a **fresh clone has none**:
+
+```bash
+mkdir -p docker/traefik/certs
+```
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 825 -keyout docker/traefik/certs/lvh.me-key.pem -out docker/traefik/certs/lvh.me.pem -subj "/CN=platform.lvh.me" -addext "subjectAltName=DNS:platform.lvh.me,DNS:*.platform.lvh.me"
+```
+
+Then switch the HTTP-only settings from step 2 to the ingress form: `BASE_DOMAIN=platform.lvh.me`, `PUBLIC_SCHEME=https`, `TRAEFIK_ENTRYPOINT=websecure`, `TRAEFIK_CERT_RESOLVER=` (empty), `FORWARD_AUTH_ADDRESS=http://host.docker.internal:3000/auth/verify`, keeping `TRAEFIK_ROUTES_PATH` inside the repository.
+
+Start the ingress stack:
 
 ```bash
 docker compose -f docker/compose/local.yml up -d
 ```
 
-Restart the server and sign in at `https://app.dsh.test/`, not the localhost URL. This gives the session cookie the domain scope needed for instance subdomains. If you created instances under a different `BASE_DOMAIN`, rebuild them as described in the guide.
+Restart the server and sign in at `https://platform.lvh.me/` (the self-signed certificate triggers a browser warning; continue past it). Do not use the localhost URL — the host name is wrong and the session cookie will not reach instance subdomains. If you created instances under a different `BASE_DOMAIN`, rebuild them.
 
 ## Architecture
 

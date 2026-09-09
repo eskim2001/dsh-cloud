@@ -53,6 +53,20 @@ pnpm install
 ```
 
 ```bash
+cp .env.example apps/server/.env.local
+```
+
+填 `DATABASE_URL`、两个 secret（`openssl rand -hex 32`）、`SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`。数据库要自己起（compose 栈里没有 Postgres）。
+
+```bash
+pnpm --filter @dsh-cloud/server db:migrate
+```
+
+```bash
+pnpm --filter @dsh-cloud/server db:seed
+```
+
+```bash
 pnpm -r typecheck
 ```
 
@@ -60,10 +74,10 @@ pnpm -r typecheck
 pnpm -r test
 ```
 
-实例镜像：
+实例镜像：正常**不用本地构建**——控制面起来后在「镜像管理」页「同步」→「下载」→「发布」，建实例时缺镜像会自动 pull。只有改了 `docker/instance-image/` 才：
 
 ```bash
-docker build -f docker/instance-image/Dockerfile -t dsh-instance:0.1.0 docker/instance-image/
+./docker/instance-image/build.sh
 ```
 
 存储自检（宿主持久化 / 配额 / 扩容缩容，会动 Docker）：

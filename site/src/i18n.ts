@@ -53,7 +53,7 @@ const zh = {
   copyFailed: '复制失败，请选中文本复制',
   ingressTitle: '打开实例还需要什么？',
   ingressText: '实例镜像、可用的宿主存储助手，以及 DNS、TLS 和 Traefik 入口。仅启动管理台不能直接打开实例。域名和 cookie 作用域必须与实例子域匹配。',
-  imageCommand: 'docker build -f docker/instance-image/Dockerfile -t dsh-instance:0.1.0 docker/instance-image/',
+  imageCommand: './docker/instance-image/build.sh',
   readiness: '当前不是生产可用版本。部署前须验证目标宿主隔离、备份与恢复、DNS/TLS 和运行环境。',
   faqTitle: '几个值得先问的问题。',
   faq: [
@@ -128,7 +128,7 @@ const en: Dictionary = {
   copyFailed: 'Copy failed. Select the text to copy it.',
   ingressTitle: 'What else does instance access need?',
   ingressText: 'An instance image, a working host-storage helper, and DNS, TLS and Traefik ingress. Starting the console alone does not provide instance access. Domain and cookie scopes must match your instance subdomains.',
-  imageCommand: 'docker build -f docker/instance-image/Dockerfile -t dsh-instance:0.1.0 docker/instance-image/',
+  imageCommand: './docker/instance-image/build.sh',
   readiness: 'Not production-ready. Validate target-host isolation, backup and recovery, DNS/TLS and the runtime environment before deployment.',
   faqTitle: 'Good questions to ask first.',
   faq: [
