@@ -57,7 +57,7 @@ describe.runIf(process.env.DSH_SECURITY_INTEGRATION === '1')('real Traefik sessi
     const config = buildTraefikConfig([{ instance: 'alice', hostname: 'alice.app.example.com' }], {
       forwardAuthAddress: `${origin}/auth/verify`, entryPoint: 'web',
     })
-    config.http.services['instance-alice']!.loadBalancer.servers = [{ url: origin }]
+    config.http.services!['instance-alice']!.loadBalancer.servers = [{ url: origin }]
     directory = await mkdtemp(join(tmpdir(), 'dsh-security-ingress-'))
     await writeFile(join(directory, 'routes.yml'), stringify(config))
     container = await createDocker().createContainer({
