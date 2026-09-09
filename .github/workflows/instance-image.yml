@@ -139,6 +139,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # 必须两个架构都在：少一个就失败，绝不静默发一个单架构的 tag。
+      # digest 存在**文件名**里（Export digest 是 touch 出来的空文件），不是文件内容。
       - name: Merge digests into one tag
         run: |
           set -euo pipefail
@@ -148,7 +149,15 @@ jobs:
             echo "期望 2 个架构的 digest，实际 $count 个——中止，不建 tag" >&2
             exit 1
           fi
-          images=$(for f in /tmp/digests/*; do echo "ghcr.io/eskim2001/dsh-instance@sha256:$(cat "$f")"; done | tr '\n' ' ')
+          images=""
+          for f in /tmp/digests/*; do
+            digest=$(basename "$f")
+            if ! [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "digest 文件名不像 sha256：$digest" >&2
+              exit 1
+            fi
+            images="$images ghcr.io/eskim2001/dsh-instance@sha256:$digest"
+          done
           echo "合并：$images"
           docker buildx imagetools create -t "ghcr.io/eskim2001/dsh-instance:$VERSION" $images
           echo "已发布 ghcr.io/eskim2001/dsh-instance:$VERSION（amd64 + arm64）"
