@@ -32,7 +32,13 @@ export interface TraefikOptions {
 export interface TraefikConfig {
   http: {
     middlewares: Record<string, { forwardAuth: { address: string; authResponseHeaders: string[] } }>
-    routers: Record<
+    /**
+     * 没有实例时**整个键省略**，不要输出空 map：Traefik v3.5 的 file provider 遇到
+     * 「有 middlewares、但 routers/services 是空 map」会拒收整份文件
+     * （`routers cannot be a standalone element`），platform-auth 中间件跟着丢。
+     * 省略和空 map 对 Traefik 是等价的。
+     */
+    routers?: Record<
       string,
       {
         rule: string
@@ -42,7 +48,7 @@ export interface TraefikConfig {
         tls?: { certResolver?: string }
       }
     >
-    services: Record<string, { loadBalancer: { servers: Array<{ url: string }> } }>
+    services?: Record<string, { loadBalancer: { servers: Array<{ url: string }> } }>
   }
 }
 
@@ -64,6 +70,29 @@ export function buildTraefikConfig(routes: TraefikRoute[], opts: TraefikOptions)
 
   const parsed = routes.map((r) => TraefikRouteSchema.parse(r))
 
+  const routers = Object.fromEntries(
+    parsed.map((r) => [
+      `instance-${r.instance}`,
+      {
+        rule: `Host(\`${r.hostname}\`)`,
+        service: `instance-${r.instance}`,
+        middlewares: [authName],
+        entryPoints: [entryPoint],
+        ...(opts.tls === undefined ? {} : { tls: opts.tls }),
+      },
+    ]),
+  )
+  const services = Object.fromEntries(
+    parsed.map((r) => [
+      `instance-${r.instance}`,
+      {
+        loadBalancer: {
+          servers: [{ url: `http://${containerName(r.instance)}:${BRIDGE_PORT}` }],
+        },
+      },
+    ]),
+  )
+
   return {
     http: {
       middlewares: {
@@ -75,28 +104,8 @@ export function buildTraefikConfig(routes: TraefikRoute[], opts: TraefikOptions)
           },
         },
       },
-      routers: Object.fromEntries(
-        parsed.map((r) => [
-          `instance-${r.instance}`,
-          {
-            rule: `Host(\`${r.hostname}\`)`,
-            service: `instance-${r.instance}`,
-            middlewares: [authName],
-            entryPoints: [entryPoint],
-            ...(opts.tls === undefined ? {} : { tls: opts.tls }),
-          },
-        ]),
-      ),
-      services: Object.fromEntries(
-        parsed.map((r) => [
-          `instance-${r.instance}`,
-          {
-            loadBalancer: {
-              servers: [{ url: `http://${containerName(r.instance)}:${BRIDGE_PORT}` }],
-            },
-          },
-        ]),
-      ),
+      // 空 map 会被 Traefik 拒收，没实例时就不输出这两个键（见 TraefikConfig.routers）
+      ...(parsed.length === 0 ? {} : { routers, services }),
     },
   }
 }
