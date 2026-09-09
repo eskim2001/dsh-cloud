@@ -1,0 +1,48 @@
+# 本地验证栈：Traefik 接入 + 认证前置。
+#
+# 拓扑刻意和生产一致，只有一处差异：
+#   - 控制面（apps/server）跑在**宿主**上（tsx 直跑，改代码即生效），不在容器里。
+#
+# TLS 也按生产那套走（:443 的 `websecure`），只是证书换成 mkcert 签的本地证书——
+# 先用 mkcert -install 把本地 CA 装进系统信任库，再 mkcert 签 *.app.dsh.test
+# （见 ../traefik/dynamic-dev/tls.yml 的注释）。
+#
+# 实例容器**不发布任何宿主端口**（铁律 6①）：控制面把 Traefik 接进每个实例
+# 网络（TRAEFIK_CONTAINER），它按容器名直连实例桥。只有 forward-auth 那一跳
+# 仍经 host.docker.internal 摸宿主上的控制面。
+#
+# 跑法见 docker/compose/README.md。控制面需要的环境变量在 apps/server/.env.local。
+services:
+  # 本地开发域解析：把 *.dsh.test 指到回环。
+  # 需要配合宿主上的一次性配置（见 README）：/etc/resolver/dsh.test → 127.0.0.1
+  dns:
+    image: coredns/coredns:1.11.3
+    restart: unless-stopped
+    command: ["-conf", "/etc/coredns/Corefile"]
+    ports:
+      - "127.0.0.1:53:53/udp"
+      - "127.0.0.1:53:53/tcp"
+    volumes:
+      - ../dns/Corefile:/etc/coredns/Corefile:ro
+
+  traefik:
+    image: traefik:v3.5
+    # 控制面按这个名字把入口接进实例网络（TRAEFIK_CONTAINER 的默认值）
+    container_name: dsh-ingress
+    restart: unless-stopped
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    ports:
+      - "80:80"
+      - "443:443"
+    extra_hosts:
+      # forward-auth 要摸宿主回环上的控制面（实例后端走 Docker 网络，不用这个）
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      # 控制面生成的实例路由（apps/server/traefik-dynamic/routes.yml）
+      - ../../apps/server/traefik-dynamic:/etc/traefik/dynamic
+      # 平台自己的域名（登录页 / API）——开发态指向 Vite
+      - ../traefik/dynamic-dev/platform.yml:/etc/traefik/dynamic/platform.yml:ro
+      # 本地 mkcert 证书（目录在 .gitignore 里，私钥不进仓库）
+      - ../traefik/certs:/etc/traefik/certs:ro
+      - ../traefik/dynamic-dev/tls.yml:/etc/traefik/dynamic/tls.yml:ro

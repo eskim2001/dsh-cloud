@@ -1,0 +1,13 @@
+# 本地 HTTPS 用的静态证书（mkcert 签的，SAN = *.app.dsh.test + app.dsh.test）。
+#
+# 证书目录在 .gitignore 里——私钥不进仓库。重签：
+#   mkcert -cert-file docker/traefik/certs/dsh.test.pem \
+#          -key-file  docker/traefik/certs/dsh.test-key.pem \
+#          "*.app.dsh.test" "app.dsh.test"
+# 并先 `mkcert -install` 把本地 CA 装进系统信任库，否则浏览器还是红锁。
+#
+# Traefik 按 SNI 匹配这里的证书，所以 router 上写 `tls: {}` 就够，不需要 certResolver。
+tls:
+  certificates:
+    - certFile: /etc/traefik/certs/dsh.test.pem
+      keyFile: /etc/traefik/certs/dsh.test-key.pem

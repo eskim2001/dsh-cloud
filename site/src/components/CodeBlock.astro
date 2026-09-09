@@ -1,0 +1,24 @@
+---
+import { Copy } from '@lucide/astro'
+interface Props { code: string; label: string; copied: string; failed: string }
+const { code, label, copied, failed } = Astro.props
+---
+<div class="code-block">
+  <div class="code-top"><span aria-hidden="true">TERMINAL</span><button type="button" class="copy-button" aria-label={label} title={label} data-copy data-copied={copied} data-failed={failed}><Copy size={16} /><span class="copy-feedback" aria-live="polite"></span></button></div>
+  <pre tabindex="0"><code>{code}</code></pre>
+</div>
+<script>
+  document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach(button => {
+    button.addEventListener('click', async () => {
+      const code = button.closest('.code-block')?.querySelector('code')?.textContent ?? ''
+      const feedback = button.querySelector<HTMLElement>('.copy-feedback')!
+      try {
+        await navigator.clipboard.writeText(code)
+        feedback.textContent = button.dataset.copied ?? ''
+      } catch {
+        feedback.textContent = button.dataset.failed ?? ''
+      }
+      window.setTimeout(() => { feedback.textContent = '' }, 3000)
+    })
+  })
+</script>

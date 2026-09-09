@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // 服务是应用不是库：不发 .d.ts。开着它会让 tsc 去「命名」better-auth
+    // 插件里那些引到 zod v4 core 的推断类型，然后报 TS2742（不可移植）。
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "*.ts"]
+}

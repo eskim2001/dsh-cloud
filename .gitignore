@@ -1,0 +1,22 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# 本地 agent 配置（含预置 skill），不进仓库
+.claude/
+
+# 控制面渲染给 Traefik 的动态配置（真相源是 DB）
+apps/server/traefik-dynamic/
+
+# 本地 HTTPS 证书（mkcert 签的，含私钥）
+docker/traefik/certs/
+*.pem
+*.key
+
+.env
+.env.*
+!.env.example
+
+.DS_Store
+*.log

@@ -1,0 +1,21 @@
+# 平台自己的域名（登录页 / API）——开发态指向 Vite。
+#
+# file provider 在 directory 模式下**只读 yml/yaml/toml**，json 会被静默忽略。
+#
+# 用 app.dsh.test 而不是 localhost：Chrome 不认 `Domain=.localhost`，
+# 跨子域登录态在浏览器里测不出来（见 docker/dns/Corefile 注释）。
+#
+# 走 websecure（:443）+ `tls: {}`：证书来自 tls.yml 里的 mkcert 静态证书。
+# router 上的 tls 必须显式写，entryPoint 开了 TLS 不代表 router 自动有。
+http:
+  routers:
+    platform-web:
+      rule: Host(`app.dsh.test`)
+      service: platform-web
+      entryPoints: [websecure]
+      tls: {}
+  services:
+    platform-web:
+      loadBalancer:
+        servers:
+          - url: http://host.docker.internal:5173

@@ -1,0 +1,27 @@
+// 仅供 `@better-auth/cli generate` 读取 schema 用，不参与运行时。
+// 校验方式：生成结果与本包 src/db/schema.ts 的 auth 部分必须一致。
+import { createAuth } from './src/auth.js'
+import { createDb } from './src/db/client.js'
+import type { Env } from './src/env.js'
+
+const env: Env = {
+  DATABASE_URL: 'postgres://localhost:5432/placeholder',
+  BASE_DOMAIN: 'app.example.com',
+  PLATFORM_SECRET: 'x'.repeat(32),
+  BETTER_AUTH_SECRET: 'y'.repeat(32),
+  PORT: 3000,
+  INSTANCE_IMAGE: 'placeholder',
+  INSTANCE_STABLE_IMAGES: '',
+  PUBLIC_SCHEME: 'https',
+  EXTRA_TRUSTED_ORIGINS: '',
+  TRAEFIK_CONTAINER: 'dsh-ingress',
+  TRAEFIK_ENTRYPOINT: 'websecure',
+  TRAEFIK_CERT_RESOLVER: '',
+  ADMIN_EMAILS: '',
+  MAX_INSTANCES_PER_USER: 3,
+  HOST_STORAGE_ROOT: '/var/lib/dsh',
+  STORAGE_HELPER_IMAGE: 'alpine:3.20',
+}
+
+const { db } = createDb(env.DATABASE_URL)
+export const auth = createAuth(env, db)

@@ -1,0 +1,25 @@
+# Traefik 静态配置：只负责「接入 + 认证前置」，不做服务发现、不开 dashboard。
+#
+# 动态部分（每个实例一条 router）由控制面渲染后写进 /etc/traefik/dynamic/
+# （见 apps/server/src/instance/traefik.ts）——Traefik 只是 DB 里实例表的投影，
+# 真相源始终是控制面。
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+# 多一个对外面就多一份攻击面；看路由用控制面，不用 dashboard
+api:
+  dashboard: false
+
+log:
+  level: INFO
+
+# 验收表要靠它取证（哪些请求被 forward-auth 挡了），别关
+accessLog: {}

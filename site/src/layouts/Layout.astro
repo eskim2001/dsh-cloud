@@ -1,0 +1,37 @@
+---
+import '@fontsource-variable/space-grotesk'
+import '@fontsource-variable/manrope'
+import '@fontsource-variable/noto-sans-sc'
+import '../styles/global.css'
+import { dictionaries, localizedPath, assetPath, type Locale } from '../i18n'
+interface Props { locale: Locale; title?: string }
+const { locale, title } = Astro.props
+const text = dictionaries[locale]
+const canonical = Astro.site ? new URL(localizedPath(locale), Astro.site).href : undefined
+---
+<!doctype html>
+<html lang={text.lang}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content={text.description} />
+    <title>{title ?? text.title}</title>
+    <link rel="icon" type="image/svg+xml" href={assetPath('brand/mark.svg')} />
+    {canonical && <link rel="canonical" href={canonical} />}
+    {Astro.site && <>
+      <link rel="alternate" hreflang="zh-CN" href={new URL(localizedPath('zh'), Astro.site)} />
+      <link rel="alternate" hreflang="en" href={new URL(localizedPath('en'), Astro.site)} />
+      <link rel="alternate" hreflang="x-default" href={new URL(localizedPath('zh'), Astro.site)} />
+    </>}
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={text.title} />
+    <meta property="og:description" content={text.description} />
+    <meta property="og:locale" content={locale === 'zh' ? 'zh_CN' : 'en_US'} />
+    {canonical && <meta property="og:url" content={canonical} />}
+  </head>
+  <body>
+    <a class="skip" href="#main">{text.skip}</a>
+    <slot />
+  </body>
+</html>

@@ -1,0 +1,5 @@
+---
+import Layout from '../layouts/Layout.astro'
+import { dictionaries, localizedPath } from '../i18n'
+---
+<Layout locale="zh" title="404 · dshcloud"><main id="main" class="not-found container"><a class="brand" href={localizedPath('zh')}>dshcloud<span aria-hidden="true">.</span></a><p class="eyebrow">404</p><h1>{dictionaries.zh.notFoundTitle}</h1><p>{dictionaries.zh.notFoundText}</p><p lang="en">{dictionaries.en.notFoundText}</p><div class="hero-actions"><a class="button primary" href={localizedPath('zh')}>{dictionaries.zh.home}</a><a class="button text-button" href={localizedPath('en')}>{dictionaries.en.home}</a></div></main></Layout>

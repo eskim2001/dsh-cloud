@@ -1,0 +1,6 @@
+# 平台 patch 覆盖层（D15）：把 owns-host.mjs 插进 web profile 的插件树。
+# entrypoint 用 `--patch /etc/platform/owns-host.yml` 挂上——profile 在 /data 卷里，
+# 走 CLI 参数而不是改 $DSH_HOME/profiles/web/cordis.patch.yml，升级/重建都不丢。
+- insert:
+    - id: platform-owns-host
+      name: /etc/platform/owns-host.mjs

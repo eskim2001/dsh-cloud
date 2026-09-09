@@ -1,0 +1,22 @@
+{
+	admin off
+	auto_https off
+}
+
+:{$BRIDGE_PORT:8080} {
+	# header 门：入口（Traefik）会注入 DSH_GATE_TOKEN，直连者没有 → 403。
+	# 独立网络下这是纵深防御的第二层，不是唯一屏障。
+	@no_gate not header {$DSH_GATE_HEADER} {$DSH_GATE_TOKEN}
+	respond @no_gate "forbidden" 403
+
+	# 入口 token 注入：dsh 每次启动随机生成一个入口 token，首次访问要带在
+	# query 上才能换到 cookie（见 docs/DECISIONS.md D14）。平台把「打开 dsh」
+	# 指向 /__open，由这里补上 token 转发——token 因此不进浏览器 URL。
+	@open path /__open
+	rewrite @open /?token={env.DSH_LAUNCH_TOKEN}
+
+	reverse_proxy 127.0.0.1:{$DSH_PORT:3080} {
+		# dsh 大量用流式输出（SSE），不要缓冲
+		flush_interval -1
+	}
+}

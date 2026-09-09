@@ -1,0 +1,65 @@
+<svg class="hero-whale animated-whale" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 450" width="166" height="136" aria-hidden="true" focusable="false">
+  <defs>
+    <path id="hero-brand-cloud" d="M38 376C32 358 46 345 66 346C74 320 109 313 132 330C145 340 151 350 151 360C185 379 222 383 260 377C280 375 299 370 316 362C302 379 278 391 251 399C289 402 322 398 348 386C360 370 382 365 402 374C411 344 441 335 458 351C468 361 471 372 467 381C479 386 482 394 474 403C466 413 450 417 428 416H135C94 416 62 402 38 376Z" />
+  </defs>
+  <g transform="translate(260 380)"><g class="cloud-horizon"><use href="#hero-brand-cloud" transform="translate(-260 -380)" /></g></g>
+  <g transform="translate(260 251.5)">
+    <g class="whale-rise">
+      <path transform="translate(-260 -251.5)" fill-rule="evenodd" d="M69 170C74 125 112 92 163 87C215 81 256 108 284 150C311 191 322 218 353 232C369 213 376 193 372 172C370 162 376 158 383 167C398 184 405 202 400 222C420 210 443 215 461 204C470 199 475 204 471 214C459 247 435 265 402 266C388 296 366 316 340 325C353 335 370 341 382 343C391 345 390 352 381 355C345 366 310 349 287 324C246 348 195 346 151 325C98 300 61 242 69 170ZM88 192C97 244 130 286 173 304C194 313 213 316 230 313C207 301 191 285 184 269C178 256 182 253 194 258C218 269 236 288 253 301C264 309 274 315 282 317C264 299 249 272 235 255C194 206 143 184 88 192Z" />
+    </g>
+  </g>
+  <g transform="translate(260 380)"><g class="cloud-body"><use href="#hero-brand-cloud" transform="translate(-260 -380)" /></g></g>
+  <g transform="translate(260 408)"><g class="cloud-wake"><use href="#hero-brand-cloud" transform="translate(-260 -380)" /></g></g>
+</svg>
+
+<style>
+  .animated-whale {
+    width: 166px;
+    height: 136px;
+    fill: #18181b;
+    animation: none;
+    overflow: visible;
+  }
+  .whale-rise { animation: whale-rise 8s cubic-bezier(.4, 0, .2, 1) infinite; }
+  .cloud-body { animation: cloud-breathe 8s ease-in-out infinite; }
+  .cloud-horizon {
+    fill: #cce6dc;
+    opacity: 0;
+    transform: translate(0, -12px) scale(.8, .72);
+    animation: cloud-horizon 8s ease-in-out infinite;
+  }
+  .cloud-wake {
+    fill: #70a995;
+    opacity: 0;
+    transform: scale(.7, .16);
+    animation: cloud-wake 8s ease-in-out infinite;
+  }
+  @keyframes whale-rise {
+    0%, 16%, 88%, 100% { transform: translate(0, 0) rotate(0); }
+    30% { transform: translate(4px, 16px) rotate(-4deg); }
+    49% { transform: translate(-9px, -54px) rotate(9deg); }
+    61% { transform: translate(-4px, -40px) rotate(5deg); }
+    76% { transform: translate(2px, 9px) rotate(-2deg); }
+  }
+  @keyframes cloud-breathe {
+    0%, 16%, 88%, 100% { transform: scale(1); }
+    30% { transform: scale(.97, 1.03); }
+    52% { transform: scale(1.045, .95); }
+    76% { transform: scale(1.035, 1.035); }
+  }
+  @keyframes cloud-horizon {
+    0%, 16%, 88%, 100% { opacity: 0; transform: translate(0, -12px) scale(.8, .72); }
+    38% { opacity: .75; transform: translate(-12px, -24px) scale(1.06, .78); }
+    58% { opacity: 1; transform: translate(12px, -27px) scale(1.1, .8); }
+    76% { opacity: .35; transform: translate(20px, -12px) scale(1.03, .72); }
+  }
+  @keyframes cloud-wake {
+    0%, 30%, 90%, 100% { opacity: 0; transform: scale(.7, .16); }
+    58% { opacity: .4; transform: translate(-8px, 0) scale(.86, .18); }
+    76% { opacity: .24; transform: translate(8px, 0) scale(1, .16); }
+  }
+  @media (max-width: 640px) { .animated-whale { width: 128px; height: 104px; } }
+  @media (prefers-reduced-motion: reduce) {
+    .whale-rise, .cloud-body, .cloud-horizon, .cloud-wake { animation: none; }
+  }
+</style>

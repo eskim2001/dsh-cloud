@@ -1,0 +1,12 @@
+{
+  "name": "dsh-cloud-brand-animation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node render.mjs"
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "@xmldom/xmldom": "0.9.12"
+  }
+}

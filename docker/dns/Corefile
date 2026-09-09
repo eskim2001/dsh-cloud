@@ -1,0 +1,15 @@
+# 本地开发域解析：dsh.test 整个域（含所有子域）指向回环。
+#
+# 为什么不用 .localhost：Chrome 把 `Domain=.localhost` 的会话 cookie 存成
+# host-only，不会发给实例子域，跨子域登录态在浏览器里根本不成立。
+# .dsh.test 是 Chrome 认的可注册域，cookie 域作用域和线上同构。
+#
+# 为什么不用 localtest.me / nip.io 这类公共通配 DNS：会被 Clash 的 fake-IP
+# 劫持到 198.18.x.x，浏览器到不了本地。
+#
+# 只答 A 不答 AAAA：Traefik 在容器里只发布 IPv4，答了 ::1 反而先连失败。
+dsh.test:53 {
+    template IN A dsh.test {
+        answer "{{ .Name }} 60 IN A 127.0.0.1"
+    }
+}

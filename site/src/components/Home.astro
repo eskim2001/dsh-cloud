@@ -1,0 +1,82 @@
+---
+import { ArrowUpRight, ArrowRight, ArrowDown, ArrowUp, Box, HardDrive, SlidersHorizontal, ShieldCheck, Earth, Menu, Plus, Check, GitBranch, Terminal } from '@lucide/astro'
+import Layout from '../layouts/Layout.astro'
+import CodeBlock from './CodeBlock.astro'
+import WhaleAnimation from './WhaleAnimation.astro'
+import { dictionaries, localizedPath, assetPath, type Locale } from '../i18n'
+interface Props { locale: Locale }
+const { locale } = Astro.props
+const text = dictionaries[locale]
+const other: Locale = locale === 'zh' ? 'en' : 'zh'
+const repository = import.meta.env.PUBLIC_REPOSITORY_URL || 'https://github.com/eskim2001/dsh-cloud'
+const icons = [Box, HardDrive, SlidersHorizontal, ShieldCheck]
+const sections = ['capabilities', 'isolation', 'start']
+---
+<Layout locale={locale}>
+  <header class="header" id="top">
+    <div class="container header-inner">
+      <a class="brand" href={localizedPath(locale)} aria-label="dshcloud"><img src={assetPath('brand/mark.svg')} width="34" height="30" alt="" /><span>dsh<span class="muted">cloud</span><span class="brand-dot" aria-hidden="true">.</span></span></a>
+      <nav class="desktop-nav" aria-label={text.menu}>{text.nav.map((label, index) => <a href={`#${sections[index]}`}>{label}</a>)}</nav>
+      <div class="nav-actions">
+        <a class="language" href={localizedPath(other)} lang={dictionaries[other].lang} aria-label={text.languageLabel}><Earth size={16} /><span>{text.language}</span></a>
+        {repository && <a class="source-link" href={repository} target="_blank" rel="noopener noreferrer">GitHub <ArrowUpRight size={16} /></a>}
+        <details class="mobile-menu"><summary aria-label={text.menu}><Menu size={22} /></summary><nav aria-label={text.menu}>{text.nav.map((label, index) => <a href={`#${sections[index]}`}>{label}</a>)}<a href={repository} target="_blank" rel="noopener noreferrer">{text.source}</a></nav></details>
+      </div>
+    </div>
+  </header>
+  <main id="main">
+    <section class="hero">
+      <div class="hero-grid" aria-hidden="true"></div>
+      <div class="container hero-inner">
+        <div class="hero-topline"><span class="eyebrow">{text.eyebrow}</span><span class="license-pill"><span class="status-dot"></span>{text.badge}</span></div>
+        <div class="hero-identity"><WhaleAnimation /><h1 class="hero-wordmark">dsh<span class="wordmark-cloud">cloud</span><span aria-hidden="true">.</span></h1></div>
+        <h2 class="hero-subtitle">{text.headline[0]}<br class="mobile-break" /> {text.headline[1]}</h2>
+        <p class="hero-intro">{text.intro}</p>
+        <div class="hero-actions"><a class="button primary" href="#start">{text.primary}<ArrowUpRight size={19} /></a><a class="button text-button" href="#isolation">{text.secondary}<ArrowRight size={18} /></a></div>
+        <div class="hero-bottom"><p><span class="status-dot"></span>{text.early}</p><a href="#capabilities">{text.scroll}<ArrowDown size={16} /></a></div>
+      </div>
+    </section>
+    <div class="ribbon"><div class="container">{text.ribbon.map(label => <span><Check size={16} />{label}</span>)}</div></div>
+
+    <section id="capabilities" class="section container">
+      <span class="eyebrow">{text.capabilitiesKicker}</span>
+      <div class="section-heading"><h2>{text.capabilitiesTitle}</h2><p>{text.capabilitiesIntro}</p></div>
+      <div class="capabilities">{text.capabilities.map((item, index) => { const Icon = icons[index]; return <article class="capability"><div class="capability-top"><Icon size={26} stroke-width={1.5} /><span>0{index + 1}</span></div><h3>{item.title}</h3><p>{item.text}</p><span class="technical">{item.detail}</span></article> })}</div>
+    </section>
+
+    <section id="isolation" class="boundary section">
+      <div class="container">
+        <span class="eyebrow">{text.boundaryKicker}</span>
+        <div class="section-heading"><h2>{text.boundaryTitle}</h2><p>{text.boundaryIntro}</p></div>
+        <ol class="flow">{text.flow.map((label, index) => <li><span class="flow-index">0{index + 1}</span><strong>{label}</strong>{index < 3 ? <ArrowRight size={19} /> : <ShieldCheck size={21} />}</li>)}</ol>
+        <div class="boundary-items">{text.boundaryItems.map(([title, description]) => <article><h3>{title}</h3><p>{description}</p></article>)}</div>
+        <p class="boundary-note"><ShieldCheck size={17} />{text.boundaryNote}</p>
+      </div>
+    </section>
+
+    <section id="start" class="section container">
+      <span class="eyebrow">{text.startKicker}</span>
+      <div class="section-heading"><h2>{text.startTitle}</h2><p>{text.startIntro}</p></div>
+      <div class="prerequisites"><span>{text.prerequisitesTitle}</span><ul>{text.prerequisites.map(item => <li>{item}</li>)}</ul></div>
+      <div class="steps">{text.steps.map((step, index) => <article class="step"><div class="step-copy"><span class="step-index">0{index + 1}</span><div><h3>{step.title}</h3><p>{step.text}</p></div></div><CodeBlock code={step.code} label={text.copy} copied={text.copied} failed={text.copyFailed} /></article>)}</div>
+      <details class="ingress"><summary><span><Terminal size={20} />{text.ingressTitle}</span><Plus size={19} /></summary><div class="ingress-content"><p>{text.ingressText}</p><CodeBlock code={text.imageCommand} label={text.copy} copied={text.copied} failed={text.copyFailed} /></div></details>
+      <p class="readiness"><span class="status-dot"></span>{text.readiness}</p>
+    </section>
+
+    <section class="faq-band"><div class="container faq"><div><span class="eyebrow">FAQ</span><h2>{text.faqTitle}</h2></div><div>{text.faq.map(([question, answer]) => <details><summary>{question}<Plus size={20} /></summary><p>{answer}</p></details>)}</div></div></section>
+    <section class="closing container"><GitBranch size={25} stroke-width={1.5} /><h2>{text.closing}</h2><a class="button primary" href={repository || '#start'}>{repository ? text.source : text.primary}<ArrowUpRight size={18} /></a></section>
+  </main>
+  <footer class="footer"><div class="container footer-inner"><div><a class="brand" href={localizedPath(locale)}>dshcloud<span class="brand-dot">.</span></a><p>{text.footer}</p></div><div class="footer-links"><a href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noopener noreferrer">{text.upstream}<ArrowUpRight size={14} /></a>{repository ? <a href={`${repository}/blob/main/LICENSE`}>{text.license}</a> : <span>{text.license}</span>}<a href="#top">{text.top}<ArrowUp size={15} /></a></div></div></footer>
+</Layout>
+<style>
+  h1.hero-wordmark { color: #18181b; }
+  h1.hero-wordmark .wordmark-cloud { color: #71717a; }
+</style>
+<script>
+  document.querySelectorAll('.mobile-menu nav a').forEach(link => link.addEventListener('click', () => {
+    document.querySelector('.mobile-menu')?.removeAttribute('open')
+  }))
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') document.querySelector('.mobile-menu')?.removeAttribute('open')
+  })
+</script>
