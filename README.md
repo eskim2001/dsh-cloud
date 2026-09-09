@@ -37,19 +37,31 @@
 
 ## Screenshots
 
-Instance list and instance details:
+### Instance list
 
-<p align="center">
-  <img src="docs/screenshots/en/instances.png" alt="Instance list" width="420">
-  <img src="docs/screenshots/en/instance.png" alt="Instance details, version and upgrade" width="420">
+<p>
+  <a href="docs/screenshots/en/instances.png"><img src="docs/screenshots/en/instances.png" alt="Instance list" width="100%"></a>
 </p>
 
-Administration and sign-in:
+### Instance details
 
-<p align="center">
-  <img src="docs/screenshots/en/admin.png" alt="Administration console" width="420">
-  <img src="docs/screenshots/en/login.png" alt="Sign-in page" width="420">
+<p>
+  <a href="docs/screenshots/en/instance.png"><img src="docs/screenshots/en/instance.png" alt="Instance details, version and upgrade" width="100%"></a>
 </p>
+
+<details>
+  <summary>Administration console</summary>
+  <p>
+    <a href="docs/screenshots/en/admin.png"><img src="docs/screenshots/en/admin.png" alt="Administration console" width="100%"></a>
+  </p>
+</details>
+
+<details>
+  <summary>Sign-in page</summary>
+  <p>
+    <a href="docs/screenshots/en/login.png"><img src="docs/screenshots/en/login.png" alt="Sign-in page" width="100%"></a>
+  </p>
+</details>
 
 ## Getting Started
 

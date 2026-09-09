@@ -37,19 +37,31 @@
 
 ## 截图
 
-实例列表与实例详情：
+### 实例列表
 
-<p align="center">
-  <img src="docs/screenshots/zh-CN/instances.png" alt="实例列表" width="420">
-  <img src="docs/screenshots/zh-CN/instance.png" alt="实例详情、版本与升级" width="420">
+<p>
+  <a href="docs/screenshots/zh-CN/instances.png"><img src="docs/screenshots/zh-CN/instances.png" alt="实例列表" width="100%"></a>
 </p>
 
-平台管理与登录：
+### 实例详情
 
-<p align="center">
-  <img src="docs/screenshots/zh-CN/admin.png" alt="平台管理台" width="420">
-  <img src="docs/screenshots/zh-CN/login.png" alt="登录页" width="420">
+<p>
+  <a href="docs/screenshots/zh-CN/instance.png"><img src="docs/screenshots/zh-CN/instance.png" alt="实例详情、版本与升级" width="100%"></a>
 </p>
+
+<details>
+  <summary>平台管理台</summary>
+  <p>
+    <a href="docs/screenshots/zh-CN/admin.png"><img src="docs/screenshots/zh-CN/admin.png" alt="平台管理台" width="100%"></a>
+  </p>
+</details>
+
+<details>
+  <summary>登录页</summary>
+  <p>
+    <a href="docs/screenshots/zh-CN/login.png"><img src="docs/screenshots/zh-CN/login.png" alt="登录页" width="100%"></a>
+  </p>
+</details>
 
 ## 快速开始
 
