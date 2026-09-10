@@ -24,7 +24,7 @@
 
 **dshcloud** adds account management, instance provisioning and access control to [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`). Each instance runs in its own Docker container, with a dedicated network, persistent data filesystem and resource limits. Users access their instances through an authenticated subdomain; operators manage accounts, capacity and instance versions from a web console.
 
-> **Early development.** Use this project for evaluation and development. It is not production-ready; deployment validation and security work remain open. See [Security and Limitations](#security-and-limitations) before exposing it to the internet.
+> **Early development.** Use this project for evaluation and development. It is not production-ready; deployment validation and security work remain open. See the permission boundaries and operational limits in the [architecture and security model](docs/ARCHITECTURE.md) before exposing it to the internet.
 
 ## Features
 
@@ -132,106 +132,11 @@ Then create one on the "Instances" page and open it.
 
 > For the ingress topology, why `lvh.me`, and the pitfalls (Clash PAC, restarting the container after ingress config changes), see the [local ingress guide](docker/compose/README.md).
 
-## Architecture
-
-```text
-Browser
-  |
-  v
-Traefik (TLS and routing)
-  |-- Base domain ------> Web console / Fastify control plane
-  |                                         |-- PostgreSQL
-  |                                         |-- Docker API
-  |
-  `-- Instance subdomain -> Forward-auth (session + owner)
-                          -> Per-instance network
-                          -> Caddy gate -> dsh
-                                             `-- /data
-```
-
-The control plane provisions containers, storage and routes. Traefik joins each instance's dedicated bridge network and reaches the instance without a published host port. After owner authorization, it forwards an instance-specific token that the in-container gate checks.
-
-The backend uses Fastify, Drizzle and dockerode; the console uses Vite, React and shadcn/ui. Runtime specifications and the Docker renderer live in [packages/instance-spec](packages/instance-spec). See the [architecture document](docs/ARCHITECTURE.md) for the full design.
-
-## Security and Limitations
-
-**Treat every instance container as an untrusted code execution environment.** Running shell commands, installing dependencies and writing files inside an instance are expected behavior, not a security exception.
-
-### Access and data boundaries
-
-- **Instance owners** access their own `dsh`, workspace, usage metrics and logs. Being signed in is not enough to open someone else's instance.
-- **Platform administrators** manage users, quotas and image versions, and can inspect instance status and container logs. The platform provides no administrator interface for reading or browsing users' `/data` content, and the instance ingress has no administrator bypass.
-- **Usage visibility in the current implementation:** Live CPU/memory/disk usage and metric history are owner-only endpoints. The administrator console currently exposes resource allocations, not other users' live usage metrics; do not confuse quota with usage.
-- **Logs are not private file storage:** Container output may contain user content or secrets. Administrator log access does not imply that logs are free of sensitive data.
-- **Host access is a separate trust boundary:** A host or Docker operator can access underlying storage. Application-level restrictions are not encryption against the host operator. Keep platform secrets, database credentials and the Docker socket out of instance containers.
-- **Session isolation:** The trusted ingress removes platform cookies after authorization while preserving instance cookies. Control-plane writes require an exact trusted `Origin`; the authentication plugin's native account-administration endpoints are disabled.
-
-### Operational limits
-
-- Containers run as non-root, drop Linux capabilities and use `no-new-privileges`, but still share the host kernel. This is not VM-level isolation. Outbound network access is currently unrestricted.
-- The disk quota limits the `/data` filesystem, not all host storage. Container writable layers, logs and upgrade snapshots require separate host capacity planning.
-- Image changes require downtime. Rollback restores both the previous image and its pre-upgrade data snapshot, discarding subsequent data changes. Only one pre-upgrade snapshot is retained per instance; it is not an independent backup.
-- Deleting without purging retains data and its ownership record. Reusing the subdomain creates a separate filesystem; recovering retained data requires operator verification, not automatic adoption by name.
-- Public deployment checks remain open, including network isolation and TLS/DNS configuration on the target host. See [open questions](docs/OPEN-QUESTIONS.md). The local stack and development credentials must not be treated as a hardened public deployment.
-- Billing, independent backups, a full observability stack and multi-node runtimes are not included in the current implementation. Existing status reconciliation and usage sampling are not a substitute for these capabilities.
-
-Report vulnerabilities according to [SECURITY.md](SECURITY.md). Do not disclose security issues in public issues.
-
-## Development
-
-Run a local stack from source.
-
-### Prerequisites
-
-- Node.js 22 or later and pnpm 10.10.0, as specified in [package.json](package.json).
-- Docker Desktop that can run Linux containers and ships Compose v2. The control plane connects to its daemon **at startup**, not only when creating instances.
-- Host ports `80` / `443` / `3000` / `5173` / `55432` free.
-
-### Run it
-
-From the repository root:
-
-```bash
-pnpm install
-```
-
-```bash
-pnpm dev
-```
-
-Open `https://console.lvh.me` and sign in with `admin@lvh.me` / `dsh-cloud-dev`. The first run generates `apps/server/.env.local` (both secrets are generated randomly and never printed; if the file already exists it is only validated, never modified). For the full sequence `pnpm dev` performs and how it reports failures, see [AGENTS.md](AGENTS.md).
-
-Ctrl-C stops the server and the console but **leaves the ingress and Postgres running**, so the next `pnpm dev` is instant. To stop them:
-
-```bash
-pnpm dev:down
-```
-
-The browser certificate warning is expected: Traefik has no certificate configured and falls back to its built-in self-signed certificate (`CN=TRAEFIK DEFAULT CERT`) — click "Advanced → Proceed". Rationale in [D26](docs/DECISIONS.md). For the ingress topology, TLS and DNS details, see the [local ingress guide](docker/compose/README.md).
-
-Build locally only if you changed `docker/instance-image/`:
-
-```bash
-./docker/instance-image/build.sh
-```
-
-### Checks
-
-```bash
-pnpm typecheck
-```
-
-```bash
-pnpm test
-```
-
-Integration checks that exercise Docker and host storage (`check:storage` / `spike` / `test:security`) belong in a disposable environment; see [AGENTS.md](AGENTS.md) for the commands and their prerequisites.
-
 ## Contributing
 
 Bug reports, documentation improvements and focused pull requests are welcome. Include reproduction steps and your environment when reporting a bug. For changes to authentication, isolation or the data model, discuss the design and security implications before implementation.
 
-Read [AGENTS.md](AGENTS.md) for repository conventions and development commands. Keep tests close to the behavior they cover, run the workspace checks, and update both README translations when changing shared documentation.
+Read [AGENTS.md](AGENTS.md) for local development and repository conventions. Keep tests close to the behavior they cover, run the workspace checks, and update both README translations when changing shared documentation.
 
 ## Documentation
 
@@ -239,12 +144,12 @@ The detailed guides currently contain primarily Chinese text.
 
 | Guide | Contents |
 | --- | --- |
-| [Architecture](docs/ARCHITECTURE.md) | Components, access control and isolation model |
+| [Architecture](docs/ARCHITECTURE.md) | Components, isolation model, permission boundaries and operational limits |
 | [Design decisions](docs/DECISIONS.md) | Technical choices and trade-offs |
 | [Open questions](docs/OPEN-QUESTIONS.md) | Unresolved validation and known gaps |
 | [Local ingress](docker/compose/README.md) | DNS, TLS and instance access in development |
 | [Configuration](.env.example) | Server environment template |
-| [Contributor guidance](AGENTS.md) | Repository layout, conventions and checks |
+| [Contributor guidance](AGENTS.md) | Local development, repository layout and conventions |
 | [Security policy](SECURITY.md) | Vulnerability reporting and scope |
 
 ## License
