@@ -25,7 +25,7 @@
 
 **dshcloud** 为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）提供账号管理、实例创建和访问控制。每个实例运行在独立的 Docker 容器中，拥有专属网络、持久化数据文件系统和资源限制。用户通过经过认证的子域访问自己的实例，运营者通过 Web 管理台管理账号、资源容量和实例版本。
 
-> **项目处于早期开发阶段。** 当前适合评估与开发，尚不具备生产可用性；部署验证和安全工作仍有未决项。暴露到公网前，请先阅读[安全与限制](#安全与限制)。
+> **项目处于早期开发阶段。** 当前适合评估与开发，尚不具备生产可用性；部署验证和安全工作仍有未决项。暴露到公网前，请先阅读[架构与安全模型](docs/ARCHITECTURE.md)里的权限边界与运行限制。
 
 ## 功能
 
@@ -133,106 +133,11 @@ tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式是 `<dsh版本>
 
 > 入口栈的拓扑、为什么是 `lvh.me`、以及会踩的坑（Clash PAC、改入口配置要重启容器）见[本地入口指南](docker/compose/README.md)。
 
-## 架构
-
-```text
-浏览器
-  |
-  v
-Traefik（TLS 与路由）
-  |-- 基域 ------------> Web 管理台 / Fastify 控制面
-  |                                         |-- PostgreSQL
-  |                                         |-- Docker API
-  |
-  `-- 实例子域 --------> Forward-auth（会话 + 所有者）
-                        -> 实例独立网络
-                        -> Caddy 入口校验 -> dsh
-                                             `-- /data
-```
-
-控制面负责创建容器、存储和路由。Traefik 加入每个实例的独立 bridge 网络，无需发布宿主端口即可访问实例。所有者授权通过后，入口转发实例专属令牌，由容器内的入口校验层检查。
-
-后端使用 Fastify、Drizzle 和 dockerode，管理台使用 Vite、React 和 shadcn/ui。运行时规格与 Docker renderer 位于 [packages/instance-spec](packages/instance-spec)。完整设计见[架构文档](docs/ARCHITECTURE.md)。
-
-## 安全与限制
-
-**每个实例容器都按不可信代码执行环境对待。** 在实例内运行 shell 命令、安装依赖和写入文件属于预期行为，而非安全例外。
-
-### 访问与数据边界
-
-- **实例所有者**可以访问自己的 `dsh`、工作区、用量指标和日志。仅仅登录平台，不代表可以打开他人的实例。
-- **平台管理员**可以管理用户、配额和镜像版本，查看实例状态与容器日志。平台不提供读取或浏览用户 `/data` 内容的管理员界面，实例入口也没有管理员绕过所有者校验的通道。
-- **当前实现的用量可见性：** 实时 CPU、内存、磁盘用量及历史指标接口仅对实例所有者开放。管理员管理台目前展示资源配额，不提供他人实例的实时用量指标；配额与用量不能混为一谈。
-- **日志不等于私有文件存储：** 容器输出可能包含用户内容或密钥。管理员能够查看日志，不意味着日志中没有敏感信息。
-- **宿主访问属于另一层信任边界：** 拥有宿主或 Docker 操作权限的人可以访问底层存储。应用层权限限制并不等于对宿主运营者加密。平台密钥、数据库凭据和 Docker socket 不应进入实例容器。
-- **会话隔离：** 可信入口在授权后过滤平台 cookie，保留实例自身的 cookie。控制面写请求必须携带精确匹配受信来源的 `Origin`；认证插件自带的账号管理接口已关闭。
-
-### 运行限制
-
-- 实例容器以非 root 用户运行，移除 Linux capabilities 并启用 `no-new-privileges`，但仍共享宿主内核，不具备虚拟机级隔离。当前不限制出网访问。
-- 磁盘配额限制的是 `/data` 文件系统，并非宿主全部存储。容器可写层、日志和升级快照需要另行规划宿主容量。
-- 镜像切换需要停机。回滚会同时恢复旧镜像和升级前的数据快照，丢弃快照之后的数据变化。每个实例只保留一份升级前快照，不能替代独立备份。
-- 删除实例而不清除数据时，会保留数据及其归属记录。复用子域名会创建独立文件系统；恢复旧数据需要运营人员核验，不会按名称自动接回。
-- 公网部署仍需验证目标宿主上的网络隔离及 TLS、DNS 配置，见[待验证问题](docs/OPEN-QUESTIONS.md)。不要把本地栈和开发凭据直接当作加固后的公网部署方案。
-- 当前实现不包含计费、独立备份、完整可观测性栈和多节点运行时。已有的状态对账与用量采样不能替代这些能力。
-
-请按 [SECURITY.md](SECURITY.md) 报告安全漏洞，不要在公开 issue 中披露安全问题。
-
-## 开发
-
-从源码起本地栈。
-
-### 前置条件
-
-- Node.js 22 或更新版本，以及 pnpm 10.10.0，版本要求见 [package.json](package.json)。
-- 装了 Docker Desktop（能跑 Linux 容器，且带 Compose v2）。控制面**启动时**就要连它的 daemon，不是只在建实例时才用。
-- 宿主端口 `80` / `443` / `3000` / `5173` / `55432` 空闲。
-
-### 启动
-
-在仓库根目录：
-
-```bash
-pnpm install
-```
-
-```bash
-pnpm dev
-```
-
-打开 `https://console.lvh.me`，用 `admin@lvh.me` / `dsh-cloud-dev` 登录。首次运行会生成 `apps/server/.env.local`（两个 secret 随机生成、不打印；已存在则只校验、一个字节都不改）。`pnpm dev` 的完整步骤与失败处理见 [AGENTS.md](AGENTS.md)。
-
-Ctrl-C 只停控制面和管理台，**入口和 Postgres 留着**，下次 `pnpm dev` 秒起。要停它们：
-
-```bash
-pnpm dev:down
-```
-
-浏览器报证书错误是正常的：Traefik 没配证书，回落内置自签证书（`CN=TRAEFIK DEFAULT CERT`），点「高级 → 继续访问」，理由见 [D26](docs/DECISIONS.md)。本地入口的 TLS / DNS / 拓扑细节见[本地入口指南](docker/compose/README.md)。
-
-改了 `docker/instance-image/` 才需要本地构建：
-
-```bash
-./docker/instance-image/build.sh
-```
-
-### 检查
-
-```bash
-pnpm typecheck
-```
-
-```bash
-pnpm test
-```
-
-会操作 Docker 和宿主存储的集成检查（`check:storage` / `spike` / `test:security`）请在可丢弃的开发环境里跑，命令与前提见 [AGENTS.md](AGENTS.md)。
-
 ## 参与贡献
 
 欢迎提交问题报告、文档改进和聚焦单一问题的 pull request。报告缺陷时请附上复现步骤和环境信息。涉及认证、隔离或数据模型的改动，请在实现前讨论设计与安全影响。
 
-仓库约定和开发命令见 [AGENTS.md](AGENTS.md)。测试应紧邻其覆盖的行为，提交前运行工作区检查；修改共用 README 内容时，请同步更新中英文两版。
+本地开发和仓库约定见 [AGENTS.md](AGENTS.md)。测试应紧邻其覆盖的行为，提交前运行工作区检查；修改共用 README 内容时，请同步更新中英文两版。
 
 ## 文档
 
@@ -240,12 +145,12 @@ pnpm test
 
 | 指南 | 内容 |
 | --- | --- |
-| [架构](docs/ARCHITECTURE.md) | 组件、访问控制与隔离模型 |
+| [架构](docs/ARCHITECTURE.md) | 组件、隔离模型、权限边界与运行限制 |
 | [设计决策](docs/DECISIONS.md) | 技术选择与取舍 |
 | [待验证问题](docs/OPEN-QUESTIONS.md) | 未决验证与已知缺口 |
 | [本地入口](docker/compose/README.md) | 开发环境中的 DNS、TLS 与实例访问 |
 | [配置](.env.example) | 控制面环境变量模板 |
-| [贡献者指南](AGENTS.md) | 仓库结构、约定与检查 |
+| [贡献者指南](AGENTS.md) | 本地开发、仓库结构与约定 |
 | [安全策略](SECURITY.md) | 漏洞报告方式与范围 |
 
 ## 许可

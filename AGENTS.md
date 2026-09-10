@@ -47,6 +47,8 @@ dsh-cloud/
 
 ## 四、怎么跑
 
+前置：Node.js 22+ 与 pnpm 10.10.0（版本见 [package.json](package.json)）、能跑 Linux 容器且带 Compose v2 的 Docker Desktop（控制面**启动时**就要连它的 daemon，不是只在建实例时才用）、宿主端口 `80` / `443` / `3000` / `5173` / `55432` 空闲。
+
 ```bash
 pnpm install
 ```
