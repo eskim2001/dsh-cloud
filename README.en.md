@@ -179,29 +179,53 @@ Report vulnerabilities according to [SECURITY.md](SECURITY.md). Do not disclose 
 
 ## Development
 
-Run the workspace checks from the repository root:
+Run a local stack from source.
+
+### Prerequisites
+
+- Node.js 22 or later and pnpm 10.10.0, as specified in [package.json](package.json).
+- Docker Desktop that can run Linux containers and ships Compose v2. The control plane connects to its daemon **at startup**, not only when creating instances.
+- Host ports `80` / `443` / `3000` / `5173` / `55432` free.
+
+### Run it
+
+From the repository root:
+
+```bash
+pnpm install
+```
+
+```bash
+pnpm dev
+```
+
+Open `https://console.lvh.me` and sign in with `admin@lvh.me` / `dsh-cloud-dev`. The first run generates `apps/server/.env.local` (both secrets are generated randomly and never printed; if the file already exists it is only validated, never modified). For the full sequence `pnpm dev` performs and how it reports failures, see [AGENTS.md](AGENTS.md).
+
+Ctrl-C stops the server and the console but **leaves the ingress and Postgres running**, so the next `pnpm dev` is instant. To stop them:
+
+```bash
+pnpm dev:down
+```
+
+The browser certificate warning is expected: Traefik has no certificate configured and falls back to its built-in self-signed certificate (`CN=TRAEFIK DEFAULT CERT`) — click "Advanced → Proceed". Rationale in [D26](docs/DECISIONS.md). For the ingress topology, TLS and DNS details, see the [local ingress guide](docker/compose/README.md).
+
+Build locally only if you changed `docker/instance-image/`:
+
+```bash
+./docker/instance-image/build.sh
+```
+
+### Checks
 
 ```bash
 pnpm typecheck
+```
+
+```bash
 pnpm test
 ```
 
-Optional integration checks exercise Docker and host storage. Use a disposable development environment and review the scripts before running them:
-
-```bash
-pnpm --filter @dsh-cloud/server check:storage
-pnpm --filter @dsh-cloud/server spike
-```
-
-Their implementations are [check-storage.ts](apps/server/scripts/check-storage.ts) and [spike-instance.ts](apps/server/scripts/spike-instance.ts). These scripts use the calling process environment; unlike `dev:local`, they do not explicitly load the server environment file.
-
-Security integration tests create and clean up temporary PostgreSQL and Traefik containers without connecting to the application database. Docker and the local images `postgres:16-alpine` and `traefik:v3.5` are required:
-
-```bash
-pnpm --filter @dsh-cloud/server test:security
-```
-
-Existing installations must follow the [security migration notes](docs/SECURITY-HARDENING.md) before starting the updated server. The migration preserves existing storage paths; it does not move or erase instance data.
+Integration checks that exercise Docker and host storage (`check:storage` / `spike` / `test:security`) belong in a disposable environment; see [AGENTS.md](AGENTS.md) for the commands and their prerequisites.
 
 ## Contributing
 

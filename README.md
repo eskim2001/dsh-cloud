@@ -180,29 +180,53 @@ Traefik（TLS 与路由）
 
 ## 开发
 
-在仓库根目录运行工作区检查：
+从源码起本地栈。
+
+### 前置条件
+
+- Node.js 22 或更新版本，以及 pnpm 10.10.0，版本要求见 [package.json](package.json)。
+- 装了 Docker Desktop（能跑 Linux 容器，且带 Compose v2）。控制面**启动时**就要连它的 daemon，不是只在建实例时才用。
+- 宿主端口 `80` / `443` / `3000` / `5173` / `55432` 空闲。
+
+### 启动
+
+在仓库根目录：
+
+```bash
+pnpm install
+```
+
+```bash
+pnpm dev
+```
+
+打开 `https://console.lvh.me`，用 `admin@lvh.me` / `dsh-cloud-dev` 登录。首次运行会生成 `apps/server/.env.local`（两个 secret 随机生成、不打印；已存在则只校验、一个字节都不改）。`pnpm dev` 的完整步骤与失败处理见 [AGENTS.md](AGENTS.md)。
+
+Ctrl-C 只停控制面和管理台，**入口和 Postgres 留着**，下次 `pnpm dev` 秒起。要停它们：
+
+```bash
+pnpm dev:down
+```
+
+浏览器报证书错误是正常的：Traefik 没配证书，回落内置自签证书（`CN=TRAEFIK DEFAULT CERT`），点「高级 → 继续访问」，理由见 [D26](docs/DECISIONS.md)。本地入口的 TLS / DNS / 拓扑细节见[本地入口指南](docker/compose/README.md)。
+
+改了 `docker/instance-image/` 才需要本地构建：
+
+```bash
+./docker/instance-image/build.sh
+```
+
+### 检查
 
 ```bash
 pnpm typecheck
+```
+
+```bash
 pnpm test
 ```
 
-可选集成检查会操作 Docker 和宿主存储。请在可丢弃的开发环境中使用，并在运行前检查脚本：
-
-```bash
-pnpm --filter @dsh-cloud/server check:storage
-pnpm --filter @dsh-cloud/server spike
-```
-
-实现分别见 [check-storage.ts](apps/server/scripts/check-storage.ts) 和 [spike-instance.ts](apps/server/scripts/spike-instance.ts)。这些脚本使用调用进程的环境变量；与 `dev:local` 不同，它们不会显式加载控制面的环境文件。
-
-安全集成测试会创建并清理临时 PostgreSQL 和 Traefik 容器，不连接应用数据库。需要 Docker 及本地镜像 `postgres:16-alpine` 和 `traefik:v3.5`：
-
-```bash
-pnpm --filter @dsh-cloud/server test:security
-```
-
-已有环境在启动更新后的控制面之前，须按[安全迁移说明](docs/SECURITY-HARDENING.md)操作。迁移保留原有存储路径，不搬动或删除实例数据。
+会操作 Docker 和宿主存储的集成检查（`check:storage` / `spike` / `test:security`）请在可丢弃的开发环境里跑，命令与前提见 [AGENTS.md](AGENTS.md)。
 
 ## 参与贡献
 
