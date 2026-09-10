@@ -97,6 +97,7 @@ pnpm --filter @dsh-cloud/server spike
 ## 五、约定
 
 - **叫「实例」不叫「租户」**：代码、DB、资源名一律用 instance / slug；`tenant` 一词留给「用户 / 企业」。
+- **`BASE_DOMAIN` 是父域，不是控制台域名**：实例是 `<slug>.<BASE_DOMAIN>`，控制台是 `CONSOLE_DOMAIN`（必须是父域的子域，`console.<BASE_DOMAIN>`）；父域本身不当主机名用。
 - **TS 全 ESM**：相对导入带 `.js` 后缀（`import { x } from './foo.js'`）。
 - **测试与源码同目录**（`*.test.ts`），vitest；改行为就补测试。
 - **UI 改动优先用 shadcn CLI**（`init` / `add` / `apply`），别手改 CSS 变量；CLI 覆盖不到的地方才手补。

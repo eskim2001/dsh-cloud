@@ -1,18 +1,14 @@
-# 控制台自己的域名（登录页 / API）——开发态指向 Vite。
+# 控制台自己的域名（登录页 / API）——【明文档】指向 Vite 管理台。
 #
-# file provider 在 directory 模式下**只读 yml/yaml/toml**，json 会被静默忽略。
+# 和 dynamic-dev/platform.yml 的唯一差别：挂在 `web`（:80）上、不写 `tls: {}`。
+# 那一档走 websecure + 自签证书（生产同构，验认证链路用）；这一档零证书，
+# 给「clone 下来最快跑起来」用——见 docker/compose/quickstart.yml。
 #
 # 用 console.lvh.me 而不是 localhost：Chrome 不认 `Domain=.localhost`，
-# 跨子域登录态在浏览器里测不出来。
+# 跨子域登录态在浏览器里测不出来（详见 docker/compose/README.md）。
 #
 # 也**不能**用 lvh.me 本身：那样控制台主机名落在实例命名空间里（`<slug>.lvh.me`），
-# 可以被租户抢注成同长度的 router 规则。控制台必须是实例拿不到的 label。
-#
-# *.lvh.me 是公共通配 DNS（全网解析到 127.0.0.1），不用起本地 DNS 容器，
-# 也就不会和 Clash 之类占用 :53 的程序撞车。
-#
-# 走 websecure（:443）+ `tls: {}`：证书来自 tls.yml 里的自签静态证书。
-# router 上的 tls 必须显式写，entryPoint 开了 TLS 不代表 router 自动有。
+# 可以被租户抢注成同长度的 router 规则。
 http:
   routers:
     platform-web:
@@ -22,8 +18,7 @@ http:
       # 有这条，即使 slug 撞上控制台 label，控制台也稳赢。见 DECISIONS 的域名拆分 ADR。
       priority: 1000
       service: platform-web
-      entryPoints: [websecure]
-      tls: {}
+      entryPoints: [web]
   services:
     platform-web:
       loadBalancer:

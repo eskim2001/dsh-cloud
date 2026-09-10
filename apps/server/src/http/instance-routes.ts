@@ -1,9 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { OPEN_PATH, InstanceSlugSchema } from '@dsh-cloud/instance-spec'
+import {
+  ImageRefSchema,
+  InstanceSlugSchema,
+  OPEN_PATH,
+  isReservedSlug,
+} from '@dsh-cloud/instance-spec'
 import { z } from 'zod'
 import { SlugTakenError, QuotaExceededError } from '../db/instance-repo.js'
 import type { ImageReleaseRow, InstanceMetricRow, InstanceRow } from '../db/schema.js'
-import type { Env } from '../env.js'
+import { consoleLabel, type Env } from '../env.js'
 import type { ContainerUsage } from '../instance/container-stats.js'
 import type { DiskUsage } from '../instance/host-storage.js'
 import { platformTags } from '../instance/image-catalog.js'
@@ -14,13 +19,17 @@ import type { LogStreamOptions } from './log-stream.js'
 import { LogsQuerySchema } from './log-stream.js'
 
 const CreateBodySchema = z.object({
-  slug: InstanceSlugSchema,
+  // 保留字是**创建期命名政策**，只在这里生效——库里已有的行只做形状校验，
+  // 否则扩表会让存量实例连删都删不掉（见 DECISIONS 的域名拆分 ADR）。
+  slug: InstanceSlugSchema.refine((s) => !isReservedSlug(s), '该 slug 是保留字'),
   cpus: z.number().positive().max(8).default(1),
   memoryMb: z.number().int().positive().max(16_384).default(2048),
   pidsLimit: z.number().int().positive().max(4096).default(512),
   // 自助上限比管理员宽（D17）：这里 100GB，管理员能到 1TB。
   // 下限 128MB——再小 ext4 建不出来。
   diskMb: z.number().int().min(128).max(102_400).default(10_240),
+  /** 自选版本，留空用平台默认版本。合法性（已发布 / 平台仓库）由 provisioner 判。 */
+  image: ImageRefSchema.optional(),
 })
 
 const MetricsQuerySchema = z.object({
@@ -135,17 +144,46 @@ export async function registerInstanceRoutes(
       return { instances: rows.map((r) => toPublicInstance(r, deps.env, states)) }
     })
 
+    /**
+     * 建实例时可选的版本：**全部已发布**的版本。宿主上没有的也列——`create` 会自动拉（D23）。
+     * 不返回「需下载」之类的标记：用户对此没有可操作性，只会让选择变犹豫。
+     */
+    scope.get('/api/images', async () => {
+      const releases = await deps.listImageReleases()
+      return {
+        default: releases.find((r) => r.isDefault)?.ref ?? null,
+        // 新的在前：版本选择器第一眼该看到最新版
+        published: releases.map((r) => r.ref).reverse(),
+      }
+    })
+
     scope.post('/api/instances', async (req: AuthedRequest, reply) => {
       const parsed = CreateBodySchema.safeParse(req.body)
       if (!parsed.success) {
+        // 前端只显示 `error`——「参数不合法」在表单里帮不上忙，把第一条具体原因顶上去
+        const [first] = parsed.error.issues
         return reply.code(400).send({
-          error: '参数不合法',
+          error: first?.message ?? '参数不合法',
           issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
         })
       }
 
+      // 兜一层：控制台域名可以配成任何词，静态保留字表未必覆盖它的首段。
+      // 抢到这个 label 就等于把控制台的 router 规则撞成同长度（见 DECISIONS 的域名拆分 ADR）。
+      if (parsed.data.slug === consoleLabel(deps.env)) {
+        return reply.code(400).send({
+          error: `slug 不能是控制台域名 ${deps.env.CONSOLE_DOMAIN} 的首段`,
+        })
+      }
+
       try {
-        const row = await deps.provisioner.create({ ...parsed.data, ownerId: req.userId! })
+        const { image, ...rest } = parsed.data
+        const row = await deps.provisioner.create({
+          ...rest,
+          ownerId: req.userId!,
+          // exactOptionalPropertyTypes：没选版本就不带这个键，让编排层回落默认版本
+          ...(image === undefined ? {} : { image }),
+        })
         const states = await liveStates(req)
         return reply.code(201).send({ instance: toPublicInstance(row, deps.env, states) })
       } catch (err) {

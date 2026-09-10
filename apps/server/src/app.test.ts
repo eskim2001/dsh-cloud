@@ -28,6 +28,7 @@ function dependencies(
   return {
     env: {
       BASE_DOMAIN: 'app.example.com',
+      CONSOLE_DOMAIN: 'console.app.example.com',
       PUBLIC_SCHEME: 'https',
       PLATFORM_SECRET: 'test-platform-secret',
       EXTRA_TRUSTED_ORIGINS: '',
@@ -71,7 +72,7 @@ describe('platform account boundaries', () => {
     },
   )
 
-  it.each(['https://app.example.com', 'http://localhost:5173'])(
+  it.each(['https://console.app.example.com', 'http://localhost:5173'])(
     'allows configured console origin %s',
     async (origin) => {
       const deps = dependencies()
@@ -101,7 +102,7 @@ describe('platform account boundaries', () => {
         const response = await app.inject({
           method: 'POST',
           url: `/api/auth/admin/${endpoint}`,
-          headers: { origin: 'https://app.example.com' },
+          headers: { origin: 'https://console.app.example.com' },
           payload: {},
         })
         expect(response.statusCode).toBe(403)
@@ -144,7 +145,7 @@ describe('platform admin role guard', () => {
       const response = await app.inject({
         method: 'PATCH',
         url: '/api/admin/users/only/role',
-        headers: { origin: 'https://app.example.com' },
+        headers: { origin: 'https://console.app.example.com' },
         payload: { role: 'user' },
       })
       expect(response.statusCode).toBe(400)
@@ -163,7 +164,7 @@ describe('platform admin role guard', () => {
       const response = await app.inject({
         method: 'PATCH',
         url: '/api/admin/users/other/role',
-        headers: { origin: 'https://app.example.com' },
+        headers: { origin: 'https://console.app.example.com' },
         payload: { role: 'user' },
       })
       expect(response.statusCode).toBe(200)
@@ -180,7 +181,7 @@ describe('platform admin role guard', () => {
       const response = await app.inject({
         method: 'PATCH',
         url: '/api/admin/users/u-x/role',
-        headers: { origin: 'https://app.example.com' },
+        headers: { origin: 'https://console.app.example.com' },
         payload: { role: 'admin' },
       })
       expect(response.statusCode).toBe(200)
@@ -198,7 +199,7 @@ describe('platform admin role guard', () => {
       const response = await app.inject({
         method: 'PATCH',
         url: '/api/admin/users/nobody/role',
-        headers: { origin: 'https://app.example.com' },
+        headers: { origin: 'https://console.app.example.com' },
         payload: { role: 'admin' },
       })
       expect(response.statusCode).toBe(404)

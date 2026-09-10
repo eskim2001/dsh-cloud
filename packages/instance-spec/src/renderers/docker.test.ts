@@ -28,10 +28,12 @@ describe('InstanceSlugSchema', () => {
     }
   })
 
-  it('拒绝 punycode 前缀与保留字', () => {
+  it('拒绝 punycode 前缀（同形字风险）', () => {
     expect(InstanceSlugSchema.safeParse('xn--abc').success).toBe(false)
-    expect(InstanceSlugSchema.safeParse('admin').success).toBe(false)
-    expect(InstanceSlugSchema.safeParse('api').success).toBe(false)
+  })
+
+  it('保留字不是形状问题：形状层放行，政策挂在创建输入上（见 schema.test.ts）', () => {
+    expect(InstanceSlugSchema.safeParse('admin').success).toBe(true)
   })
 })
 

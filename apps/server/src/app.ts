@@ -44,6 +44,12 @@ export interface AppDeps {
   /** 实例数据在宿主上的存储（读用量）。 */
   storage: HostStorage
   logger?: boolean
+  /**
+   * 测试用：观察**实际注册**的路由集合。Fastify 没有公开的路由枚举 API
+   * （`printRoutes` 会把通配路由的路径前缀吃掉），而漏挂认证只能靠「注册面清单」
+   * 测试兜住（铁律 6）。见 http/route-surface.test.ts。
+   */
+  onRoute?: (route: { method: string | string[]; url: string }) => void
 }
 
 interface SessionUser {
@@ -58,6 +64,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     trustProxy: true,
   })
   await app.register(cookie)
+
+  if (deps.onRoute !== undefined) app.addHook('onRoute', deps.onRoute)
 
   const allowedOrigins = new Set(trustedOrigins(deps.env))
   app.addHook('onRequest', async (request, reply) => {
@@ -107,6 +115,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // ① forward-auth：数据面的门（D8 ②）
   registerForwardAuth(app, {
     baseDomain: deps.env.BASE_DOMAIN,
+    consoleDomain: deps.env.CONSOLE_DOMAIN,
     publicScheme: deps.env.PUBLIC_SCHEME,
     gateSecret: deps.env.PLATFORM_SECRET,
     findInstanceBySlug: (slug) => findInstanceBySlug(deps.db, slug),

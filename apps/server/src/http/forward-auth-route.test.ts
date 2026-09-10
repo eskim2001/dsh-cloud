@@ -5,12 +5,14 @@ import { gateToken } from '../instance/gate-token.js'
 import type { ForwardAuthDeps } from './forward-auth.js'
 
 const BASE = 'app.example.com'
+const CONSOLE = `console.${BASE}`
 const SECRET = 'route-test-secret'
 
 function build(over: Partial<ForwardAuthDeps> = {}) {
   const app = Fastify()
   registerForwardAuth(app, {
     baseDomain: BASE,
+    consoleDomain: CONSOLE,
     publicScheme: 'https',
     gateSecret: SECRET,
     findInstanceBySlug: async (slug) =>
@@ -22,7 +24,7 @@ function build(over: Partial<ForwardAuthDeps> = {}) {
 }
 
 describe('GET /auth/verify', () => {
-  it('未登录 → 302，location 指向基域登录页', async () => {
+  it('未登录 → 302，location 指向控制台登录页', async () => {
     const res = await build().inject({
       method: 'GET',
       url: '/auth/verify',
@@ -33,7 +35,7 @@ describe('GET /auth/verify', () => {
       },
     })
     expect(res.statusCode).toBe(302)
-    expect(res.headers.location).toContain(`https://${BASE}/login?next=`)
+    expect(res.headers.location).toContain(`https://${CONSOLE}/login?next=`)
   })
 
   it('owner → 200 且回注两个 header', async () => {

@@ -1,4 +1,6 @@
-# 本地 HTTPS 用的静态证书（自签，SAN = *.platform.lvh.me + platform.lvh.me）。
+# 本地 HTTPS 用的静态证书（自签，SAN = *.lvh.me + lvh.me）。
+#
+# 一张证书覆盖控制台（console.lvh.me）和所有实例（<slug>.lvh.me）——两者同属父域。
 #
 # 没有公共 CA 会给 *.lvh.me 签证书（域名不是我们的），所以只能自签 —— 浏览器会
 # 红锁，点「继续访问」即可。想消掉红锁就把这张证书（或自建一张 CA 再签）装进系统信任库。
@@ -7,8 +9,8 @@
 #   openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 825 \
 #     -keyout docker/traefik/certs/lvh.me-key.pem \
 #     -out    docker/traefik/certs/lvh.me.pem \
-#     -subj "/CN=platform.lvh.me" \
-#     -addext "subjectAltName=DNS:platform.lvh.me,DNS:*.platform.lvh.me"
+#     -subj "/CN=lvh.me" \
+#     -addext "subjectAltName=DNS:lvh.me,DNS:*.lvh.me"
 #
 # Traefik 按 SNI 匹配这里的证书，所以 router 上写 `tls: {}` 就够，不需要 certResolver。
 tls:

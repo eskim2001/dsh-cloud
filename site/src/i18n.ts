@@ -45,7 +45,7 @@ const zh = {
   prerequisites: ['Node.js ≥ 22', 'pnpm 10.10.0', 'PostgreSQL', 'Docker · Linux 容器'],
   steps: [
     { title: '安装并创建配置', text: '获取仓库源码后，在仓库根目录运行。', code: 'pnpm install\ncp .env.example apps/server/.env.local' },
-    { title: '填写环境变量', text: '设置 DATABASE_URL；分别生成 PLATFORM_SECRET 和 BETTER_AUTH_SECRET，每个至少 32 字符。为 HTTP 本地管理台设置以下配置。', code: 'BASE_DOMAIN=localhost\nPUBLIC_SCHEME=http\nEXTRA_TRUSTED_ORIGINS=http://localhost:5173\nTRAEFIK_ROUTES_PATH=./traefik-dynamic/routes.yml' },
+    { title: '填写环境变量', text: '设置 DATABASE_URL；分别生成 PLATFORM_SECRET 和 BETTER_AUTH_SECRET，每个至少 32 字符。为 HTTP 本地管理台设置以下配置。', code: 'BASE_DOMAIN=localhost\nCONSOLE_DOMAIN=localhost\nPUBLIC_SCHEME=http\nEXTRA_TRUSTED_ORIGINS=http://localhost:5173\nTRAEFIK_ROUTES_PATH=./traefik-dynamic/routes.yml' },
     { title: '迁移并启动', text: '先执行迁移，再用两个终端分别启动服务端和管理台。访问 http://localhost:5173。', code: 'pnpm --filter @dsh-cloud/server db:migrate\npnpm --dir apps/server dev:local\npnpm dev:web' },
   ],
   copy: '复制命令',
@@ -120,7 +120,7 @@ const en: Dictionary = {
   prerequisites: ['Node.js ≥ 22', 'pnpm 10.10.0', 'PostgreSQL', 'Docker · Linux containers'],
   steps: [
     { title: 'Install and create configuration', text: 'After obtaining the source, run these commands from the repository root.', code: 'pnpm install\ncp .env.example apps/server/.env.local' },
-    { title: 'Set the environment', text: 'Configure DATABASE_URL. Generate separate PLATFORM_SECRET and BETTER_AUTH_SECRET values, at least 32 characters each. Use these settings for the local HTTP console.', code: 'BASE_DOMAIN=localhost\nPUBLIC_SCHEME=http\nEXTRA_TRUSTED_ORIGINS=http://localhost:5173\nTRAEFIK_ROUTES_PATH=./traefik-dynamic/routes.yml' },
+    { title: 'Set the environment', text: 'Configure DATABASE_URL. Generate separate PLATFORM_SECRET and BETTER_AUTH_SECRET values, at least 32 characters each. Use these settings for the local HTTP console.', code: 'BASE_DOMAIN=localhost\nCONSOLE_DOMAIN=localhost\nPUBLIC_SCHEME=http\nEXTRA_TRUSTED_ORIGINS=http://localhost:5173\nTRAEFIK_ROUTES_PATH=./traefik-dynamic/routes.yml' },
     { title: 'Migrate and start', text: 'Run migrations first, then start the server and console in separate terminals. Open http://localhost:5173.', code: 'pnpm --filter @dsh-cloud/server db:migrate\npnpm --dir apps/server dev:local\npnpm dev:web' },
   ],
   copy: 'Copy commands',

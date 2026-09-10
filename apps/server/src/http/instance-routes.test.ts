@@ -9,6 +9,7 @@ import { registerInstanceRoutes, type InstanceOps, type InstanceRouteDeps } from
 const env = {
   PUBLIC_SCHEME: 'http',
   BASE_DOMAIN: 'app.example.com',
+  CONSOLE_DOMAIN: 'console.app.example.com',
   INSTANCE_IMAGE_REPO: 'dsh-instance',
 } as Env
 
@@ -43,6 +44,7 @@ function row(over: Partial<InstanceRow> = {}): InstanceRow {
  * 用户面比管理面更怕漏挂：漏了就是「别人能操作你的实例」。
  */
 const EXPECTED_ROUTES = [
+  { method: 'GET', url: '/api/images' },
   { method: 'GET', url: '/api/instances' },
   { method: 'POST', url: '/api/instances' },
   { method: 'GET', url: '/api/instances/:id' },
@@ -363,6 +365,36 @@ describe('实例面：创建', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('保留字 → 400（政策只在创建期生效，见 provisioner 的存量实例用例）', async () => {
+    const create = vi.fn()
+    const { app } = await build(ME, { provisioner: { create } })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/instances',
+      payload: { slug: 'grafana' },
+    })
+    expect(res.statusCode).toBe(400)
+    // 具体原因要顶到 error 上——前端只显示它，「参数不合法」等于没说
+    expect(res.json().error).toMatch(/保留字/)
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('slug 撞上控制台域名首段 → 400（静态保留字表之外的词也挡得住）', async () => {
+    const create = vi.fn()
+    const { app } = await build(ME, {
+      env: { ...env, CONSOLE_DOMAIN: 'portal-x.app.example.com' },
+      provisioner: { create },
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/instances',
+      payload: { slug: 'portal-x' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/控制台域名/)
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it('合法请求 → 201，owner 由会话决定而不是请求体', async () => {
     const create = vi.fn(async (input: { slug: string; ownerId: string }) =>
       row({ slug: input.slug, ownerId: input.ownerId }),
@@ -385,6 +417,21 @@ describe('实例面：创建', () => {
     expect(res.statusCode).toBe(201)
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ slug: 'alice', ownerId: ME, cpus: 1, memoryMb: 2048 }),
+    )
+  })
+
+  it('自选版本 → 透传给编排层', async () => {
+    const create = vi.fn(async (input: { slug: string }) => row({ slug: input.slug }))
+    const { app } = await build(ME, { provisioner: { create } })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/instances',
+      payload: { slug: 'alice', image: 'dsh-instance:0.1.1_1' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ image: 'dsh-instance:0.1.1_1' }),
     )
   })
 
@@ -440,6 +487,30 @@ describe('实例面：状态以 Docker 为准', () => {
 })
 
 describe('实例面：版本', () => {
+  it('建实例的可选版本：全部已发布，新的在前，默认版本单独标出来', async () => {
+    const { app } = await build(ME, {
+      listImageReleases: async () => [
+        { id: 'r-1', ref: 'dsh-instance:0.1.0', isDefault: true, publishedAt: new Date(0) },
+        { id: 'r-2', ref: 'dsh-instance:0.1.1', isDefault: false, publishedAt: new Date(1) },
+        { id: 'r-3', ref: 'dsh-instance:0.1.2', isDefault: false, publishedAt: new Date(2) },
+      ],
+    })
+
+    const res = await app.inject({ method: 'GET', url: '/api/images' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      default: 'dsh-instance:0.1.0',
+      published: ['dsh-instance:0.1.2', 'dsh-instance:0.1.1', 'dsh-instance:0.1.0'],
+    })
+  })
+
+  it('一个版本都没发布 → 空列表，不报错（页面显示「还没发布」）', async () => {
+    const { app } = await build(ME)
+    const res = await app.inject({ method: 'GET', url: '/api/images' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ default: null, published: [] })
+  })
+
   it('只列**本地已有**的已发布版本——发布了但宿主上没有的不摆出来', async () => {
     const { app } = await build(ME, {
       getById: async () => row({ previousImage: 'dsh-instance:0.0.9' }),

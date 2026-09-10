@@ -1,4 +1,4 @@
-import { and, asc, count, eq, isNull } from 'drizzle-orm'
+import { and, asc, count, eq, isNull, ne } from 'drizzle-orm'
 import type { Db } from './client.js'
 import { instance, user, type InstanceRow } from './schema.js'
 
@@ -55,7 +55,13 @@ export async function countInstancesByOwner(db: Db, ownerId: string): Promise<nu
   return rows[0]?.n ?? 0
 }
 
-/** 建实例记录。slug 冲突由唯一索引兜底，转成可读错误。 */
+/**
+ * 建实例记录。slug 冲突由唯一索引兜底，转成可读错误。
+ *
+ * 软删的行**仍然占着 slug**：同一 owner 可以重建同名（卷还在、浏览器状态本来就是他的），
+ * 换个人不行——域名一旦回收给另一个租户，上一个租户留在这个域名下的浏览器状态
+ * （cookie / localStorage / service worker）就被继承过去了。要彻底释放走 purge。
+ */
 export async function createInstanceRecord(db: Db, input: NewInstance, defaultLimit: number): Promise<InstanceRow> {
   try {
     return await db.transaction(async (transaction) => {
@@ -66,6 +72,9 @@ export async function createInstanceRecord(db: Db, input: NewInstance, defaultLi
       const [usage] = await transaction.select({ used: count() }).from(instance)
         .where(and(eq(instance.ownerId, input.ownerId), isNull(instance.deletedAt)))
       if ((usage?.used ?? 0) >= limit) throw new QuotaExceededError(limit)
+      const [conflict] = await transaction.select({ ownerId: instance.ownerId }).from(instance)
+        .where(and(eq(instance.slug, input.slug), ne(instance.ownerId, input.ownerId))).limit(1)
+      if (conflict !== undefined) throw new SlugTakenError(input.slug)
       const [created] = await transaction.insert(instance)
         .values({ ...input, status: 'provisioning' }).returning()
       return created!

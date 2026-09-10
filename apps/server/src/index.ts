@@ -44,17 +44,22 @@ const instanceTls: { certResolver?: string } | undefined =
 
 const syncRoutes = async (): Promise<void> => {
   const instances = await listAllInstances(db)
-  await syncRoutesFromInstances(instances, {
+  // 路由判据是**容器事实**（见 routableInstanceSlugs）：读不到就省略，函数会退回 DB 意图
+  const containerStates = await orchestrator.listContainerStates().catch((err: unknown) => {
+    const detail = err instanceof Error ? err.message : String(err)
+    console.warn(`读容器实时状态失败，路由这次按 DB 意图投影：${detail}`)
+    return undefined
+  })
+  const routable = await syncRoutesFromInstances(instances, {
     configPath: routesConfigPath,
     baseDomain: env.BASE_DOMAIN,
     forwardAuthAddress,
     entryPoint: env.TRAEFIK_ENTRYPOINT,
     ...(instanceTls === undefined ? {} : { tls: instanceTls }),
+    ...(containerStates === undefined ? {} : { containerStates }),
   })
-  // 入口被重建后附着会丢——每次对账都把它接回运行中的实例网络
-  await orchestrator.attachIngress(
-    instances.filter((t) => t.status === 'running').map((t) => networkName(t.slug)),
-  )
+  // 入口被重建后附着会丢——每次对账都把它接回**在服务**的实例网络（和路由同一份判据）
+  await orchestrator.attachIngress(routable.map((slug) => networkName(slug)))
 }
 
 const provisioner = new InstanceProvisioner(db, orchestrator, storage, env, syncRoutes)

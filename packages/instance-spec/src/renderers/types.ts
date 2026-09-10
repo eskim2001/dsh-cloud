@@ -4,7 +4,7 @@ import type { InstanceSpec } from '../schema.js'
 export interface RenderContext {
   /** 基础镜像（平台固定）。 */
   baseImage: string
-  /** 子域后缀，如 `app.example.com`。 */
+  /** **父域**（不是控制台域名）：实例主机名是 `<slug>.<baseDomain>`，如 `app.example.com`。 */
   baseDomain: string
   /** 入口注入的 token（每实例独立随机值）。 */
   gateToken: string

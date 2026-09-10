@@ -65,69 +65,89 @@
 
 ## Getting Started
 
-The instructions below start the **local development console**. Opening a `dsh` instance additionally requires the ingress setup described afterwards. The included Compose stack provides local Traefik ingress (with self-signed TLS), not a complete production installation.
+From clone to opening a `dsh` instance in your browser. Locally this uses `lvh.me`: `*.lvh.me` is public wildcard DNS that resolves to `127.0.0.1` everywhere, so no DNS configuration is needed and it cannot collide with anything holding `:53` such as Clash.
+
+The Compose stacks in this repository target local development, not a production installation.
 
 ### Prerequisites
 
 - Node.js 22 or later and pnpm 10.10.0, as specified in [package.json](package.json).
-- A running PostgreSQL database reachable through `DATABASE_URL`.
+- PostgreSQL — the repository does not ship one; the first step starts it for you.
 - Docker with Linux containers and a daemon socket accessible to the server. A custom socket can be set with `DOCKER_SOCKET`; see the [Docker client](apps/server/src/docker/client.ts).
 - For instance storage, a Docker host with loop devices, ext4 and the host utilities used by the [storage helper](apps/server/src/instance/host-storage.ts). Storage operations require short-lived privileged helper containers. On Docker Desktop, this host is its Linux VM, not macOS.
 
-### 1. Install dependencies
+### 1. Start a PostgreSQL
+
+The Compose stacks do not include a database, so start one yourself:
+
+```bash
+docker run -d --name dsh-postgres -p 127.0.0.1:55432:5432 -e POSTGRES_USER=dshcloud -e POSTGRES_PASSWORD=dshcloud -e POSTGRES_DB=dsh_cloud postgres:16-alpine
+```
+
+### 2. Install dependencies and create the environment file
 
 Run from the repository root:
 
 ```bash
 pnpm install
+```
+
+```bash
 cp .env.example apps/server/.env.local
 ```
 
-### 2. Configure the server
+### 3. Configure the server
 
 Edit the server environment file created in the previous step:
 
-- Set `DATABASE_URL` to your database connection string. The example expects PostgreSQL on `127.0.0.1:55432`; it does not start a database.
+- `DATABASE_URL` already points at the database above; leave it alone.
+- Set `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` — the first administrator comes from these (used in step 5).
 - Set `PLATFORM_SECRET` and `BETTER_AUTH_SECRET` to **separately generated** values, each at least 32 characters long. Run the following command once for each secret and keep the values private:
 
 ```bash
 openssl rand -hex 32
 ```
 
-For the HTTP-only local console, set:
+- Use these domain settings:
 
 ```dotenv
-BASE_DOMAIN=localhost
+BASE_DOMAIN=lvh.me                        # parent domain: instances are <slug>.lvh.me
+CONSOLE_DOMAIN=console.lvh.me             # the console's own host name
 PUBLIC_SCHEME=http
-EXTRA_TRUSTED_ORIGINS=http://localhost:5173
+TRAEFIK_ENTRYPOINT=web
+FORWARD_AUTH_ADDRESS=http://host.docker.internal:3000/auth/verify
 TRAEFIK_ROUTES_PATH=./traefik-dynamic/routes.yml
 ```
 
-The origin setting allows the Vite console to authenticate. The route path is relative to the server package when started with the command below: it writes to the directory mounted by [the local Compose stack](docker/compose/local.yml), instead of the default system path. The server creates this directory when syncing routes.
+`BASE_DOMAIN` is the **parent** domain (instances are `<slug>.<parent>`) and `CONSOLE_DOMAIN` is the console's own host name, which must be a subdomain of it (`console.<parent>`) — the parent itself is never used as a host name. `TRAEFIK_ROUTES_PATH` is relative to the server package, and the server creates the directory when it syncs routes.
 
 See [.env.example](.env.example) for the complete configuration template and [env.ts](apps/server/src/env.ts) for validation rules and defaults.
 
-### 3. Apply database migrations
+### 4. Apply database migrations
 
 ```bash
 pnpm --filter @dsh-cloud/server db:migrate
 ```
 
-### 4. Prepare the instance image
-
-**No local build needed** — on the "Images" page in the console, click "Sync" to pull GHCR tags into the catalog, then "Download" → "Publish" → "Set as default" for the version you want; missing images are pulled automatically when an instance is created. See [D23](docs/DECISIONS.md).
-
-Build locally only if you changed `docker/instance-image/`:
+### 5. Create the first administrator
 
 ```bash
-./docker/instance-image/build.sh
+pnpm --filter @dsh-cloud/server db:seed
 ```
 
-The tag comes from [VERSION](docker/instance-image/VERSION) and reads `<dsh version>_<our revision>` (e.g. `0.1.2-rc.1_2`); local builds and CI use the same full name `ghcr.io/eskim2001/dsh-instance:<tag>`. See [D22](docs/DECISIONS.md).
+It only acts when there are no administrators at all, so it is safe to re-run (and it is the recovery path if they were all removed). Grant and revoke admin access from the "Users" page afterwards.
 
-### 5. Start the console
+### 6. Start the ingress stack
 
-Start the server and frontend in separate terminals, both from the repository root:
+```bash
+docker compose -f docker/compose/quickstart.yml up -d
+```
+
+Traefik listens on `:80` only. Instance containers **publish no host ports** — the control plane joins Traefik to each instance's dedicated bridge network and reaches it by container name.
+
+### 7. Start the server and the frontend
+
+Two terminals, both from the repository root:
 
 ```bash
 pnpm --dir apps/server dev:local
@@ -137,33 +157,25 @@ pnpm --dir apps/server dev:local
 pnpm dev:web
 ```
 
-Open `http://localhost:5173` and register an account. Platform administrators are **not** created by signing up: set `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` in the server environment file and run `pnpm --dir apps/server db:seed` once to create the first admin (it skips when an admin already exists, so it is safe to re-run). Grant and revoke admin access from the "Users" page of the console afterwards.
+Open `http://console.lvh.me/` and sign in with the seeded account. **Do not use `localhost:5173`** — the host name is wrong and the session cookie will not reach instance subdomains.
 
-The `dev:local` script explicitly loads the environment file. The root `dev:server` script does not, so it requires the variables to already be set in the process environment.
+**Use `dev:local`**: it explicitly loads the environment file. The root `dev:server` script does not, so it requires the variables to already be set in the process environment.
 
-### 6. Enable instance access
+### 8. Create an instance
 
-Opening instances additionally requires the ingress stack (targets macOS with Docker Desktop). See the [local ingress guide](docker/compose/README.md) for the full picture; here is the short path.
+On the "Images" page in the console, click "Sync" to pull GHCR tags into the catalog, then "Download" → "Publish" → "Set as default" for the version you want; missing images are pulled automatically when an instance is created. See [D23](docs/DECISIONS.md).
 
-First generate a self-signed certificate — `docker/traefik/certs/` is in `.gitignore` (private keys never enter the repository), so a **fresh clone has none**:
-
-```bash
-mkdir -p docker/traefik/certs
-```
+Build locally only if you changed `docker/instance-image/`:
 
 ```bash
-openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 825 -keyout docker/traefik/certs/lvh.me-key.pem -out docker/traefik/certs/lvh.me.pem -subj "/CN=platform.lvh.me" -addext "subjectAltName=DNS:platform.lvh.me,DNS:*.platform.lvh.me"
+./docker/instance-image/build.sh
 ```
 
-Then switch the HTTP-only settings from step 2 to the ingress form: `BASE_DOMAIN=platform.lvh.me`, `PUBLIC_SCHEME=https`, `TRAEFIK_ENTRYPOINT=websecure`, `TRAEFIK_CERT_RESOLVER=` (empty), `FORWARD_AUTH_ADDRESS=http://host.docker.internal:3000/auth/verify`, keeping `TRAEFIK_ROUTES_PATH` inside the repository.
+The tag comes from [VERSION](docker/instance-image/VERSION) and reads `<dsh version>_<our revision>` (e.g. `0.1.2-rc.1_2`); local builds and CI use the same full name `ghcr.io/eskim2001/dsh-instance:<tag>`. See [D22](docs/DECISIONS.md).
 
-Start the ingress stack:
+Then create one on the "Instances" page and open it.
 
-```bash
-docker compose -f docker/compose/local.yml up -d
-```
-
-Restart the server and sign in at `https://platform.lvh.me/` (the self-signed certificate triggers a browser warning; continue past it). Do not use the localhost URL — the host name is wrong and the session cookie will not reach instance subdomains. If you created instances under a different `BASE_DOMAIN`, rebuild them.
+> For the production-isomorphic ingress (`:443` with a `Secure` cookie), see the [local ingress guide](docker/compose/README.md) — use that one when verifying the authentication chain, since only it covers the real TLS and cookie conditions.
 
 ## Architecture
 
