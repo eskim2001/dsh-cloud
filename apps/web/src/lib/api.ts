@@ -140,12 +140,25 @@ export async function createInstance(input: {
   cpus?: number
   memoryMb?: number
   diskMb?: number
+  /** 留空用平台默认版本。 */
+  image?: string
 }): Promise<InstanceSummary> {
   const res = await request<{ instance: InstanceSummary }>('/api/instances', {
     method: 'POST',
     body: JSON.stringify(input),
   })
   return res.instance
+}
+
+/** 建实例可选的版本。`published` 是**全部已发布**的版本（新的在前）——宿主上没有的也会自动拉。 */
+export interface CreateImageOptions {
+  /** 不选版本时用的那一版；平台还没发布过就是 null。 */
+  default: string | null
+  published: string[]
+}
+
+export async function listImages(): Promise<CreateImageOptions> {
+  return request<CreateImageOptions>('/api/images')
 }
 
 export async function restartInstance(id: string): Promise<InstanceSummary> {

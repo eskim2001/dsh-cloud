@@ -7,6 +7,7 @@ import type { Env } from './src/env.js'
 const env: Env = {
   DATABASE_URL: 'postgres://localhost:5432/placeholder',
   BASE_DOMAIN: 'app.example.com',
+  CONSOLE_DOMAIN: 'console.app.example.com',
   PLATFORM_SECRET: 'x'.repeat(32),
   BETTER_AUTH_SECRET: 'y'.repeat(32),
   PORT: 3000,

@@ -6,15 +6,15 @@ import type { Db } from './db/client.js'
 import { trustedOrigins, type Env } from './env.js'
 
 /**
- * 平台账号体系。**只服务控制面**（`app.example.com`）。
+ * 平台账号体系。**只服务控制面**（`CONSOLE_DOMAIN`）。
  *
- * cookie 必须覆盖子域，否则 forward-auth 读不到 → 数据面无法认证
+ * cookie 必须覆盖父域，否则 forward-auth 在实例子域上读不到 → 数据面无法认证
  * （见 docs/ARCHITECTURE.md §七，那里的 CSRF 要求同样成立）。
  */
 export function createAuth(env: Env, db: Db) {
   return betterAuth({
     secret: env.BETTER_AUTH_SECRET,
-    baseURL: `${env.PUBLIC_SCHEME}://${env.BASE_DOMAIN}`,
+    baseURL: `${env.PUBLIC_SCHEME}://${env.CONSOLE_DOMAIN}`,
     basePath: '/api/auth',
     database: drizzleAdapter(db, { provider: 'pg' }),
     trustedOrigins: trustedOrigins(env),
@@ -31,7 +31,8 @@ export function createAuth(env: Env, db: Db) {
     advanced: {
       // 显式指定，别让 better-auth 按请求 Host 猜（实例子域上的请求也会打到它）
       cookiePrefix: 'dsh_cloud',
-      // 必须覆盖子域，否则 forward-auth 在 <slug>.<base> 上读不到会话（§七）
+      // 必须覆盖**父域**（控制台 + 所有实例子域），否则 forward-auth 在
+      // `<slug>.<BASE_DOMAIN>` 上读不到会话（§七）
       crossSubDomainCookies: { enabled: true, domain: `.${env.BASE_DOMAIN}` },
       defaultCookieAttributes: {
         httpOnly: true,

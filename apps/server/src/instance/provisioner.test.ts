@@ -39,6 +39,7 @@ const inCatalog = vi.mocked(isImageInCatalog)
 
 const env = {
   BASE_DOMAIN: 'app.example.com',
+  CONSOLE_DOMAIN: 'console.app.example.com',
   PLATFORM_SECRET: 'test-secret',
   MAX_INSTANCES_PER_USER: 3,
   INSTANCE_IMAGE_REPO: 'dsh-instance',
@@ -86,6 +87,7 @@ interface Fakes {
     createInstance: ReturnType<typeof vi.fn>
     listImageTags: ReturnType<typeof vi.fn>
     ensureImage: ReturnType<typeof vi.fn>
+    syncRoutes: ReturnType<typeof vi.fn>
   }
 }
 
@@ -99,6 +101,7 @@ function build(): Fakes {
   const removeContainer = vi.fn(async () => undefined)
   const listImageTags = vi.fn(async () => ['dsh-instance:0.1.0_1', 'dsh-instance:0.1.1_1'])
   const ensureImage = vi.fn(async () => undefined)
+  const syncRoutes = vi.fn(async () => undefined)
   const createInstance = vi.fn(async () => ({
     slug: 'alice',
     containerName: 'dsh-instance-alice',
@@ -133,7 +136,7 @@ function build(): Fakes {
   return {
     storage,
     orchestrator,
-    syncRoutes: async () => undefined,
+    syncRoutes,
     calls: {
       ensure,
       usage,
@@ -145,6 +148,7 @@ function build(): Fakes {
       createInstance,
       listImageTags,
       ensureImage,
+      syncRoutes,
     },
   }
 }
@@ -217,6 +221,28 @@ describe('storage ownership across lifecycle operations', () => {
   })
 })
 
+describe('存量实例的 slug 落进保留字表之后', () => {
+  // 保留字是**创建期命名政策**。对库里已有的行再判一次，会让扩表把存量实例变成
+  // 「打不开也删不掉」——所以这里盯住：slug 是保留字，生命周期照样走完。
+  it('purge 删除照常走完，不因为 slug 是保留字而失败', async () => {
+    findById.mockResolvedValue(row({ slug: 'test', storageKey: 'unique-data-key' }))
+    const fakes = build()
+    await makeProvisioner(fakes).remove('i-1', { purgeVolume: true, confirmSlug: 'test' })
+    expect(fakes.storage.destroy).toHaveBeenCalledWith('unique-data-key')
+    expect(deleteInstanceRecord).toHaveBeenCalledWith({}, 'i-1')
+  })
+
+  it('start 照常按规格重建容器', async () => {
+    findById.mockResolvedValue(row({ slug: 'test', containerId: null, status: 'stopped' }))
+    const fakes = build()
+    await makeProvisioner(fakes).start('i-1')
+    expect(fakes.calls.createInstance).toHaveBeenCalledWith(
+      expect.objectContaining({ slug: 'test' }),
+      expect.anything(),
+    )
+  })
+})
+
 describe('新建：镜像取自库里的默认版本（D21）', () => {
   it('落库的是默认版本那一行', async () => {
     vi.mocked(createInstanceRecord).mockResolvedValue(row({ image: DEFAULT_REF }))
@@ -237,6 +263,62 @@ describe('新建：镜像取自库里的默认版本（D21）', () => {
     ).rejects.toThrow(ImageRejectedError)
     expect(createInstanceRecord).not.toHaveBeenCalled()
     expect(fakes.calls.createInstance).not.toHaveBeenCalled()
+  })
+
+  it('自选版本 → 用自选的那一版，默认版本不参与', async () => {
+    vi.mocked(createInstanceRecord).mockResolvedValue(row({ image: NEW_IMAGE }))
+    const fakes = build()
+    await makeProvisioner(fakes).create({
+      slug: 'alice',
+      ownerId: 'u1',
+      ...quota,
+      image: NEW_IMAGE,
+    })
+    expect(createInstanceRecord).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ image: NEW_IMAGE }),
+      3,
+    )
+  })
+
+  it('自选版本不要求宿主已有（D23：创建本来就会自动拉）', async () => {
+    vi.mocked(createInstanceRecord).mockResolvedValue(row({ image: NEW_IMAGE }))
+    const fakes = build()
+    fakes.calls.listImageTags.mockResolvedValue([])
+    await makeProvisioner(fakes).create({
+      slug: 'alice',
+      ownerId: 'u1',
+      ...quota,
+      image: NEW_IMAGE,
+    })
+    expect(fakes.calls.createInstance).toHaveBeenCalled()
+  })
+
+  it('自选未发布的版本 → 拒绝，不落库', async () => {
+    isPublished.mockResolvedValue(false)
+    const fakes = build()
+    await expect(
+      makeProvisioner(fakes).create({
+        slug: 'alice',
+        ownerId: 'u1',
+        ...quota,
+        image: 'dsh-instance:9.9.9_1',
+      }),
+    ).rejects.toThrow(ImageRejectedError)
+    expect(createInstanceRecord).not.toHaveBeenCalled()
+  })
+
+  it('自选别的仓库 → 拒绝', async () => {
+    const fakes = build()
+    await expect(
+      makeProvisioner(fakes).create({
+        slug: 'alice',
+        ownerId: 'u1',
+        ...quota,
+        image: 'docker.io/evil/dsh-instance:0.1.1_1',
+      }),
+    ).rejects.toThrow(ImageRejectedError)
+    expect(createInstanceRecord).not.toHaveBeenCalled()
   })
 })
 
@@ -566,5 +648,45 @@ describe('重建前的镜像兜底（D23）', () => {
     expect(db.current().status).toBe('error')
     expect(db.current().lastError).toContain('manifest unknown')
     expect(fakes.calls.createInstance).not.toHaveBeenCalled()
+  })
+})
+
+describe('失败收尾：标 error 之后必须重新投影一次路由', () => {
+  // 投影判据是**容器事实**（routableInstanceSlugs）。但投影这件事只在成功路径和
+  // remove 的第一步里发生——失败路径不补这一下，路由就停在「上一次投影」的样子。
+  // remove 尤其致命：它第一步就把路由摘了，后面任何一步失败都会留下
+  // 「容器还好好地跑着、路由却没了」——页面表现为实例打不开，没人会修。
+  it('remove 中途失败 → 标 error，并把已经摘掉的路由重新投影一次', async () => {
+    const db = statefulDb(row())
+    const fakes = build()
+    vi.mocked(fakes.orchestrator.removeInstance).mockRejectedValue(new Error('daemon 超时'))
+
+    await expect(makeProvisioner(fakes).remove('i-1')).rejects.toThrow('daemon 超时')
+
+    expect(db.current().status).toBe('error')
+    expect(db.current().lastError).toBe('daemon 超时')
+    // ① 置 removing 后摘一次，② failWith 里补一次
+    expect(fakes.calls.syncRoutes).toHaveBeenCalledTimes(2)
+  })
+
+  it('其他动作失败也补投影（create / restart 的重建路径同理）', async () => {
+    const db = statefulDb(row())
+    const fakes = build()
+    fakes.calls.ensureImage.mockRejectedValue(new Error('拉取镜像失败'))
+
+    await expect(makeProvisioner(fakes).restart('i-1')).rejects.toThrow('拉取镜像失败')
+
+    expect(db.current().status).toBe('error')
+    expect(fakes.calls.syncRoutes).toHaveBeenCalledTimes(1)
+  })
+
+  it('投影本身失败不能盖掉原始错误（标 error 已经落库了）', async () => {
+    const db = statefulDb(row())
+    const fakes = build()
+    fakes.calls.ensureImage.mockRejectedValue(new Error('拉取镜像失败'))
+    fakes.calls.syncRoutes.mockRejectedValue(new Error('Traefik 目录只读'))
+
+    await expect(makeProvisioner(fakes).restart('i-1')).rejects.toThrow('拉取镜像失败')
+    expect(db.current().status).toBe('error')
   })
 })

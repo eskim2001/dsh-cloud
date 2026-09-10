@@ -9,10 +9,19 @@
 |---|---|---|---|
 | 6 | **DNS provider** 选型（Cloudflare / 阿里云 / Route53） | 定下来 + 实测通配证书签发 | 通配证书走 DNS-01，决定 Traefik 配置与实例子域解析 |
 | 8 | **部署环境**（单台 Linux / 云主机 / 裸金属） | 部署后重跑 OPEN-QUESTIONS #4 那组网络测试 | 决定能不能走 microVM 后路 |
+| 13 | **门改 host-only cookie + 控制台签发短时 token**（解同注册域的 Set-Cookie 投毒 / 浏览器状态继承） | 设计 token 交换链路 + 真实浏览器双租户复现 | 同注册域下浏览器状态仍是跨租户通道（D24 代价⑤） |
 
 ### #6 / #8
 
 两条都只是选型，不影响已实现的隔离模型；但 #8 定了之后要**重跑一遍网络隔离实测**（宿主回环对容器的可见性在 Linux 上与 Docker Desktop 不同，见 #4）。
+
+### #13
+
+控制台和实例共享注册域，所以实例响应能给浏览器种一枚 `Domain=<BASE_DOMAIN>` 的 cookie；
+Traefik 的 `headers` 中间件只能整条删 `Set-Cookie`，做不到按 `Domain` 过滤（会连 dsh 自己的会话
+cookie 一起删）。结构解是**把门改成 host-only cookie**：forward-auth 不再读浏览器直发的会话
+cookie，而是由控制台签一枚**短时、单实例、绑定 owner** 的 token，经一次性交换落到实例子域。
+它会动认证链路（会话、CSRF、WebSocket 握手都要重新过一遍），所以另开一轮，不夹在 D24 里做。
 
 ## 二、已知但故意推迟的
 

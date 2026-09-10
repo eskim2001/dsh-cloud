@@ -12,11 +12,13 @@ import {
 import { gateToken } from '../instance/gate-token.js'
 
 const BASE = 'app.example.com'
+const CONSOLE = `console.${BASE}`
 const SECRET = 'test-gate-secret'
 
 function deps(over: Partial<ForwardAuthDeps> = {}): ForwardAuthDeps {
   return {
     baseDomain: BASE,
+    consoleDomain: CONSOLE,
     publicScheme: 'https',
     gateSecret: SECRET,
     findInstanceBySlug: async (slug) =>
@@ -57,8 +59,13 @@ describe('instanceSlugFromHost', () => {
     expect(instanceSlugFromHost('evil-app.example.com', BASE)).toBeUndefined()
   })
 
-  it('拒绝保留字', () => {
-    expect(instanceSlugFromHost('admin.app.example.com', BASE)).toBeUndefined()
+  it('保留字**照常解析**——门只做形状校验，命名政策不追溯存量', () => {
+    expect(instanceSlugFromHost('admin.app.example.com', BASE)).toBe('admin')
+    expect(instanceSlugFromHost('test.app.example.com', BASE)).toBe('test')
+  })
+
+  it('控制台主机名解析成 `console`（拦截在 Traefik 优先级 + 创建期政策，不在这里）', () => {
+    expect(instanceSlugFromHost(CONSOLE, BASE)).toBe('console')
   })
 
   it('拒绝非法 slug 字符', () => {
@@ -109,12 +116,30 @@ describe('decideForwardAuth', () => {
     })
   })
 
-  it('未登录 → 302 回基域登录页，且带上原始地址', async () => {
+  it('控制台主机名 → 404（轮不到门；即使轮到了，库里也没有 slug=console 的实例）', async () => {
+    expect(await decideForwardAuth(input(CONSOLE), deps())).toEqual({ status: 404 })
+  })
+
+  it('存量实例的 slug 是保留字 → 仍按 owner 放行（政策不追溯）', async () => {
+    const r = await decideForwardAuth(
+      input('test.app.example.com', 'sid=alice'),
+      deps({
+        findInstanceBySlug: async (slug) =>
+          slug === 'test' ? { slug: 'test', ownerId: 'user-alice' } : undefined,
+      }),
+    )
+    expect(r.status).toBe(200)
+    if (r.status !== 200) return
+    expect(r.headers[GATE_INSTANCE_HEADER]).toBe('test')
+    expect(r.headers[GATE_TOKEN_HEADER]).toBe(gateToken('test', SECRET))
+  })
+
+  it('未登录 → 302 回**控制台**登录页，且带上原始地址', async () => {
     const r = await decideForwardAuth(input('alice.app.example.com'), deps())
     expect(r.status).toBe(302)
     if (r.status !== 302) return
-    // 只能跳基域：不能把 Host 拼进 location（开放重定向）
-    expect(r.location.startsWith(`https://${BASE}/login?next=`)).toBe(true)
+    // 只能跳控制台：不能把 Host 拼进 location（开放重定向），也不能跳父域（那里没有登录页）
+    expect(r.location.startsWith(`https://${CONSOLE}/login?next=`)).toBe(true)
     expect(r.location).toContain(encodeURIComponent('https://alice.app.example.com/x/y?z=1'))
   })
 
@@ -124,7 +149,7 @@ describe('decideForwardAuth', () => {
       deps({ publicScheme: 'http' }),
     )
     if (r.status !== 302) throw new Error('expected 302')
-    expect(r.location.startsWith(`http://${BASE}/login`)).toBe(true)
+    expect(r.location.startsWith(`http://${CONSOLE}/login`)).toBe(true)
   })
 
   it('登录了但不是 owner → 403（授权，不只是认证）', async () => {

@@ -7,8 +7,9 @@
 # （../traefik/dynamic-dev/tls.yml，签发命令见 README）。浏览器会红锁，
 # 点「继续访问」即可；想消掉红锁就把自签 CA 装进系统信任库。
 #
-# 域名是 platform.lvh.me：`*.lvh.me` 是公共通配 DNS（全网解析到 127.0.0.1），
-# 所以**不需要本地 DNS 容器**，也不会和 Clash 之类占用 :53 的程序撞车。
+# 域名是 console.lvh.me（控制台）+ <slug>.lvh.me（实例）：`*.lvh.me` 是公共通配
+# DNS（全网解析到 127.0.0.1），所以**不需要本地 DNS 容器**，也不会和 Clash
+# 之类占用 :53 的程序撞车。
 #
 # 实例容器**不发布任何宿主端口**（铁律 6①）：控制面把 Traefik 接进每个实例
 # 网络（TRAEFIK_CONTAINER），它按容器名直连实例桥。只有 forward-auth 那一跳
@@ -32,7 +33,7 @@ services:
       - ../traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       # 控制面生成的实例路由（apps/server/traefik-dynamic/routes.yml）
       - ../../apps/server/traefik-dynamic:/etc/traefik/dynamic
-      # 平台自己的域名（登录页 / API）——开发态指向 Vite
+      # 控制台自己的域名（登录页 / API）——开发态指向 Vite
       - ../traefik/dynamic-dev/platform.yml:/etc/traefik/dynamic/platform.yml:ro
       # 自签证书（目录在 .gitignore 里，私钥不进仓库；签发命令见 README）
       - ../traefik/certs:/etc/traefik/certs:ro

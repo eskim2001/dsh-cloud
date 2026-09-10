@@ -12,8 +12,11 @@ export interface InstanceLookup {
 }
 
 export interface ForwardAuthDeps {
+  /** **父域**：实例子域挂在它下面（`<slug>.<baseDomain>`）。控制台不在其中。 */
   baseDomain: string
-  /** 控制面自己的对外 scheme；登录页在基域上。 */
+  /** 控制台主机名（`console.<baseDomain>`）。登录页在它上面。 */
+  consoleDomain: string
+  /** 控制面自己的对外 scheme；登录页在控制台域上。 */
   publicScheme: 'http' | 'https'
   gateSecret: string
   findInstanceBySlug(slug: string): Promise<InstanceLookup | undefined>
@@ -78,7 +81,7 @@ export async function decideForwardAuth(
     const next = encodeURIComponent(input.originalUrl)
     return {
       status: 302,
-      location: `${deps.publicScheme}://${deps.baseDomain}/login?next=${next}`,
+      location: `${deps.publicScheme}://${deps.consoleDomain}/login?next=${next}`,
     }
   }
 

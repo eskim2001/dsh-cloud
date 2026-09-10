@@ -1,6 +1,7 @@
+import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
-import { GATE_INSTANCE_HEADER, GATE_TOKEN_HEADER } from '@dsh-cloud/instance-spec'
+import { GATE_INSTANCE_HEADER, GATE_TOKEN_HEADER, RESERVED_SLUGS } from '@dsh-cloud/instance-spec'
 import { buildTraefikConfig, renderTraefikConfig, type TraefikOptions } from './traefik.js'
 
 const ROUTES = [
@@ -84,5 +85,38 @@ describe('renderTraefikConfig', () => {
     expect(cfg.http.routers).toBeUndefined()
     expect(cfg.http.services).toBeUndefined()
     expect(cfg.http.middlewares['platform-auth']).toBeDefined()
+  })
+
+  it('实例 router **不**设 priority——控制台那条约定的高优先级才不会被顶掉', () => {
+    for (const router of Object.values(render().http.routers!)) {
+      expect(router).not.toHaveProperty('priority')
+    }
+  })
+})
+
+/**
+ * 控制台的 router 在 docker/traefik/dynamic-dev/platform.yml（不在这个模块里，
+ * 它是开发态静态配置）。但两者的**关系**是安全不变量，所以要在这里一起测。
+ */
+describe('platform.yml 的不变量', () => {
+  const PLATFORM_YML = new URL(
+    '../../../../docker/traefik/dynamic-dev/platform.yml',
+    import.meta.url,
+  )
+
+  it('控制台 router 显式设 priority，且主机名首段是保留字', async () => {
+    const doc = parseYaml(await readFile(PLATFORM_YML, 'utf8')) as {
+      http: { routers: Record<string, { rule: string; priority?: number }> }
+    }
+    const routers = Object.values(doc.http.routers)
+    expect(routers).toHaveLength(1)
+
+    // 显式优先级：不依赖 Traefik 的「规则长度相同则行为未定义」平手判定
+    expect(routers[0]?.priority).toBeGreaterThan(0)
+
+    const host = /Host\(`([^`]+)`\)/.exec(routers[0]?.rule ?? '')?.[1]
+    expect(host).toBeDefined()
+    // 控制台 label 必须在保留字表里——它是「租户抢不到这个主机名」的第一道防线
+    expect(RESERVED_SLUGS).toContain(host!.split('.')[0])
   })
 })

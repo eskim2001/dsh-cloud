@@ -30,6 +30,8 @@ export interface ProvisionInput {
   memoryMb: number
   pidsLimit: number
   diskMb: number
+  /** 自选版本。不传就用平台默认版本（D21）。 */
+  image?: string
 }
 
 export interface RemoveInput {
@@ -122,17 +124,22 @@ export class InstanceProvisioner {
   ) {}
 
   async create(input: ProvisionInput): Promise<InstanceRow> {
-    // 新建用哪一版由库里的默认版本决定（D21）——没有就响亮失败，别拿一个过期 env 顶上
-    const release = await findDefaultImageRelease(this.db)
-    if (release === undefined) {
+    // 没自选就用库里的默认版本（D21）——没有就响亮失败，别拿一个过期 env 顶上
+    const image = input.image ?? (await findDefaultImageRelease(this.db))?.ref
+    if (image === undefined) {
       throw new ImageRejectedError('平台还没有默认镜像版本：在「镜像管理」里发布一版并设为默认')
+    }
+    // 自选版本走和升级一样的准入（平台仓库 + 发布序列 + 已发布），但**不要求宿主已有**：
+    // 创建本来就会 ensureImage 自动拉（D23）。
+    if (input.image !== undefined) {
+      await this.assertImageAllowed(input.image, { requireLocal: false })
     }
 
     const newInstance: NewInstance = {
       id: crypto.randomUUID(),
       slug: input.slug,
       ownerId: input.ownerId,
-      image: release.ref,
+      image,
       cpus: input.cpus,
       memoryMb: input.memoryMb,
       pidsLimit: input.pidsLimit,
@@ -145,8 +152,7 @@ export class InstanceProvisioner {
       // 新建：数据文件系统允许在这里第一次创建
       return await this.applyRuntime(row, { createData: true })
     } catch (err) {
-      await updateInstance(this.db, row.id, { status: 'error', lastError: messageOf(err) })
-      throw err
+      return await this.failWith(row.id, err)
     }
   }
 
@@ -158,8 +164,7 @@ export class InstanceProvisioner {
     try {
       return await this.applyRuntime(row)
     } catch (err) {
-      await updateInstance(this.db, row.id, { status: 'error', lastError: messageOf(err) })
-      throw err
+      return await this.failWith(row.id, err)
     }
   }
 
@@ -177,8 +182,7 @@ export class InstanceProvisioner {
       await this.syncRoutes()
       return updated ?? row
     } catch (err) {
-      await updateInstance(this.db, row.id, { status: 'error', lastError: messageOf(err) })
-      throw err
+      return await this.failWith(row.id, err)
     }
   }
 
@@ -206,8 +210,7 @@ export class InstanceProvisioner {
       await this.syncRoutes()
       return updated ?? row
     } catch (err) {
-      await updateInstance(this.db, row.id, { status: 'error', lastError: messageOf(err) })
-      throw err
+      return await this.failWith(row.id, err)
     }
   }
 
@@ -241,8 +244,7 @@ export class InstanceProvisioner {
       await this.syncRoutes()
     } catch (err) {
       // 删失败就把状态写回去，别让实例永远卡在 removing——行还在，可以重试
-      await updateInstance(this.db, row.id, { status: 'error', lastError: messageOf(err) })
-      throw err
+      await this.failWith(row.id, err)
     }
   }
 
@@ -339,7 +341,7 @@ export class InstanceProvisioner {
     if (row === undefined) throw new Error(`实例不存在：${id}`)
     if (image === row.image) return row
 
-    await this.assertImageAllowed(image, opts.allowAny === true)
+    await this.assertImageAllowed(image, { allowAny: opts.allowAny === true })
 
     const wasRunning = row.status === 'running'
 
@@ -375,12 +377,11 @@ export class InstanceProvisioner {
         await this.rollbackTo(id, row.image, wasRunning)
       } catch (rollbackErr) {
         // 回滚也失败：容器没了、库里记着新镜像——必须响亮地标 error
-        await updateInstance(this.db, row.id, {
-          status: 'error',
-          lastError: messageOf(rollbackErr),
-        })
-        throw new ImageUpgradeFailedError(
-          `新镜像 ${image} 起不来，回滚也失败了（${messageOf(rollbackErr)}）：${messageOf(err)}`,
+        await this.failWith(
+          row.id,
+          new ImageUpgradeFailedError(
+            `新镜像 ${image} 起不来，回滚也失败了（${messageOf(rollbackErr)}）：${messageOf(err)}`,
+          ),
         )
       }
       throw new ImageUpgradeFailedError(
@@ -438,9 +439,15 @@ export class InstanceProvisioner {
    * 镜像要现拉，窗口会拖到几分钟。校验阶段就让它失败，什么都没动。
    *
    * 用户面（`allowAny=false`）仍然只认「已发布 ∩ 宿主已有」：升级本来就要停容器打快照，
-   * 再叠一次长 pull 会让停机窗口难以预期。
+   * 再叠一次长 pull 会让停机窗口难以预期。**创建**是唯一例外（`requireLocal: false`）——
+   * 它没有停机窗口，且本来就会自动拉。
    */
-  private async assertImageAllowed(image: string, allowAny: boolean): Promise<void> {
+  private async assertImageAllowed(
+    image: string,
+    opts: { allowAny?: boolean; requireLocal?: boolean } = {},
+  ): Promise<void> {
+    const allowAny = opts.allowAny === true
+
     if (!ImageRefSchema.safeParse(image).success) {
       throw new ImageRejectedError(`镜像引用不合法：${image}`)
     }
@@ -459,6 +466,8 @@ export class InstanceProvisioner {
     if (!allowAny && !(await isImageRelease(this.db, image))) {
       throw new ImageRejectedError(`${image} 不在平台提供的版本列表里`)
     }
+
+    if (opts.requireLocal === false) return
 
     const local = await this.orchestrator.listImageTags()
     if (local.includes(image)) return
@@ -479,6 +488,21 @@ export class InstanceProvisioner {
       },
       env: {},
     })
+  }
+
+  /**
+   * 失败收尾：记下原因 → **重新投影一次路由** → 原样抛出。
+   *
+   * 重新投影是必须的：`remove` 的第一步就是「先摘路由再删容器」，失败发生在后面几步时
+   * 路由已经被摘掉，而此刻容器可能还好好地跑着。投影的判据是**容器事实**
+   * （见 `routableInstanceSlugs`），不补这一下就再也没有人来把它加回去——
+   * 页面表现为「实例打不开了」，真实原因却是「上一次操作失败了」。
+   */
+  private async failWith(id: string, err: unknown): Promise<never> {
+    await updateInstance(this.db, id, { status: 'error', lastError: messageOf(err) })
+    // 投影本身失败不能盖掉原始错误
+    await this.syncRoutes().catch(() => undefined)
+    throw err
   }
 
   private async applyRuntime(

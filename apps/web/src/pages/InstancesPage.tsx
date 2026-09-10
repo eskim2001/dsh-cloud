@@ -56,6 +56,7 @@ import {
 import {
   ApiError,
   createInstance,
+  listImages,
   listInstances,
   removeInstance,
   restartInstance,
@@ -70,6 +71,14 @@ const instancesKey = ['instances'] as const
 const MEMORY_MB_OPTIONS = [2048, 4096, 8192]
 const CPU_OPTIONS = [1, 2, 4]
 const DISK_MB_OPTIONS = [5120, 10_240, 20_480]
+
+/** 版本下拉里「不指定」的哨兵值——Select 不接受空字符串。 */
+const DEFAULT_IMAGE = '__default__'
+
+/** 镜像引用里的 tag 部分（仓库前缀对所有版本都一样，摆出来只是噪音）。 */
+function tagOf(ref: string): string {
+  return ref.slice(ref.lastIndexOf(':') + 1)
+}
 
 /** 编排还在跑：每 3 秒跟一次，等它落定。 */
 const IN_FLIGHT_STATUSES = new Set(['provisioning', 'removing'])
@@ -89,6 +98,7 @@ export default function InstancesPage() {
   const [memoryMb, setMemoryMb] = useState(2048)
   const [cpus, setCpus] = useState(1)
   const [diskMb, setDiskMb] = useState(10_240)
+  const [image, setImage] = useState(DEFAULT_IMAGE)
   const [createOpen, setCreateOpen] = useState(false)
 
   const instances = useQuery({
@@ -104,10 +114,27 @@ export default function InstancesPage() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: instancesKey })
 
+  // 只在弹窗打开时拉：版本列表平时用不上
+  const images = useQuery({
+    queryKey: ['create-images'],
+    queryFn: listImages,
+    enabled: createOpen,
+    staleTime: 60_000,
+  })
+
   const create = useMutation({
-    mutationFn: () => createInstance({ slug: slug.trim(), cpus, memoryMb, diskMb }),
+    mutationFn: () =>
+      createInstance({
+        slug: slug.trim(),
+        cpus,
+        memoryMb,
+        diskMb,
+        // 没选具体版本就不带这个键，让服务端用平台默认版本（D21）
+        ...(image === DEFAULT_IMAGE ? {} : { image }),
+      }),
     onSuccess: async () => {
       setSlug('')
+      setImage(DEFAULT_IMAGE)
       setCreateOpen(false)
       await invalidate()
     },
@@ -183,6 +210,21 @@ export default function InstancesPage() {
     value: mb,
   }))
 
+  const defaultRef = images.data?.default ?? null
+  const versionOptions = [
+    {
+      label:
+        defaultRef === null
+          ? t('instances.versionDefaultPlain')
+          : t('instances.versionDefault', { version: tagOf(defaultRef) }),
+      value: DEFAULT_IMAGE,
+    },
+    // 默认版本已经单列一项，不再重复出现在下面
+    ...(images.data?.published ?? [])
+      .filter((ref) => ref !== defaultRef)
+      .map((ref) => ({ label: tagOf(ref), value: ref })),
+  ]
+
   const createForm = (
     <form onSubmit={submit}>
       <FieldGroup>
@@ -191,13 +233,56 @@ export default function InstancesPage() {
           <Input
             id="slug"
             value={slug}
-            onChange={(e) => setSlug(e.target.value)}
+            onChange={(e) => {
+              setSlug(e.target.value)
+              // 输入变了，上一次的失败原因就不作数了
+              if (create.isError) create.reset()
+            }}
             placeholder={t('instances.slugPlaceholder')}
             pattern="[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
             minLength={3}
             maxLength={32}
+            aria-invalid={create.isError}
             required
           />
+          {create.isError ? (
+            <p className="text-xs text-destructive">
+              {create.error instanceof ApiError
+                ? create.error.message
+                : t('instances.createFailed')}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">{t('instances.slugHint')}</p>
+          )}
+        </Field>
+
+        <Field>
+          <FieldLabel htmlFor="version">{t('instances.version')}</FieldLabel>
+          <Select
+            items={versionOptions}
+            value={image}
+            onValueChange={(value) => {
+              if (typeof value === 'string') setImage(value)
+            }}
+          >
+            <SelectTrigger id="version" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {versionOptions.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {images.data !== undefined && images.data.published.length === 0
+              ? t('instances.versionEmpty')
+              : t('instances.versionHint')}
+          </p>
         </Field>
 
         <div className="flex gap-3">
@@ -274,12 +359,6 @@ export default function InstancesPage() {
           </Select>
           <p className="text-xs text-muted-foreground">{t('instances.diskHint')}</p>
         </Field>
-
-        {create.isError && (
-          <p className="text-xs text-destructive">
-            {create.error instanceof ApiError ? create.error.message : t('instances.createFailed')}
-          </p>
-        )}
       </FieldGroup>
 
       <DialogFooter className="mt-6">

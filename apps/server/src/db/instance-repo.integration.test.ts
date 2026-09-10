@@ -103,14 +103,15 @@ describe.runIf(process.env.DSH_SECURITY_INTEGRATION === '1')('instance storage a
   it('denies account takeover through the real authentication plugin', async () => {
     const auth = createAuth(loadEnv({
       DATABASE_URL: 'postgres://unused', BASE_DOMAIN: 'app.example.com',
+      CONSOLE_DOMAIN: 'console.app.example.com',
       PLATFORM_SECRET: randomUUID(), BETTER_AUTH_SECRET: randomUUID(),
     }), database!.db)
     const email = `${randomUUID()}@example.test`
     const password = randomUUID()
     const registration = await auth.api.signUpEmail({ body: { name: 'Operator', email, password } })
     await database!.db.update(user).set({ role: 'admin' }).where(eq(user.id, registration.user.id))
-    const login = await auth.handler(new Request('https://app.example.com/api/auth/sign-in/email', {
-      method: 'POST', headers: { origin: 'https://app.example.com', 'content-type': 'application/json' },
+    const login = await auth.handler(new Request('https://console.app.example.com/api/auth/sign-in/email', {
+      method: 'POST', headers: { origin: 'https://console.app.example.com', 'content-type': 'application/json' },
       body: JSON.stringify({ email, password }),
     }))
     expect(login.status).toBe(200)
@@ -118,21 +119,27 @@ describe.runIf(process.env.DSH_SECURITY_INTEGRATION === '1')('instance storage a
     expect((await auth.api.getSession({ headers: new Headers({ cookie }) }))?.user.role).toBe('admin')
     const target = await owner()
     for (const endpoint of ['impersonate-user', 'set-user-password', 'update-user']) {
-      const response = await auth.handler(new Request(`https://app.example.com/api/auth/admin/${endpoint}`, {
+      const response = await auth.handler(new Request(`https://console.app.example.com/api/auth/admin/${endpoint}`, {
         method: 'POST',
-        headers: { cookie, origin: 'https://app.example.com', 'content-type': 'application/json' },
+        headers: { cookie, origin: 'https://console.app.example.com', 'content-type': 'application/json' },
         body: JSON.stringify({ userId: target, newPassword: randomUUID(), data: { email: 'taken@example.test' } }),
       }))
       expect(response.status).toBe(403)
     }
   })
 
-  it('retains ownership and gives a reused slug a different filesystem', async () => {
+  it('retains a soft-deleted slug for its owner: same account may reuse it, another may not', async () => {
     const firstOwner = await owner()
     const secondOwner = await owner()
     const previous = await createInstanceRecord(database!.db, input(firstOwner, 'reused-name'), 1)
     await retainInstanceRecord(database!.db, previous.id)
-    const next = await createInstanceRecord(database!.db, input(secondOwner, 'reused-name'), 1)
+
+    // 换个人不行：域名一旦回收，上一个租户留在这个域名下的浏览器状态就被继承了
+    await expect(
+      createInstanceRecord(database!.db, input(secondOwner, 'reused-name'), 1),
+    ).rejects.toBeInstanceOf(SlugTakenError)
+
+    const next = await createInstanceRecord(database!.db, input(firstOwner, 'reused-name'), 1)
     expect(next.storageKey).not.toBe(previous.storageKey)
     expect(next.storageKey).not.toBe(next.slug)
     expect(next.storageKey).toMatch(/^[a-f0-9]{32}$/)
@@ -142,11 +149,11 @@ describe.runIf(process.env.DSH_SECURITY_INTEGRATION === '1')('instance storage a
     expect(retained?.deletedAt).toBeInstanceOf(Date)
     expect(await findInstanceById(database!.db, previous.id)).toBeUndefined()
     expect((await findInstanceBySlug(database!.db, 'reused-name'))?.id).toBe(next.id)
-    expect(await listInstancesByOwner(database!.db, firstOwner)).toEqual([])
-    expect(await countInstancesByOwner(database!.db, firstOwner)).toBe(0)
+    expect(await listInstancesByOwner(database!.db, firstOwner)).toEqual([next])
+    expect(await countInstancesByOwner(database!.db, firstOwner)).toBe(1)
     expect((await listAllInstances(database!.db)).some(row => row.id === previous.id)).toBe(false)
     expect((await listInstancesWithOwner(database!.db)).some(row => row.id === previous.id)).toBe(false)
-    expect((await listUsersWithInstanceCount(database!.db)).find(row => row.id === firstOwner)?.instanceCount).toBe(0)
+    expect((await listUsersWithInstanceCount(database!.db)).find(row => row.id === firstOwner)?.instanceCount).toBe(1)
   })
 
   it('allows only the configured quota under concurrent creates', async () => {

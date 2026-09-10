@@ -10,8 +10,8 @@
                             ▼
         ┌────────────────────────────────────────────┐
         │ Traefik （host 网络 · TLS *.app.example.com）│
-        │  ① app.example.com       → 平台管理面        │
-        │  ② <slug>.app.example.com → 实例 dsh         │
+        │  ① console.app.example.com → 平台管理面      │
+        │  ② <slug>.app.example.com  → 实例 dsh        │
         │      ↳ forward-auth 中间件                   │
         │      ↳ 注入 X-Platform-Token                 │
         └──────┬─────────────────────────┬────────────┘
@@ -45,7 +45,7 @@
 
 ## 三、两条请求链路
 
-**管理面**：浏览器 → `app.example.com` → Traefik → 控制面 web / `/api`。普通会话认证。
+**管理面**：浏览器 → `console.app.example.com` → Traefik → 控制面 web / `/api`。普通会话认证。
 
 **数据面（打开 dsh）**：
 
@@ -109,9 +109,9 @@
 
 ## 七、Web 侧的一个陷阱：会话 cookie 作用域
 
-控制面在 `app.example.com`，数据面在 `<slug>.app.example.com`。forward-auth 要读 cookie 才能认证子域请求 → cookie 必须覆盖子域（`Domain=.app.example.com`）→ **但实例子域上跑的是 agent 生成的页面**，它天然能对控制面 API 发带凭据的请求。
+控制台在 `console.app.example.com`（`CONSOLE_DOMAIN`），数据面在 `<slug>.app.example.com`（`BASE_DOMAIN=app.example.com`）。forward-auth 要读 cookie 才能认证子域请求 → cookie 必须覆盖父域（`Domain=.<BASE_DOMAIN>`）→ **但实例子域上跑的是 agent 生成的页面**，它天然能对控制面 API 发带凭据的请求。
 
-**已实现**（[`apps/server/src/auth.ts`](../apps/server/src/auth.ts)）：cookie 属性 `HttpOnly` + `Secure`（https 时）+ `SameSite=Lax`，`Domain=.<BASE_DOMAIN>`；better-auth 校验 `trustedOrigins`。
+**已实现**（[`apps/server/src/auth.ts`](../apps/server/src/auth.ts)）：cookie 属性 `HttpOnly` + `Secure`（https 时）+ `SameSite=Lax`，`Domain=.<BASE_DOMAIN>`（**父域**，同时覆盖控制台和实例）；better-auth 校验 `trustedOrigins`（只信 `CONSOLE_DOMAIN` 的 origin，实例子域不在其中）。
 
 `SameSite=Lax` 不阻止实例子域发出的同站跨源请求。控制面现在统一检查写请求的 `Origin`：只允许平台自身来源和显式配置的精确受信来源，缺失或不匹配一律 403。该检查覆盖认证接口及无请求体的生命周期操作，不依赖 CORS 阻止响应读取。
 

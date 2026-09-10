@@ -125,7 +125,8 @@
 
 - **决策**：列表 / 详情 / 管理面的 `status` 在**请求时**用一次 `docker ps -a` 现算
   （[`apps/server/src/instance/runtime-status.ts`](../apps/server/src/instance/runtime-status.ts)）；
-  DB 的 `instances.status` 降级为**意图**（编排动作、对账器、路由投影仍读它）。
+  DB 的 `instances.status` 降级为**意图**（编排动作、对账器仍读它；路由投影见 D25，
+  已经改成读容器事实、只在取不到时退回它）。
   状态词汇加 `restarting` / `paused`，并把 Docker 原文（`Restarting (3) 20 seconds ago`）
   透成 `statusText`。前端不再把 `running` 当落定态：编排中 3 秒轮询，其余 10 秒兜底。
 - **理由**：D15 验收时 `--patch` 参数顺序错导致 crash-loop，**列表和详情都显示「运行中」**。
@@ -410,6 +411,10 @@
     D22 之前那些裸 tag 的实例镜像明明在宿主上，照它拒会连重启都做不到。`assertImageAllowed`
     第 4 道从「宿主上已有」放宽成「catalog ∪ 宿主」，免得 `setImage` 先打了数据快照、删了容器
     才在 pull 上失败。
+  - **新建时可选版本**（`GET /api/images` 返回全部已发布版本，新建弹窗里是下拉；不选就用默认版本）：
+    创建**不要求宿主上已有**（`assertImageAllowed(..., { requireLocal: false })`）——它没有停机窗口，
+    `applyRuntime` 本来就会自动拉。这与升级的差别是有意的（见代价⑥）：升级在打完快照、删掉容器之后
+    才发现要长 pull，窗口不可预期。用户面能选的仍只是**已发布**的版本，仓库 / tag 形状两道照旧。
   - **顺带补一个既有的洞**：`boot.ts` 启动时把 `provisioning` 的行标成 error（「平台重启中断了创建」）。
     `createInstanceRecord` 先写 `provisioning`，而对账器跳过非 running/stopped、启动恢复只拉 running——
     进程在创建中途崩掉就留下**永久僵尸行**。加了 pull 之后这个窗口从秒级变成分钟级，所以这轮补上。
@@ -429,4 +434,83 @@
   ⑥ 用户面 `stable` 仍保持「已发布 ∩ 宿主已有」，**不**让用户升级触发长 pull。
 - **重审**：要下载取消 / 断点续传 / 跨进程去重（引入作业表）时；要做 base 镜像 digest pin 或私有包
   凭据轮换时；上游 tag 命名规则变了时。
+
+
+## D24 · 域名拆分：`BASE_DOMAIN` 退成父域，控制台搬到 `CONSOLE_DOMAIN`
+
+- **决策**：把「父域」和「控制台自己的主机名」拆成两个变量，并给实例命名加上纵深防御。
+  - **`BASE_DOMAIN` 是父域**（本地 `lvh.me`，生产 `xxxx.app`）：实例主机名 = `<slug>.<BASE_DOMAIN>`，
+    会话 cookie 的 `Domain=.<BASE_DOMAIN>`。**新增 `CONSOLE_DOMAIN`**（本地 `console.lvh.me`）：
+    它决定 better-auth 的 `baseURL`、`trustedOrigins` 和未登录时的跳转目标。
+    `env.ts` 的 `superRefine` 断言 `CONSOLE_DOMAIN` 是 `BASE_DOMAIN` 的**子域**
+    （父域本身不行——`<父域>` 那一层留给实例命名空间），配错起不来。
+  - **保留字扩充 + 创建路径兜底**：`RESERVED_SLUGS` 按组扩到 80 条（平台自用 / 认证 / 基础设施 /
+    环境 / 监控 / 常见服务词，含 `console`、`platform`）；创建处理器再显式拒绝
+    「slug 等于 `CONSOLE_DOMAIN` 的首段」——控制台域名可以配成静态表之外的词。
+  - **软删的 slug 绑定原 owner**：`createInstanceRecord` 事务里查同 slug 的**任意行**（含软删），
+    属于别人就 `SlugTakenError`。partial unique index 不动，所以**同一 owner 仍可重建同名**，
+    purge 之后彻底释放。
+  - **优先级是显式的**：开发态控制台 router 设 `priority: 1000`；实例 router **不设** priority。
+    这样即使有 slug 撞上控制台 label，控制台也稳赢，不依赖 Traefik「规则长度相同则行为未定义」。
+  - **注册面测试**：`http/route-surface.test.ts` 把全部已注册 GET 路由钉在一份白名单上，
+    新增 GET 必须过一次人工决定（铁律 6：漏挂认证不报错）。
+- **理由**：原来 `BASE_DOMAIN` 一个变量同时当控制台主机名和实例后缀，于是控制台主机名
+  （`platform.<base>`）落在实例命名空间里。任何登录用户建一个 slug = `platform` 的实例，就渲染出
+  规则长度与 `platform-web` 完全相同的 router；Traefik 平手行为未定义，而 forward-auth 的未登录
+  跳转又指向同一个主机——最坏是**控制台全站打不开 + 所有租户的所有实例一起不可用**，一次 API 调用
+  即可触发。拆开之后两者不再共享主机名，抢注在结构上不可能；保留字和 priority 只是纵深防御。
+  另一条理由是浏览器状态按域名归属（cookie / localStorage / service worker）：主机名回收给另一个
+  租户就等于把上一个租户的浏览器状态继承过去，所以软删的 slug 必须继续绑定原 owner。
+- **备选**：只加保留字、不拆变量（否——控制台域名是可配置的，静态表永远滞后，且语义仍然混着）；
+  实例 slug 强制随机后缀（否——用户要自选、要可读，而且不解决「控制台占用根域」的结构问题）；
+  cookie 改 host-only + 控制台签发短时 token（**另开一轮**，会动认证链路，见 OPEN-QUESTIONS）；
+  入口剥 `Set-Cookie`（否——Traefik 的 `headers` 中间件只能整条删，会连 dsh 自己的会话 cookie
+  一起删掉，做不到「只删带 `Domain=` 的」）。
+- **代价**：① 控制台地址变了（本地 `platform.lvh.me` → `console.lvh.me`），书签要改一次；
+  ② **所有实例容器必须重建**——`DSH_TRUSTED_HOSTS` 是建容器时写进环境的，不重建就是「页面能开、
+  API 全 403」（迁移步骤见 SECURITY-HARDENING.md）；③ 本地 cookie 域从 `.platform.lvh.me` 放宽到
+  `.lvh.me`（覆盖本机所有 `lvh.me` 子域；生产是注册域本身，无差异）；④ 保留 slug 会累积，
+  跨 owner 不得复用，要彻底释放得走 purge；⑤ **Set-Cookie 投毒仍未解**：同注册域下实例响应能种
+  `Domain=<base>` 的 cookie，利用前提是「同一浏览器先后访问两个租户的实例」，结构解另开一轮；
+  ⑥ **保留字只挡新建，不追溯存量**：`RESERVED_SLUGS` 是**创建期命名政策**，只挂在创建输入上
+  （`CreateBodySchema`）；`InstanceSlugSchema` 只管形状，库里已有的行一律放行。最初的实现把保留字
+  也放进 `InstanceSlugSchema`，于是 `specOf` 对存量行再判一次——扩表会让 slug 恰好落进新表的实例
+  **打不开（门上 404）也删不掉（purge 500）**，等于把租户锁在门外。现在存量保留字实例照常可访问、
+  可启停、可删除，只是这个名字不能再被新建占用。
+- **重审**：把门改成 host-only cookie + 控制台签发短时 token 时；入口换成能按域名过滤 `Set-Cookie`
+  的方案时；控制台需要再拆出多个主机名（如 `admin.` / `api.`）时——那时该引入一张显式的
+  「平台保留主机名」表，而不是继续往 `RESERVED_SLUGS` 里加词。
+
+## D25 · 路由投影按**容器事实**裁决，失败收尾补投影一次
+
+- **决策**：Traefik 投影的准入判据从 DB `status` 换成**容器的实时状态**
+  （[`apps/server/src/instance/routes-sync.ts`](../apps/server/src/instance/routes-sync.ts) 的
+  `routableInstanceSlugs`）：容器处于 `running` / `restarting` / `paused` 就投影，`exited` /
+  `created` / `dead` 或**容器根本不在**就不投影。只有编排进行中（`provisioning` / `removing`）
+  例外——这两个窗口里容器死活都不算数，一律不投影。`containerStates` **取不到**（Docker 抖了）
+  时退回 DB 意图，并按失败即关闭处理：只投影 `status === 'running'` 的行。
+  配套地，所有失败收尾（`InstanceProvisioner.failWith`）在写 `error` + `lastError` 之后
+  **重新投影一次路由**，投影自身失败只告警、不覆盖原始错误。
+- **理由**：D16 之后 `status` 只记**意图**，一次失败的操作就把它写成 `error`，而容器往往还好好地
+  跑着。照意图投影的问题是**路由只减不增**：`remove` 的第一步就是「置 `removing` → 投影一次」
+  把路由摘掉（有意如此，先摘再删容器），若后面某一步失败，catch 写 `error` 却不补投影，
+  对账器又跳过 `error` 行——**再也没有任何人把这条路由加回来**。用户看到「实例突然 404」，
+  真实原因却是「上一次操作失败了」，两码事，而且没有任何日志或告警把这两件事联系起来。
+  改成按事实裁决后，这条链路自己就闭合了：容器还在 → 路由还在 → 用户照常打开；
+  容器真没了 → 没路由 → 页面上的「启动」重建（`start` 有 `containerId === null` 的回落）。
+- **备选**：① 只在 catch 里补一次投影、判据仍看 `status`（否——`status` 已经是 `error`，
+  补投影等于什么都不做）；② 让对账器也处理 `error` 行（否——`error` 是「等用户决断」的落定态，
+  对账器自动改写它会让失败原因一闪而过，用户看不到）；③ 把 `error` 从 DB 里拆成独立的
+  「事实」列（否——Docker 已经是事实的真相，再存一份就是第三个可能过期的副本）。
+- **代价**：① 投影前多一次 `docker ps -a`（和 D16 同一份开销，按 `dsh-instance-` 前缀过滤约 35ms），
+  且**所有**改路由的路径（创建 / 启停 / 删除 / 对账）都要带上它；② 取不到 Docker 时路由会
+  短暂变窄——这是有意的取向，宁可少投影一条（用户重试或下一轮对账修回来），也不要多投影一条
+  绕过门的裸路由；③ 「DB 记 `stopped`、容器却真在跑」时会被投影（外部 `docker start` 或
+  上一次 stop 停在中间），此时以事实为准是对的，DB 由 45 秒的对账收敛。
+- **注意（有意的不一致）**：这样会让「列表里显示**错误**、实例却**打得开**」同时出现
+  （列表状态走 `resolveRuntimeStatus`，`error` 是短路返回的意图）。这不是 bug：状态回答
+  「需不需要你管」，路由回答「能不能连上」。UI 上的错误文案本来就要指向 `lastError` 里的原因，
+  而不是暗示「已经不可用了」。
+- **重审**：引入异步作业表 / 编排状态机时（那时「进行中」不再只有 `provisioning` / `removing`
+  两个词，`IN_FLIGHT` 需要跟着状态机走）；或控制面变成多实例部署、投影需要跨进程协调时。
 

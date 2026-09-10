@@ -66,69 +66,89 @@
 
 ## 快速开始
 
-以下步骤启动的是**本地开发管理台**。打开 `dsh` 实例还需要完成后续入口配置。仓库内的 Compose 栈提供本地 Traefik 入口（带自签 TLS），并非完整的生产安装方案。
+从 clone 到在浏览器里打开一个 dsh 实例。本地用 `lvh.me`：`*.lvh.me` 是公共通配 DNS，全网解析到 `127.0.0.1`，所以不需要任何 DNS 配置，也不会和 Clash 之类占用 `:53` 的程序撞车。
+
+仓库内的 Compose 栈只面向本地开发，不是生产安装方案。
 
 ### 前置条件
 
 - Node.js 22 或更新版本，以及 pnpm 10.10.0，版本要求见 [package.json](package.json)。
-- 已运行的 PostgreSQL 数据库，可通过 `DATABASE_URL` 访问。
+- PostgreSQL——仓库不自带，第一步会给你起一个。
 - 可运行 Linux 容器的 Docker，控制面能够访问其 daemon socket。自定义 socket 可通过 `DOCKER_SOCKET` 指定，见 [Docker 客户端](apps/server/src/docker/client.ts)。
 - 实例存储要求 Docker 宿主支持 loop 设备、ext4 和[存储助手](apps/server/src/instance/host-storage.ts)使用的宿主工具。存储操作需要短时运行的特权助手容器。在 Docker Desktop 上，这里的宿主是它的 Linux 虚拟机，而不是 macOS。
 
-### 1. 安装依赖
+### 1. 起一个 PostgreSQL
+
+Compose 栈里没有数据库，得自己起一个：
+
+```bash
+docker run -d --name dsh-postgres -p 127.0.0.1:55432:5432 -e POSTGRES_USER=dshcloud -e POSTGRES_PASSWORD=dshcloud -e POSTGRES_DB=dsh_cloud postgres:16-alpine
+```
+
+### 2. 安装依赖 + 建环境文件
 
 在仓库根目录运行：
 
 ```bash
 pnpm install
+```
+
+```bash
 cp .env.example apps/server/.env.local
 ```
 
-### 2. 配置控制面
+### 3. 配置控制面
 
 编辑上一步创建的控制面环境文件：
 
-- 将 `DATABASE_URL` 设为你的数据库连接串。示例指向 `127.0.0.1:55432` 上的 PostgreSQL，不会自动启动数据库。
+- `DATABASE_URL` 默认就指向上面那个库，不用改。
+- 设好 `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`——第一个管理员由它产出（第 5 步用）。
 - 将 `PLATFORM_SECRET` 和 `BETTER_AUTH_SECRET` 设为**分别生成**的值，每个至少 32 个字符。为每个密钥分别运行一次下面的命令，并妥善保管结果：
 
 ```bash
 openssl rand -hex 32
 ```
 
-仅通过 HTTP 使用本地管理台时，设置：
+- 域名那组换成：
 
 ```dotenv
-BASE_DOMAIN=localhost
+BASE_DOMAIN=lvh.me                        # 父域：实例是 <slug>.lvh.me
+CONSOLE_DOMAIN=console.lvh.me             # 控制台自己的主机名
 PUBLIC_SCHEME=http
-EXTRA_TRUSTED_ORIGINS=http://localhost:5173
+TRAEFIK_ENTRYPOINT=web
+FORWARD_AUTH_ADDRESS=http://host.docker.internal:3000/auth/verify
 TRAEFIK_ROUTES_PATH=./traefik-dynamic/routes.yml
 ```
 
-受信来源配置用于允许 Vite 管理台完成认证。使用下文命令启动时，路由路径相对于控制面包目录解析，写入[本地 Compose 栈](docker/compose/local.yml)挂载的目录，而不是默认的系统路径。控制面同步路由时会自动创建该目录。
+`BASE_DOMAIN` 是**父域**（实例是 `<slug>.<父域>`），`CONSOLE_DOMAIN` 是控制台自己的主机名，必须是父域的子域（`console.<父域>`）——父域本身不当主机名用。`TRAEFIK_ROUTES_PATH` 相对控制面包目录解析，控制面同步路由时会自己建出目录。
 
 完整配置模板见 [.env.example](.env.example)，校验规则和默认值见 [env.ts](apps/server/src/env.ts)。
 
-### 3. 执行数据库迁移
+### 4. 迁移数据库
 
 ```bash
 pnpm --filter @dsh-cloud/server db:migrate
 ```
 
-### 4. 准备实例镜像
-
-**不用本地构建**——在管理台「镜像管理」页点「同步」，把 GHCR 上的版本拉进目录，再对某个版本「下载」→「发布」→「设为默认」即可；新建实例时会自动拉取缺的镜像。见 [D23](docs/DECISIONS.md)。
-
-只有改了 `docker/instance-image/` 才需要本地构建：
+### 5. 建第一个管理员
 
 ```bash
-./docker/instance-image/build.sh
+pnpm --filter @dsh-cloud/server db:seed
 ```
 
-tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式是 `<dsh版本>_<修订号>`（如 `0.1.2-rc.1_2`），本地和 CI 打的是同一个全名 `ghcr.io/eskim2001/dsh-instance:<tag>`。见 [D22](docs/DECISIONS.md)。
+只在「一个管理员都没有」时生效，可以重复跑（也是被删光后的恢复路径）。之后的授予 / 撤销在管理台的「用户」页里做。
 
-### 5. 启动管理台
+### 6. 起入口栈
 
-打开两个终端，均在仓库根目录分别启动控制面和前端：
+```bash
+docker compose -f docker/compose/quickstart.yml up -d
+```
+
+Traefik 只开 `:80`。实例容器**不发布任何宿主端口**——控制面把 Traefik 接进每个实例的独立 bridge 网络，按容器名接入。
+
+### 7. 启动控制面和前端
+
+两个终端，均在仓库根目录分别启动：
 
 ```bash
 pnpm --dir apps/server dev:local
@@ -138,33 +158,25 @@ pnpm --dir apps/server dev:local
 pnpm dev:web
 ```
 
-访问 `http://localhost:5173` 并注册账号。平台管理员**不由注册产生**：在控制面环境文件里设好 `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`，跑一次 `pnpm --dir apps/server db:seed` 就会建出第一个管理员（已有管理员时直接跳过，可重复执行）。之后的授予 / 撤销在管理台的「用户」页里做。
+打开 `http://console.lvh.me/`，用 seed 的账号登录。**别用 `localhost:5173`**——主机名不对，会话 cookie 落不到实例子域上。
 
-`dev:local` 脚本会显式加载环境文件。根目录的 `dev:server` 脚本不会加载该文件，使用它时需要提前将变量设入进程环境。
+**认准 `dev:local`**：它会显式加载环境文件。根目录的 `dev:server` 脚本不会加载，用它得自己先把变量设进进程环境。
 
-### 6. 启用实例访问
+### 8. 建一个实例
 
-创建并打开实例前还需要入口栈（面向 macOS + Docker Desktop）。完整说明见[本地入口指南](docker/compose/README.md)，这里是最短路径。
+在「镜像管理」页点「同步」，把 GHCR 上的版本拉进目录，再对某个版本「下载」→「发布」→「设为默认」；新建实例时会自动拉取缺的镜像。见 [D23](docs/DECISIONS.md)。
 
-先签一张自签证书——`docker/traefik/certs/` 在 `.gitignore` 里（私钥不进仓库），**新 clone 的机器上要先自己签**：
-
-```bash
-mkdir -p docker/traefik/certs
-```
+只有改了 `docker/instance-image/` 才需要本地构建：
 
 ```bash
-openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 825 -keyout docker/traefik/certs/lvh.me-key.pem -out docker/traefik/certs/lvh.me.pem -subj "/CN=platform.lvh.me" -addext "subjectAltName=DNS:platform.lvh.me,DNS:*.platform.lvh.me"
+./docker/instance-image/build.sh
 ```
 
-再把第 2 步那组 HTTP 配置换成入口形态：`BASE_DOMAIN=platform.lvh.me`、`PUBLIC_SCHEME=https`、`TRAEFIK_ENTRYPOINT=websecure`、`TRAEFIK_CERT_RESOLVER=`（空）、`FORWARD_AUTH_ADDRESS=http://host.docker.internal:3000/auth/verify`，`TRAEFIK_ROUTES_PATH` 保留仓库内路径。
+tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式是 `<dsh版本>_<修订号>`（如 `0.1.2-rc.1_2`），本地和 CI 打的是同一个全名 `ghcr.io/eskim2001/dsh-instance:<tag>`。见 [D22](docs/DECISIONS.md)。
 
-启动入口栈：
+然后在「实例」页新建一个，点开它就在浏览器里跑起来了。
 
-```bash
-docker compose -f docker/compose/local.yml up -d
-```
-
-重启控制面，改从 `https://platform.lvh.me/` 登录（自签证书会红锁，点「继续访问」）。不要使用 localhost 地址——主机名不对，会话 cookie 落不到实例子域上。如果此前使用其他 `BASE_DOMAIN` 创建过实例，请重建这些实例。
+> 服务端同构的入口（`:443` + `Secure` cookie）见[本地入口指南](docker/compose/README.md)——验认证链路时要走它，只有它覆盖线上真实的 TLS 与 cookie 条件。
 
 ## 架构
 
