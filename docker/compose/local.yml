@@ -1,11 +1,14 @@
-# 本地验证栈：Traefik 接入 + 认证前置。
+# 本地开发全栈：Postgres + Traefik 接入 + 认证前置。
+#
+# 正常由根目录的 `pnpm dev` 拉起——它会等 Postgres 就绪、跑迁移和 seed，再起控制面和管理台。
+# 手工起也行：docker compose -f docker/compose/local.yml up -d（停：... down）。
 #
 # 拓扑刻意和生产一致，只有一处差异：
 #   - 控制面（apps/server）跑在**宿主**上（tsx 直跑，改代码即生效），不在容器里。
 #
-# TLS 按生产那套走（:443 的 `websecure`），证书换成**自签**的静态证书
-# （../traefik/dynamic-dev/tls.yml，签发命令见 README）。浏览器会红锁，
-# 点「继续访问」即可；想消掉红锁就把自签 CA 装进系统信任库。
+# TLS 按生产那套走（:443 的 `websecure`），但**不配证书**——Traefik 没配到证书时回落到它
+# 内置的默认自签证书。浏览器会红锁，且证书名和 lvh.me 对不上，点「继续访问」即可；
+# 想要绿锁就自己签一张 SAN 覆盖 lvh.me / *.lvh.me 的证书装进系统信任库。
 #
 # 域名是 console.lvh.me（控制台）+ <slug>.lvh.me（实例）：`*.lvh.me` 是公共通配
 # DNS（全网解析到 127.0.0.1），所以**不需要本地 DNS 容器**，也不会和 Clash
@@ -15,7 +18,8 @@
 # 网络（TRAEFIK_CONTAINER），它按容器名直连实例桥。只有 forward-auth 那一跳
 # 仍经 host.docker.internal 摸宿主上的控制面。
 #
-# 跑法见 docker/compose/README.md。控制面需要的环境变量在 apps/server/.env.local。
+# 跑法见 docker/compose/README.md。控制面需要的环境变量在 apps/server/.env.local
+# （`pnpm dev` 在它缺失时会自动生成）。
 services:
   traefik:
     image: traefik:v3.5
@@ -35,6 +39,27 @@ services:
       - ../../apps/server/traefik-dynamic:/etc/traefik/dynamic
       # 控制台自己的域名（登录页 / API）——开发态指向 Vite
       - ../traefik/dynamic-dev/platform.yml:/etc/traefik/dynamic/platform.yml:ro
-      # 自签证书（目录在 .gitignore 里，私钥不进仓库；签发命令见 README）
-      - ../traefik/certs:/etc/traefik/certs:ro
-      - ../traefik/dynamic-dev/tls.yml:/etc/traefik/dynamic/tls.yml:ro
+
+  # 开发用的数据库。控制面跑在宿主上，所以只绑回环、DSN 是 127.0.0.1:55432。
+  # 数据进 named volume：`down` 不丢，`down -v` 才清空。
+  postgres:
+    image: postgres:16-alpine
+    container_name: dsh-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:55432:5432"
+    environment:
+      POSTGRES_USER: dshcloud
+      POSTGRES_PASSWORD: dshcloud
+      POSTGRES_DB: dsh_cloud
+    volumes:
+      - dsh-pgdata:/var/lib/postgresql/data
+    # 给 `pnpm dev` 用：靠它等「真能连」，而不是固定 sleep
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dshcloud -d dsh_cloud"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  dsh-pgdata:

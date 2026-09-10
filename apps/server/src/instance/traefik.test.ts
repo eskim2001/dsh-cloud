@@ -60,7 +60,7 @@ describe('renderTraefikConfig', () => {
     expect(cfg.http.routers!['instance-alice']?.tls).toBeUndefined()
   })
 
-  it('tls: {} = 用 file provider 的静态证书（本地自签）', () => {
+  it('tls: {} = 用 file provider 的静态证书', () => {
     const cfg = render({ tls: {} })
     expect(cfg.http.routers!['instance-alice']?.tls).toEqual({})
   })

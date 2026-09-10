@@ -9,6 +9,9 @@ export default defineConfig({
   resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
   server: {
     port: 5173,
+    // 端口写死在入口配置里（host.docker.internal:5173），被占时宁可报错，
+    // 别自动换到 5174——换了 Traefik 就 502。
+    strictPort: true,
     // 必须显式绑 IPv4：默认 host 是 'localhost'，Node 会解析成 ::1，
     // 而容器里的 Traefik 经 host.docker.internal 只能摸到宿主的 IPv4 回环。
     host: '127.0.0.1',

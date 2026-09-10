@@ -65,103 +65,58 @@
 
 ## Getting Started
 
-From clone to opening a `dsh` instance in your browser. Locally this uses `lvh.me`: `*.lvh.me` is public wildcard DNS that resolves to `127.0.0.1` everywhere, so no DNS configuration is needed and it cannot collide with anything holding `:53` such as Clash.
+Locally this uses `lvh.me`: `*.lvh.me` is public wildcard DNS that resolves to `127.0.0.1` everywhere, so no DNS configuration is needed and it cannot collide with anything holding `:53` such as Clash.
 
 The Compose stacks in this repository target local development, not a production installation.
 
 ### Prerequisites
 
 - Node.js 22 or later and pnpm 10.10.0, as specified in [package.json](package.json).
-- PostgreSQL — the repository does not ship one; the first step starts it for you.
-- Docker with Linux containers and a daemon socket accessible to the server. A custom socket can be set with `DOCKER_SOCKET`; see the [Docker client](apps/server/src/docker/client.ts).
+- Docker Desktop that can run Linux containers and ships Compose v2. The control plane connects to its daemon **at startup**, not only when creating instances.
+- Host ports `80` / `443` / `3000` / `5173` / `55432` free.
 - For instance storage, a Docker host with loop devices, ext4 and the host utilities used by the [storage helper](apps/server/src/instance/host-storage.ts). Storage operations require short-lived privileged helper containers. On Docker Desktop, this host is its Linux VM, not macOS.
 
-### 1. Start a PostgreSQL
+### Run it
 
-The Compose stacks do not include a database, so start one yourself:
-
-```bash
-docker run -d --name dsh-postgres -p 127.0.0.1:55432:5432 -e POSTGRES_USER=dshcloud -e POSTGRES_PASSWORD=dshcloud -e POSTGRES_DB=dsh_cloud postgres:16-alpine
-```
-
-### 2. Install dependencies and create the environment file
-
-Run from the repository root:
+From the repository root:
 
 ```bash
 pnpm install
 ```
 
 ```bash
-cp .env.example apps/server/.env.local
+pnpm dev
 ```
 
-### 3. Configure the server
+Open `https://console.lvh.me` and sign in with `admin@lvh.me` / `dsh-cloud-dev`.
 
-Edit the server environment file created in the previous step:
+`pnpm dev` does the following in order, and stops with a clear reason if any step fails:
 
-- `DATABASE_URL` already points at the database above; leave it alone.
-- Set `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` — the first administrator comes from these (used in step 5).
-- Set `PLATFORM_SECRET` and `BETTER_AUTH_SECRET` to **separately generated** values, each at least 32 characters long. Run the following command once for each secret and keep the values private:
+1. Preflight: dependencies, ports, Docker daemon.
+2. Generate `apps/server/.env.local` (if it already exists it is only validated, never modified) — both secrets are generated randomly and never printed.
+3. Start Postgres and the ingress ([docker/compose/local.yml](docker/compose/local.yml)) and wait until Postgres really accepts connections.
+4. Run migrations and create the first administrator.
+5. Start the server (reloads on code changes) and the console, and print the URL only once the console is up.
+
+Ctrl-C stops the server and the console but **leaves the ingress and Postgres running**, so the next `pnpm dev` is instant. To stop them:
 
 ```bash
-openssl rand -hex 32
+pnpm dev:down
 ```
 
-- Use these domain settings:
-
-```dotenv
-BASE_DOMAIN=lvh.me                        # parent domain: instances are <slug>.lvh.me
-CONSOLE_DOMAIN=console.lvh.me             # the console's own host name
-PUBLIC_SCHEME=http
-TRAEFIK_ENTRYPOINT=web
-FORWARD_AUTH_ADDRESS=http://host.docker.internal:3000/auth/verify
-TRAEFIK_ROUTES_PATH=./traefik-dynamic/routes.yml
-```
-
-`BASE_DOMAIN` is the **parent** domain (instances are `<slug>.<parent>`) and `CONSOLE_DOMAIN` is the console's own host name, which must be a subdomain of it (`console.<parent>`) — the parent itself is never used as a host name. `TRAEFIK_ROUTES_PATH` is relative to the server package, and the server creates the directory when it syncs routes.
-
-See [.env.example](.env.example) for the complete configuration template and [env.ts](apps/server/src/env.ts) for validation rules and defaults.
-
-### 4. Apply database migrations
+To start completely fresh (drop the database, regenerate secrets):
 
 ```bash
-pnpm --filter @dsh-cloud/server db:migrate
+docker compose -f docker/compose/local.yml down -v
 ```
 
-### 5. Create the first administrator
+then delete `apps/server/.env.local`.
 
-```bash
-pnpm --filter @dsh-cloud/server db:seed
-```
+### The browser certificate warning is expected
 
-It only acts when there are no administrators at all, so it is safe to re-run (and it is the recovery path if they were all removed). Grant and revoke admin access from the "Users" page afterwards.
+Traefik has no certificate configured, so it falls back to its built-in default self-signed certificate (`CN=TRAEFIK DEFAULT CERT`) and the browser shows a red lock — click "Advanced → Proceed". Rationale in [D26](docs/DECISIONS.md). For a green lock, sign a certificate whose SAN covers `DNS:lvh.me,DNS:*.lvh.me` and add it to your system trust store; the repository does not include this step.
 
-### 6. Start the ingress stack
-
-```bash
-docker compose -f docker/compose/quickstart.yml up -d
-```
-
-Traefik listens on `:80` only. Instance containers **publish no host ports** — the control plane joins Traefik to each instance's dedicated bridge network and reaches it by container name.
-
-### 7. Start the server and the frontend
-
-Two terminals, both from the repository root:
-
-```bash
-pnpm --dir apps/server dev:local
-```
-
-```bash
-pnpm dev:web
-```
-
-Open `http://console.lvh.me/` and sign in with the seeded account. **Do not use `localhost:5173`** — the host name is wrong and the session cookie will not reach instance subdomains.
-
-**Use `dev:local`**: it explicitly loads the environment file. The root `dev:server` script does not, so it requires the variables to already be set in the process environment.
-
-### 8. Create an instance
+### Create an instance
 
 On the "Images" page in the console, click "Sync" to pull GHCR tags into the catalog, then "Download" → "Publish" → "Set as default" for the version you want; missing images are pulled automatically when an instance is created. See [D23](docs/DECISIONS.md).
 
@@ -175,7 +130,7 @@ The tag comes from [VERSION](docker/instance-image/VERSION) and reads `<dsh vers
 
 Then create one on the "Instances" page and open it.
 
-> For the production-isomorphic ingress (`:443` with a `Secure` cookie), see the [local ingress guide](docker/compose/README.md) — use that one when verifying the authentication chain, since only it covers the real TLS and cookie conditions.
+> For the ingress topology, why `lvh.me`, and the pitfalls (Clash PAC, restarting the container after ingress config changes), see the [local ingress guide](docker/compose/README.md).
 
 ## Architecture
 

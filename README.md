@@ -66,103 +66,58 @@
 
 ## 快速开始
 
-从 clone 到在浏览器里打开一个 dsh 实例。本地用 `lvh.me`：`*.lvh.me` 是公共通配 DNS，全网解析到 `127.0.0.1`，所以不需要任何 DNS 配置，也不会和 Clash 之类占用 `:53` 的程序撞车。
+本地用 `lvh.me`：`*.lvh.me` 是公共通配 DNS，全网解析到 `127.0.0.1`，所以不需要任何 DNS 配置，也不会和 Clash 之类占用 `:53` 的程序撞车。
 
 仓库内的 Compose 栈只面向本地开发，不是生产安装方案。
 
 ### 前置条件
 
 - Node.js 22 或更新版本，以及 pnpm 10.10.0，版本要求见 [package.json](package.json)。
-- PostgreSQL——仓库不自带，第一步会给你起一个。
-- 可运行 Linux 容器的 Docker，控制面能够访问其 daemon socket。自定义 socket 可通过 `DOCKER_SOCKET` 指定，见 [Docker 客户端](apps/server/src/docker/client.ts)。
+- 装了 Docker Desktop（能跑 Linux 容器，且带 Compose v2）。控制面**启动时**就要连它的 daemon，不是只在建实例时才用。
+- 宿主端口 `80` / `443` / `3000` / `5173` / `55432` 空闲。
 - 实例存储要求 Docker 宿主支持 loop 设备、ext4 和[存储助手](apps/server/src/instance/host-storage.ts)使用的宿主工具。存储操作需要短时运行的特权助手容器。在 Docker Desktop 上，这里的宿主是它的 Linux 虚拟机，而不是 macOS。
 
-### 1. 起一个 PostgreSQL
+### 起
 
-Compose 栈里没有数据库，得自己起一个：
-
-```bash
-docker run -d --name dsh-postgres -p 127.0.0.1:55432:5432 -e POSTGRES_USER=dshcloud -e POSTGRES_PASSWORD=dshcloud -e POSTGRES_DB=dsh_cloud postgres:16-alpine
-```
-
-### 2. 安装依赖 + 建环境文件
-
-在仓库根目录运行：
+在仓库根目录：
 
 ```bash
 pnpm install
 ```
 
 ```bash
-cp .env.example apps/server/.env.local
+pnpm dev
 ```
 
-### 3. 配置控制面
+打开 `https://console.lvh.me`，用 `admin@lvh.me` / `dsh-cloud-dev` 登录。
 
-编辑上一步创建的控制面环境文件：
+`pnpm dev` 按顺序做这些事，任何一步失败都会停下来说清原因：
 
-- `DATABASE_URL` 默认就指向上面那个库，不用改。
-- 设好 `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`——第一个管理员由它产出（第 5 步用）。
-- 将 `PLATFORM_SECRET` 和 `BETTER_AUTH_SECRET` 设为**分别生成**的值，每个至少 32 个字符。为每个密钥分别运行一次下面的命令，并妥善保管结果：
+1. 预检依赖、端口、Docker daemon。
+2. 生成 `apps/server/.env.local`（已存在则只校验，一个字节都不改）——两个 secret 随机生成、不打印。
+3. 起 Postgres 和入口（[docker/compose/local.yml](docker/compose/local.yml)），等 Postgres 真的能连。
+4. 跑迁移，建第一个管理员。
+5. 起控制面（改代码自动重启）和管理台，等管理台起来了才打印地址。
+
+Ctrl-C 只停控制面和管理台，**入口和 Postgres 留着**——下次 `pnpm dev` 秒起。要停它们：
 
 ```bash
-openssl rand -hex 32
+pnpm dev:down
 ```
 
-- 域名那组换成：
-
-```dotenv
-BASE_DOMAIN=lvh.me                        # 父域：实例是 <slug>.lvh.me
-CONSOLE_DOMAIN=console.lvh.me             # 控制台自己的主机名
-PUBLIC_SCHEME=http
-TRAEFIK_ENTRYPOINT=web
-FORWARD_AUTH_ADDRESS=http://host.docker.internal:3000/auth/verify
-TRAEFIK_ROUTES_PATH=./traefik-dynamic/routes.yml
-```
-
-`BASE_DOMAIN` 是**父域**（实例是 `<slug>.<父域>`），`CONSOLE_DOMAIN` 是控制台自己的主机名，必须是父域的子域（`console.<父域>`）——父域本身不当主机名用。`TRAEFIK_ROUTES_PATH` 相对控制面包目录解析，控制面同步路由时会自己建出目录。
-
-完整配置模板见 [.env.example](.env.example)，校验规则和默认值见 [env.ts](apps/server/src/env.ts)。
-
-### 4. 迁移数据库
+想从零重来（清空数据库、重新生成 secret）：
 
 ```bash
-pnpm --filter @dsh-cloud/server db:migrate
+docker compose -f docker/compose/local.yml down -v
 ```
 
-### 5. 建第一个管理员
+再删掉 `apps/server/.env.local` 即可。
 
-```bash
-pnpm --filter @dsh-cloud/server db:seed
-```
+### 浏览器报证书错误是正常的
 
-只在「一个管理员都没有」时生效，可以重复跑（也是被删光后的恢复路径）。之后的授予 / 撤销在管理台的「用户」页里做。
+Traefik 没配证书，回落到它内置的默认自签证书（`CN=TRAEFIK DEFAULT CERT`），所以会红锁——点「高级 → 继续访问」。理由见 [D26](docs/DECISIONS.md)。想要绿锁就自己签一张 SAN 覆盖 `DNS:lvh.me,DNS:*.lvh.me` 的证书装进系统信任库；仓库默认不含这一步。
 
-### 6. 起入口栈
-
-```bash
-docker compose -f docker/compose/quickstart.yml up -d
-```
-
-Traefik 只开 `:80`。实例容器**不发布任何宿主端口**——控制面把 Traefik 接进每个实例的独立 bridge 网络，按容器名接入。
-
-### 7. 启动控制面和前端
-
-两个终端，均在仓库根目录分别启动：
-
-```bash
-pnpm --dir apps/server dev:local
-```
-
-```bash
-pnpm dev:web
-```
-
-打开 `http://console.lvh.me/`，用 seed 的账号登录。**别用 `localhost:5173`**——主机名不对，会话 cookie 落不到实例子域上。
-
-**认准 `dev:local`**：它会显式加载环境文件。根目录的 `dev:server` 脚本不会加载，用它得自己先把变量设进进程环境。
-
-### 8. 建一个实例
+### 建一个实例
 
 在「镜像管理」页点「同步」，把 GHCR 上的版本拉进目录，再对某个版本「下载」→「发布」→「设为默认」；新建实例时会自动拉取缺的镜像。见 [D23](docs/DECISIONS.md)。
 
@@ -176,7 +131,7 @@ tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式是 `<dsh版本>
 
 然后在「实例」页新建一个，点开它就在浏览器里跑起来了。
 
-> 服务端同构的入口（`:443` + `Secure` cookie）见[本地入口指南](docker/compose/README.md)——验认证链路时要走它，只有它覆盖线上真实的 TLS 与 cookie 条件。
+> 入口栈的拓扑、为什么是 `lvh.me`、以及会踩的坑（Clash PAC、改入口配置要重启容器）见[本地入口指南](docker/compose/README.md)。
 
 ## 架构
 

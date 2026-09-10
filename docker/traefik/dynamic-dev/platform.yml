@@ -11,7 +11,7 @@
 # *.lvh.me 是公共通配 DNS（全网解析到 127.0.0.1），不用起本地 DNS 容器，
 # 也就不会和 Clash 之类占用 :53 的程序撞车。
 #
-# 走 websecure（:443）+ `tls: {}`：证书来自 tls.yml 里的自签静态证书。
+# 走 websecure（:443）+ `tls: {}`：不配证书，用 Traefik 内置的默认自签证书。
 # router 上的 tls 必须显式写，entryPoint 开了 TLS 不代表 router 自动有。
 http:
   routers:

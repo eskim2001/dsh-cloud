@@ -514,3 +514,67 @@
 - **重审**：引入异步作业表 / 编排状态机时（那时「进行中」不再只有 `provisioning` / `removing`
   两个词，`IN_FLIGHT` 需要跟着状态机走）；或控制面变成多实例部署、投影需要跨进程协调时。
 
+## D26 · 本地开发不签证书：`local.yml` 靠 Traefik 默认自签证书
+
+- **决策**：本地 `:443` 入口（[`docker/compose/local.yml`](../docker/compose/local.yml)）
+  **不再准备静态证书**——删掉 `docker/traefik/dynamic-dev/tls.yml` 与 `certs/` 挂载，让 Traefik
+  在没配到证书时回落到它内置的默认自签证书（`CN=TRAEFIK DEFAULT CERT`）。README 里那条
+  `openssl req` 签发步骤一并删除。生产路径不受影响：证书仍走 file provider 的静态证书
+  （[`apps/server/src/instance/traefik.ts`](../apps/server/src/instance/traefik.ts) 的 `tls: {}`
+  语义不变），`TRAEFIK_CERT_RESOLVER` 也仍是「空 / ACME」二选一。
+- **理由**：自签证书只在「装进系统信任库 → 拿到绿锁」这一条路上有意义；不装信任库时，自签证书
+  和默认证书**都是红锁**，用户操作完全一样（点「继续访问」）。而签证书带来一串持续成本：
+  新 clone 必须先签、多一个 `certs/` 目录、多一个单文件 bind mount（改了必须重启入口）、
+  换域名或证书过期要重签。默认证书这条路的 `:443` 是零配置的：TLS 照样加密、`Secure` cookie
+  行为不变、生产同构的验证目标（TLS 终结在入口 + cookie 带 `Secure`）照样达成。代价只是错误类型
+  从「不受信任」变成「不受信任 + 主机名不匹配」，对真人浏览器没有实际差别。
+  （本 ADR 写作时还有一条 `:80` 明文的 `quickstart.yml`，它本来就不涉及证书；
+  那条栈已由 D27 删除，现在只剩 `local.yml` 一条。）
+- **备选**：① 入口容器启动时用 init 容器现签一张——否，签出来仍是自签、仍红锁，白白多一个组件；
+  ② 保留签发步骤但降级成「可选文档」——否，文档一写就会有人照做，而它默认不带来收益；
+  ③ 换成 `mkcert` 本地 CA——否，那要求所有人装一个额外工具并把它做进信任链，是给「想要绿锁」
+  的人准备的路，不是默认路径。
+- **代价**：① 默认证书**每次容器启动重新生成**（SAN 是一串随机 hex）且不含 `lvh.me`，所以
+  永远无法进信任库、永远红锁——想要绿锁只能自己补回签发流程；② 强制校验证书的客户端
+  （`curl`、脚本、CI、Playwright 未开 `ignoreHTTPSErrors`）必须显式关校验，且**名字不匹配
+  连「装信任库」都救不了**——自签证书至少还能签一次、装进信任库后让这些客户端干净通过，
+  默认证书做不到；③ 万一某个域上了 HSTS，名字不匹配会从「警告 + 继续」变成无「继续」按钮的
+  硬拦（本地 `lvh.me` 不是 HSTS 预载域，不受影响）。
+- **重审**：本地要接自动化验收时（Playwright / CI 跑真浏览器且不关证书校验）——那时需要一张
+  可被信任的证书，把签发 + 装信任库的流程补回来，或改用 `mkcert` 本地 CA。
+
+
+## D27 · 一条命令的本地开发栈：`pnpm dev`
+
+- **决策**：把「clone → install → 跑起来」压成 `pnpm install` + `pnpm dev`。新增
+  [`scripts/dev.mjs`](../scripts/dev.mjs)：预检（依赖 / 端口 3000 + 5173 / Docker daemon /
+  Compose v2）→ 生成 [`apps/server/.env.local`](../apps/server/.env.local)（只在缺失时写，
+  已存在只校验、一个字节都不改；两个 secret 用 `crypto.randomBytes` 现生、不打印）→
+  `docker compose -f docker/compose/local.yml up -d` → 轮询 `pg_isready` → `db:migrate` →
+  `db:seed` → `detached` 起控制面（`dev:local`，带 `--watch`）和管理台 → 等 Vite 真的应答了
+  才打印 URL 和凭据。配套：**Postgres 进本地栈**（`docker/compose/local.yml` 加 `postgres`
+  服务 + `dsh-pgdata` named volume，只绑 `127.0.0.1:55432`）；删掉零证书的 `quickstart.yml`
+  与 `dynamic-quickstart/platform.yml`，本地只剩一条栈；`vite.config.ts` 加 `strictPort: true`。
+- **理由**：原来要 8 步手工，其中「裸 `docker run` 起 Postgres」「手填两个 ≥32 字符 secret」
+  「两个终端分别起 server / web」都是纯摩擦，且每一步都有静默失败模式（`db:migrate` 在
+  `DATABASE_URL` 缺失时按 drizzle.config 的兜底**连到 `localhost:5432` 的另一个库**；Vite
+  默认会自动换端口，一换 Traefik 的 `host.docker.internal:5173` 就 502）。目标是「打开
+  `https://console.lvh.me` 一切就绪」，那就必须把端口、env、数据库、迁移、seed 全部收进一个
+  有预检的入口——失败要**在动 Docker 之前**说出来，否则留下半起状态更难查。
+- **备选**：① 另建 `dev.yml`、`include` 或 `extends` 复用入口配置——否，Traefik 服务只有一个
+  消费者，复用只会引入 Compose 版本门槛和相对路径坑；② 固定开发密码写死进文档——否，
+  `seed.ts` **永不覆盖已有用户的密码**（只提权），写死会骗到有存量库的人，所以脚本改成读
+  `.env.local` 里的实际值、并在「已有管理员」时明说旧密码不变；③ 预检 3000 / 5173 之外的
+  `80` / `443` / `55432`——否，那三条是本栈自己要占的，预检会在「上次没拆栈」时误报，交给
+  compose 的报错路径；④ 退出时 `docker compose down`——否，那样每次 `pnpm dev` 都要重等
+  Postgres 起来，改成留着栈、用 `pnpm dev:down` 显式停。
+- **代价**：① 本地多一个常驻 Postgres 容器和一个 named volume（`down -v` 才清）；
+  ② 控制面**启动时**就要求 Docker daemon 活着（本来也要——`attachIngress` 只吞 404，daemon
+  挂了会崩 boot），现在这个前提被显式预检并写成文档；③ 固定凭据只适用于本地，且**只在全新库上
+  成立**（见备选②）；④ 3000 / 5173 被写死这件事从隐含变成显式（`strictPort` + 预检），
+  代价是「端口被占」时不再有 Vite 的自动退让，必须清掉占用者；⑤ 零证书的 `quickstart.yml`
+  没了，不想碰证书警告的人只能自己签一张。
+- **重审**：控制面端口变得可配时（要同时改 `vite.config.ts` 的 proxy 目标和
+  `dynamic-dev/platform.yml` 的 upstream，否则预检的硬编码就是错的）；或把本地栈拆成
+  「只要控制台」和「要打开实例」两档时（当前 `pnpm dev` 明确定义为**只到控制台可用**，
+  不预拉实例镜像、不管宿主存储）。

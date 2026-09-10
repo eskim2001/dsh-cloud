@@ -37,15 +37,13 @@ pnpm --filter @dsh-cloud/server db:migrate
 
 ## 域名拆分（D24）的迁移
 
-这一轮**没有数据库迁移**，但有两步不能省：重签证书、重建每个实例容器。
+这一轮**没有数据库迁移**，但有一件事不能省：重建每个实例容器。
 
 1. 改 `apps/server/.env.local`：`BASE_DOMAIN` 从 `platform.lvh.me` 改成 `lvh.me`，新增
    `CONSOLE_DOMAIN=console.lvh.me`。缺 `CONSOLE_DOMAIN` 控制面起不来（env 校验是硬的）。
-2. 重签本地自签证书，SAN 覆盖父域：`DNS:lvh.me,DNS:*.lvh.me`（旧证书不覆盖新主机名）。
-   装进系统信任库是**可选**的——只在不想看浏览器红锁时才需要。
-3. `docker restart dsh-ingress`：`platform.yml` / `tls.yml` 是单文件 bind mount，改了必须重启入口。
-4. 重启控制面（env 变了）。
-5. **重建每一个实例容器**（管理台「重建」或 `POST /api/instances/:id/restart`）：`DSH_TRUSTED_HOSTS`
+2. `docker restart dsh-ingress`：`platform.yml` 是单文件 bind mount，改了必须重启入口。
+3. 重启控制面（env 变了）。
+4. **重建每一个实例容器**（管理台「重建」或 `POST /api/instances/:id/restart`）：`DSH_TRUSTED_HOSTS`
    是建容器时写进环境的，旧容器还认 `*.platform.lvh.me` → 不重建就是「页面能开、API 全 403」。
    卷不受影响。
 

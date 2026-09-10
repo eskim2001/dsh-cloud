@@ -37,7 +37,7 @@ try {
       assert.equal(await question.getAttribute('open'), '')
       assert.equal(await question.locator('p').isVisible(), true)
       await page.locator('[data-copy]').first().click()
-      assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'pnpm install\ncp .env.example apps/server/.env.local')
+      assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'pnpm install\npnpm dev')
       if (name !== 'desktop') {
         await page.locator('.mobile-menu summary').click()
         await page.locator('.mobile-menu nav a').first().click()
