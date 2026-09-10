@@ -133,8 +133,7 @@
   根因两层：① 语义——对账器把 `restarting` 折进 `LIVE_CONTAINER`（这是对的，容器会自己回来），
   所以采样再快也不会显示「重启中」；② 传输——DB 快照被当事实返回，前端又把 `running` 当落定态
   直接停止轮询，两个错误叠成「永远显示运行中」。
-  Dokploy 看起来「实时」，实测也只是**按需 `docker ps -a` + 5–10 秒轮询**
-  （[dokploy](https://github.com/dokploy/dokploy) `packages/server/src/services/docker.ts`），没有事件流 / WS / 采样器——
+  同类平台看起来「实时」，实测也只是**按需 `docker ps -a` + 5–10 秒轮询**，没有事件流 / WS / 采样器——
   我们缺的是「查询时取事实」，不是「实时」。
 - **备选**：① 调小对账周期（治不了：折进 running 是语义问题）；② 订阅 Docker events 流
   （准，但要长连接 + 断线重放 + 多控制面实例协调，MVP 不值）；③ 每实例一次 `inspect`
