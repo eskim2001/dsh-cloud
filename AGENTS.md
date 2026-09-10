@@ -2,7 +2,6 @@
 
 > 这个文件是给未来的开发 agent（和人）看的地图：这是什么、不能踩的线、在哪写代码、怎么跑。
 > 架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，决策见 [docs/DECISIONS.md](docs/DECISIONS.md)，待验证见 [docs/OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md)。
-> （`CLAUDE.md` 是指向本文件的符号链接。）
 
 ## 一、我们在做什么
 
@@ -106,4 +105,4 @@ pnpm --filter @dsh-cloud/server spike
 | 为什么这么定（ADR） | [docs/DECISIONS.md](docs/DECISIONS.md) |
 | 待验证 / 待定 | [docs/OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md) |
 | 本地入口栈怎么起 | [docker/compose/README.md](docker/compose/README.md) |
-| 项目概览 / 快速开始 | [README.md](README.md) · [README.zh-CN.md](README.zh-CN.md) |
+| 项目概览 / 快速开始 | [README.md](README.md) · [README.en.md](README.en.md) |
