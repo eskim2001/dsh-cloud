@@ -53,15 +53,15 @@ const EnvSchema = z.object({
 
   /**
    * 实例路由挂的 entryPoint。生产是 `websecure`（TLS 终结在 Traefik）；
-   * 本地也是 `websecure`（证书是自签的，见 docker/traefik/dynamic-dev/tls.yml）。
+   * 本地也是 `websecure`（没配静态证书，回落到 Traefik 的默认自签证书）。
    */
   TRAEFIK_ENTRYPOINT: z.string().default('websecure'),
 
   /**
    * 实例 router 用的 ACME resolver 名（对应 traefik.yml 里的 certificatesResolvers）。
-   * 留空 = 不挂 resolver，证书走 file provider 的静态证书按 SNI 匹配：
-   * 本地是自签，生产是把 Cloudflare Origin Certificate 之类的证书放进 file provider
-   * （TLS 在边缘终结时也是这一档）。
+   * 留空 = 不挂 resolver，证书走 file provider 的静态证书按 SNI 匹配。
+   * 本地没有静态证书，落到 Traefik 的默认自签证书；生产是把 Cloudflare Origin Certificate
+   * 之类的证书放进 file provider（TLS 在边缘终结时也是这一档）。
    */
   TRAEFIK_CERT_RESOLVER: z.string().default(''),
 

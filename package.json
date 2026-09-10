@@ -8,11 +8,13 @@
     "node": ">=22"
   },
   "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:down": "docker compose -f docker/compose/local.yml down",
+    "dev:server": "pnpm --filter @dsh-cloud/server dev",
+    "dev:web": "pnpm --filter @dsh-cloud/web dev",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "build": "pnpm -r build",
-    "dev:server": "pnpm --filter @dsh-cloud/server dev",
-    "dev:web": "pnpm --filter @dsh-cloud/web dev"
+    "build": "pnpm -r build"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

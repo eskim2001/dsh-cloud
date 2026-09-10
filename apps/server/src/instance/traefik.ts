@@ -23,7 +23,8 @@ export interface TraefikOptions {
   entryPoint?: string
   /**
    * 挂在 router 上的 `tls` 块。省略 = 明文（本地 `web` 那档）；
-   * `{}` = 用 file provider 里的静态证书（SNI 匹配）；带 `certResolver` = ACME 自动签发。
+   * `{}` = 用 file provider 里的静态证书（SNI 匹配；一张都没有时落到 Traefik 默认证书）；
+   * 带 `certResolver` = ACME 自动签发。
    * 挂到 `websecure` 的 router **必须显式给**，Traefik 不会因为 entryPoint 开了 TLS 就自动加。
    */
   tls?: { certResolver?: string }

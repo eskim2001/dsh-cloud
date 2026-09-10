@@ -53,18 +53,12 @@ pnpm install
 ```
 
 ```bash
-cp .env.example apps/server/.env.local
+pnpm dev
 ```
 
-填 `DATABASE_URL`、两个 secret（`openssl rand -hex 32`）、`SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`。数据库要自己起（compose 栈里没有 Postgres）。
+一条命令起全套：预检（依赖 / 端口 / Docker daemon）→ 生成 `apps/server/.env.local`（含两个随机 secret）→ 起 Postgres + 入口（`docker/compose/local.yml`）→ 迁移 → seed → 起控制面（`--watch`）和管理台。完了打开 `https://console.lvh.me`，用 `admin@lvh.me` / `dsh-cloud-dev` 登录（红锁点「继续访问」，见 D26）。
 
-```bash
-pnpm --filter @dsh-cloud/server db:migrate
-```
-
-```bash
-pnpm --filter @dsh-cloud/server db:seed
-```
+Ctrl-C 只停应用，入口和 Postgres 留着；`pnpm dev:down` 停它们，清库要加 `-v`。脚本本身在 `scripts/dev.mjs`。改了 `.env.local` 想让它生效，重跑 `pnpm dev` 即可（它只校验、不改已有文件）。
 
 ```bash
 pnpm -r typecheck

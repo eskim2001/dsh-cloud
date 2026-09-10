@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "dev:local": "node --env-file=.env.local --import tsx src/index.ts",
+    "dev:local": "node --env-file=.env.local --import tsx --watch src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "pnpm --filter @dsh-cloud/instance-spec build",
     "test": "vitest run",

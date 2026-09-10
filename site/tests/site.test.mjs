@@ -35,7 +35,8 @@ test('display branding is dshcloud while technical identifiers stay unchanged', 
     assert.match(html, /<title>dshcloud · /)
     assert.match(html, /<h1[^>]*>dsh<span[^>]*class="wordmark-cloud"[^>]*>cloud<\/span><span aria-hidden="true"/)
     assert.ok(html.includes('https://github.com/eskim2001/dsh-cloud'))
-    assert.ok(html.includes('@dsh-cloud/server'))
+    // 技术标识符不跟着品牌改名：scope 得还是 `@dsh-cloud/`，不能是 `@dshcloud/`
+    assert.doesNotMatch(html, /@dshcloud\//)
     const prose = html.replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/g, '').replace(/<[^>]+>/g, '')
     assert.doesNotMatch(prose, /dsh-cloud/)
   }
