@@ -8,6 +8,7 @@ import {
   ImageUpgradeFailedError,
   InstanceProvisioner,
   NoRollbackError,
+  DiskGrowUnsupportedError,
   DiskShrinkUnsupportedError,
 } from './provisioner.js'
 
@@ -217,8 +218,8 @@ describe('storage ownership across lifecycle operations', () => {
     const fakes = build()
     await makeProvisioner(fakes).create({ slug: 'alice', ownerId: 'u1', ...quota })
     expect(createInstanceRecord).toHaveBeenCalledWith({}, expect.objectContaining({ ownerId: 'u1' }), 3)
-    expect(fakes.dataStore.create).toHaveBeenCalledWith('unique-data-key')
-    expect(fakes.calls.createInstance).toHaveBeenCalledWith(expect.objectContaining({ slug: 'alice' }), expect.objectContaining({ dataDir: '/var/lib/dsh/unique-data-key' }))
+    expect(fakes.dataStore.create).toHaveBeenCalledWith('unique-data-key', quota.diskMb)
+    expect(fakes.calls.createInstance).toHaveBeenCalledWith(expect.objectContaining({ slug: 'alice' }), expect.objectContaining({ storageKey: 'unique-data-key' }))
   })
 
   it('keeps the ownership record when deleting without a purge', async () => {
@@ -248,7 +249,7 @@ describe('storage ownership across lifecycle operations', () => {
     expect(fakes.calls.snapshot).toHaveBeenCalledWith('unique-data-key')
     expect(fakes.calls.restoreSnapshot).toHaveBeenCalledWith('unique-data-key')
     expect(fakes.calls.ensure).toHaveBeenCalledWith('unique-data-key')
-    expect(fakes.calls.createInstance).toHaveBeenLastCalledWith(expect.objectContaining({ slug: 'alice' }), expect.objectContaining({ dataDir: '/var/lib/dsh/unique-data-key' }))
+    expect(fakes.calls.createInstance).toHaveBeenLastCalledWith(expect.objectContaining({ slug: 'alice' }), expect.objectContaining({ storageKey: 'unique-data-key' }))
   })
 })
 
@@ -353,28 +354,34 @@ describe('新建：镜像取自库里的默认版本（D21）', () => {
   })
 })
 
-describe('改配额：扩容', () => {
-  it('磁盘扩容 → 重建实例（配额是建实例时的参数，不能在线改）', async () => {
+describe('改配额：扩容（数据卷的容量建时定死，改不了）', () => {
+  it('目标大于当前 → 直接拒绝，运行时和配额都不动', async () => {
     findById.mockResolvedValue(row())
     const fakes = build()
-    await makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 20_480 })
 
-    // 配额落成**挂载选项**，改它等于改运行时参数 → 必须重建。
-    // 数据在宿主目录里，重建不碰它；重建后按新配额重新声明挂载。
-    expect(fakes.calls.stopInstance).not.toHaveBeenCalled() // 重建走 removeInstance
-    expect(fakes.calls.removeInstance).toHaveBeenCalledWith('dsh-instance-alice')
-    expect(fakes.calls.createInstance).toHaveBeenCalled()
-    // 落库时清掉运行时标识，等重建写回
-    expect(update).toHaveBeenCalledWith({}, 'i-1', expect.objectContaining({ diskMb: 20_480, containerId: null }))
+    await expect(
+      makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 20_480 }),
+    ).rejects.toThrow(DiskGrowUnsupportedError)
+
+    // 从前这里走的是「改库 + 重启，假装成功」：库里的 diskMb 变了、实例也重建了，
+    // 但数据卷的容量一个字节没变 —— 管理台显示新配额，用户灌满才发现还是老尺寸。
+    // 把谎言写进数据库比报错糟得多，所以现在动任何东西之前就拒绝。
+    expect(fakes.calls.usage).not.toHaveBeenCalled()
+    expect(fakes.calls.snapshot).not.toHaveBeenCalled()
+    expect(fakes.calls.stopInstance).not.toHaveBeenCalled()
+    expect(fakes.calls.removeInstance).not.toHaveBeenCalled()
+    expect(fakes.calls.createInstance).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
   })
 
-  it('原本停着的实例扩容后**保持停止**（不擅自启动）', async () => {
+  it('停着的实例也一样拒绝（不因为「反正没在跑」就放行）', async () => {
     findById.mockResolvedValue(row({ status: 'stopped' }))
     const fakes = build()
-    await makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 20_480 })
 
-    expect(fakes.calls.removeInstance).toHaveBeenCalled()
-    expect(fakes.calls.createInstance).not.toHaveBeenCalled() // 停着的只落库，下次 start 才重建
+    await expect(
+      makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 20_480 }),
+    ).rejects.toThrow(DiskGrowUnsupportedError)
+    expect(update).not.toHaveBeenCalled()
   })
 })
 

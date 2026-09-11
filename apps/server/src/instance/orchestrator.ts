@@ -165,11 +165,6 @@ export class InstanceOrchestrator {
     return r.stdout
   }
 
-  /** 把 `:staged` 的 guest 本地副本回传宿主。 */
-  sync(machineName: string): Promise<void> {
-    return this.driver.sync(machineName)
-  }
-
   /** 回收孤儿进程 / 端口漂移。 */
   heal(): Promise<void> {
     return this.driver.heal()

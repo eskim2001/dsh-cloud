@@ -13,7 +13,11 @@ import {
   platformTags,
 } from '../instance/image-catalog.js'
 import { RegistryError, type SyncImagesResult } from '../instance/image-sync.js'
-import { isImageFailure, DiskShrinkUnsupportedError } from '../instance/provisioner.js'
+import {
+  isImageFailure,
+  DiskGrowUnsupportedError,
+  DiskShrinkUnsupportedError,
+} from '../instance/provisioner.js'
 import { resolveRuntimeStatus, type ContainerStates } from '../instance/runtime-status.js'
 import type { LogStreamOptions } from './log-stream.js'
 import { LogsQuerySchema } from './log-stream.js'
@@ -268,8 +272,9 @@ export async function registerAdminRoutes(
           return reply.code(404).send({ error: '实例不存在' })
         }
       } catch (err) {
-        // 要求缩小磁盘是**请求本身**的问题（microVM 的盘只扩不缩），不是服务端故障
-        if (err instanceof DiskShrinkUnsupportedError) {
+        // 改磁盘容量是**请求本身**的问题（数据卷的容量建时就定死，两个方向都改不了），
+        // 不是服务端故障
+        if (err instanceof DiskGrowUnsupportedError || err instanceof DiskShrinkUnsupportedError) {
           return reply.code(400).send({ error: err.message })
         }
         throw err

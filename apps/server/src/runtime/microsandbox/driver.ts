@@ -1,9 +1,25 @@
 import { randomUUID } from 'node:crypto'
+import { constants, copyFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
-import { Image, Sandbox, SandboxBuilder, type SandboxHandle } from 'microsandbox'
+import {
+  Image,
+  Sandbox,
+  SandboxBuilder,
+  Volume,
+  VolumeAlreadyExistsError,
+  VolumeNotFoundError,
+  type SandboxHandle,
+} from 'microsandbox'
 import type { InstanceSpec, RenderContext, RenderedInstance } from '@dsh-cloud/instance-spec'
 import { MACHINE_PREFIX, renderInstance } from '@dsh-cloud/instance-spec'
-import type { InstanceLiveState, InstanceUsage, RuntimeDriver } from '../driver.js'
+import {
+  StorageExistsError,
+  StorageNotFoundError,
+  type InstanceLiveState,
+  type InstanceUsage,
+  type RuntimeDriver,
+} from '../driver.js'
 
 export interface MicrosandboxDriverOptions {
   /** pull 策略：`if-missing`（默认，有缓存就不重拉）/ `always` / `never`（断网跑）。 */
@@ -18,16 +34,31 @@ export interface MicrosandboxDriverOptions {
  * SDK 是 napi-rs 原生绑定 + 完整类型，配额/属主/挂载都是结构化参数，
  * 且自带 `ping()` / `metrics()` / `logs()` 这些我们本来要自己凑的能力。
  *
- * 与上一版（smolvm）的差别，都是**它做对了所以我们不用绕**：
- * - `/data` 是 **virtiofs 直挂（零拷贝）**，没有 `:staged` 那种「复制进去、停机回传」——
- *   所以没有 `sync()`，也没有「目录一大就起不来」（smolvm 那边 14473 个文件必现）。
- * - 磁盘配额是**挂载选项**（`.quota(mib)`），guest 的 `df` 报的是预算而不是宿主盘。
- * - 宿主文件的属主用 `.owner(uid, gid)` **声明式**指定，不需要进 guest 手动 chown。
+ * 存储模型：`/data` 是一块 **ext4 数据卷**（真块设备），不是宿主目录。
+ *
+ * **不能用宿主目录直挂。** passthrough（virtiofs）后端有个 bug（上游 #1559）：一个文件
+ * 有两个硬链接名字时，**unlink 掉其中一个**会让剩下的那个名字**永久只读** ——
+ * `write` → EBADF、`ftruncate` → EINVAL、读正常、重启沙箱才恢复。而 dsh 的会话日志
+ * 首次落盘正是 `open(tmp,'wx') → link(tmp, final) → rm(tmp)`，于是每建一个会话就中招一次。
+ * 同一段代码在 ext4 卷上完全正常（实测：同样的链接数轨迹 1→2→1，唯一变量是后端）。
+ *
+ * 代价写在 `createStorage` / `copyStorage` 上：硬容量、**不能原地扩容**、卷底限 128 MiB。
+ *
+ * 另外两条 SDK 的脾气：
+ * - 负载在 guest 里跑 **root** —— `.owner()` 对磁盘卷无效，ext4 根目录归 root，
+ *   而我们的写入全在 `/data` 上，所以没有降权的余地（产品决策，见 D31）。
  * - **`create` / `startDetached` 都只开机，不跑镜像的 ENTRYPOINT** —— 必须再补一次
  *   `execDefaultStream()` 才会把工作负载拉起来（实测：不补的话 guest 里一个监听都没有）。
  */
 /** 预热用的一次性沙箱名前缀。**必须**和 `MACHINE_PREFIX` 不同，否则对账器会把它当成实例。 */
 const PREWARM_PREFIX = 'dsh-prewarm-'
+
+/**
+ * 数据卷里那个镜像文件的名字。**这是 microsandbox 的私有布局**
+ * （`<MSB_HOME>/volumes/<name>/disk.raw`）—— 公开 API 不给卷的路径，复制卷只能按名字找。
+ * 上游哪天改了，这里会先炸 `copyStorage`（而不是悄悄复制了一份空镜像）。
+ */
+const DISK_IMAGE = 'disk.raw'
 
 export class MicrosandboxDriver implements RuntimeDriver {
   readonly runtime = 'microsandbox'
@@ -133,11 +164,110 @@ export class MicrosandboxDriver implements RuntimeDriver {
     }
   }
 
+  // ---------------- 存储（实例数据卷）----------------
+
+  /**
+   * 建数据卷。同名卷已存在 → `StorageExistsError`。
+   *
+   * 这条就是 D18「绝不静默覆盖」的落点：`Volume.builder().create()` 在有同名卷时抛
+   * `VolumeAlreadyExistsError`，正好是我们想要的语义。
+   *
+   * **建卷只走这里，挂载一律 `'existing'`** —— 挂载时顺手建卷（`mode: 'create'`）会把
+   * 这条保护抵消掉：同名卷被静默复用，而调用方以为刚建了一块新的。
+   *
+   * `sizeMb` 有下限：64 MiB 会报 `image size is too small for ext4 formatting`，
+   * 所以上层 schema 的 `diskMb` 下限是 128。
+   */
+  async createStorage(key: string, sizeMb: number): Promise<void> {
+    try {
+      await Volume.builder(key).disk().size(sizeMb).create()
+    } catch (err) {
+      if (err instanceof VolumeAlreadyExistsError) {
+        throw new StorageExistsError(`数据卷 ${key} 已存在，拒绝当作新建（数据保护）`)
+      }
+      throw err
+    }
+  }
+
+  /** 数据卷在不在。不在 → `StorageNotFoundError`，**绝不新建**。 */
+  async ensureStorage(key: string): Promise<void> {
+    try {
+      await Volume.get(key)
+    } catch (err) {
+      if (err instanceof VolumeNotFoundError) {
+        throw new StorageNotFoundError(
+          `数据卷 ${key} 不存在（拒绝静默新建：那会把「数据丢了」伪装成正常）`,
+        )
+      }
+      throw err
+    }
+  }
+
+  /** 删掉这一块卷。幂等。**只删这一个 key** —— 快照卷由 `DataStore` 按 .prev 命名去删。 */
+  async removeStorage(key: string): Promise<void> {
+    await Volume.remove(key).catch(() => undefined)
+  }
+
+  /**
+   * 已用容量（MiB）。`usedBytes` 是运行时自己的记账，**停机时也读得到**，
+   * 不需要进 guest 跑 `du`。卷不在 → `undefined`。
+   */
+  async storageUsageMb(key: string): Promise<number | undefined> {
+    try {
+      const vol = await Volume.get(key)
+      return Math.round(vol.usedBytes / 1024 / 1024)
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * 整卷复制成另一块卷（升级/回退的唯一保险）。
+   *
+   * 做法：按源卷的容量建一块新卷（已存在就抛），再把源卷的 `disk.raw` 整块复制过去。
+   *
+   * ⚠️ **这耦合了 microsandbox 的私有布局** `<MSB_HOME>/volumes/<name>/disk.raw`：
+   * 公开 API 没有「卷克隆」，`Volume.get()` 给的 handle 也不带路径（只有
+   * `builder.create()` 的返回值有 `.path`）。所以这里**不硬编码 MSB_HOME**，
+   * 而是先建出目标卷、从它的 `path` 反推 `volumes/` 父目录，再去拼源镜像的路径。
+   *
+   * **前提：源沙箱已经停了** —— 调用方（`provisioner.setImage`）保证这一点。
+   * 实测停掉之后 `disk.raw` 是完整的、没有 `.part` 残留。
+   *
+   * 复制用 `COPYFILE_FICLONE`：支持写时复制的文件系统（APFS / btrfs / xfs）上不真拷数据，
+   * 没有就自动退回普通复制。
+   */
+  async copyStorage(fromKey: string, toKey: string): Promise<void> {
+    const src = await Volume.get(fromKey).catch(() => undefined)
+    if (src === undefined) {
+      throw new StorageNotFoundError(`数据卷 ${fromKey} 不存在，无法复制`)
+    }
+    if (src.capacityBytes === null) {
+      throw new Error(`数据卷 ${fromKey} 没有容量信息，无法复制`)
+    }
+
+    let dst: Awaited<ReturnType<ReturnType<typeof Volume.builder>['create']>>
+    try {
+      dst = await Volume.builder(toKey).disk().size(Math.ceil(src.capacityBytes / 1024 / 1024)).create()
+    } catch (err) {
+      if (err instanceof VolumeAlreadyExistsError) {
+        throw new StorageExistsError(`快照卷 ${toKey} 已存在，拒绝覆盖`)
+      }
+      throw err
+    }
+
+    const volumesDir = dirname(dst.path)
+    await copyFile(
+      join(volumesDir, fromKey, DISK_IMAGE),
+      join(volumesDir, toKey, DISK_IMAGE),
+      constants.COPYFILE_FICLONE,
+    )
+  }
+
   // ---------------- 生命周期 ----------------
 
   async create(spec: InstanceSpec, ctx: RenderContext): Promise<RenderedInstance> {
     const r = renderInstance(spec, ctx)
-    const uid = Number.parseInt(r.user, 10)
 
     const builder = new SandboxBuilder(r.machineName)
       .image(r.image)
@@ -145,9 +275,12 @@ export class MicrosandboxDriver implements RuntimeDriver {
       .memory(spec.quota.memoryMb)
       // **不开 detached 就不会跑镜像的命令** —— 那 dsh 永远不会启动。
       .detached(true)
+      // 挂载点自身（`/data`）。**不能给 `/data/home/workspace`**：运行时会校验 WORKDIR
+      // 在 guest 里存在，而空 ext4 里还没有那层骨架 —— 那句 `mkdir` 现在归镜像的
+      // entrypoint 做（它建完骨架再 cd 进去，保证 dsh 的 cwd 不变）。
       .workdir(r.workingDir)
-      // 工作负载以宿主数据目录的属主跑：不一致时 entrypoint 对 /data 的第一句
-      // mkdir 就 EACCES（smolvm 那边会静默降级成空转容器）。
+      // 负载跑 root：ext4 数据卷的根目录归 root，而 `.owner()` 对磁盘卷无效
+      // （`mount owner is only valid for directory named volumes`）。见类注释。
       .user(r.user)
       .replace() // 幂等：同名残留直接替换
 
@@ -161,11 +294,9 @@ export class MicrosandboxDriver implements RuntimeDriver {
     builder.port(r.hostPort, r.guestPort)
 
     for (const m of r.mounts) {
-      builder.volume(m.guest, (v) => {
-        const bound = v.bind(m.host).quota(m.quotaMb)
-        // 属主是**声明式**的：决定宿主文件在 guest 里显示成哪个 uid —— 工作负载就是那个 uid。
-        return Number.isFinite(uid) ? bound.owner(uid, uid) : bound
-      })
+      // **`'existing'`：挂载绝不建卷。** 建卷是 `createStorage` 的事，那里有 D18 的
+      // 「同名就拒」保护；这里若用 `'create'` 会静默把同名卷复用掉，正好抵消那条保护。
+      builder.volume(m.guest, (v) => v.namedWith(m.storageKey, 'existing', 'disk'))
     }
 
     if (this.opts.pullPolicy !== undefined) builder.pullPolicy(this.opts.pullPolicy)
@@ -288,14 +419,6 @@ export class MicrosandboxDriver implements RuntimeDriver {
     } catch {
       return undefined
     }
-  }
-
-  /**
-   * **空操作** —— `/data` 是 virtiofs 直挂，写入实时落宿主，
-   * 没有 smolvm `:staged` 那种「回传」这回事。留着是为接口一致。
-   */
-  sync(_machineName: string): Promise<void> {
-    return Promise.resolve()
   }
 
   /**

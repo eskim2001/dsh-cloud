@@ -18,8 +18,7 @@ const CTX: RenderContext = {
   baseImage: REF,
   baseDomain: 'app.example.com',
   gateToken: 'tok',
-  dataDir: '/var/lib/dsh/key',
-  dataDirOwner: '502',
+  storageKey: 'key',
   hostPort: 20001,
 }
 
@@ -28,12 +27,11 @@ const RENDERED: RenderedInstance = {
   machineName: 'dsh-instance-alice',
   hostname: 'alice.app.example.com',
   image: REF,
-  user: '502',
-  workingDir: '/data/home/workspace',
+  user: '0',
+  workingDir: '/data',
   env: [],
   guestPort: 8080,
   hostPort: 20001,
-  dataDir: '/var/lib/dsh/key',
   guestDataDir: '/data',
   mounts: [],
   labels: {},
@@ -62,7 +60,6 @@ function fakeDriver(over: Partial<RuntimeDriver> = {}) {
     logs: vi.fn<RuntimeDriver['logs']>(async () => 'log line'),
     exec: vi.fn<RuntimeDriver['exec']>(async () => ({ code: 0, stdout: '' })),
     stats: vi.fn<RuntimeDriver['stats']>(async (): Promise<InstanceUsage | undefined> => undefined),
-    sync: vi.fn<RuntimeDriver['sync']>(async () => undefined),
     heal: vi.fn<RuntimeDriver['heal']>(async () => undefined),
     listImageTags: vi.fn<RuntimeDriver['listImageTags']>(async () => [REF]),
   }

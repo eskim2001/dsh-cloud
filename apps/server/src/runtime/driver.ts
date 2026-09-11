@@ -20,6 +20,18 @@ export interface InstanceUsage {
 }
 
 /**
+ * 建数据卷时同名卷已经存在。
+ *
+ * **必须当错误，不能静默复用** —— 复用会把「这块卷里已经有别人的数据」伪装成「新建成功」，
+ * 正是 D18 要防的那种失败。D18 原本靠「宿主目录存在且非空就拒绝」实现，换成数据卷之后
+ * 这条就是它的等价物。
+ */
+export class StorageExistsError extends Error {}
+
+/** 数据卷不存在。`ensureStorage` **绝不静默新建**：那会把「数据丢了」伪装成「一切正常」。 */
+export class StorageNotFoundError extends Error {}
+
+/**
  * 运行时驱动：**唯一**接触具体运行时的接缝。
  *
  * 换运行时只换这一层的实现，`provisioner`/`boot`/`reconciler` 这些业务代码不动。
@@ -67,9 +79,26 @@ export interface RuntimeDriver {
   exec(machineName: string, argv: string[]): Promise<{ code: number; stdout: string }>
   stats(machineName: string): Promise<InstanceUsage | undefined>
 
-  // ---- 数据（`:staged`）----
-  /** 把 guest 内的本地副本回传宿主。周期调用以压缩「异常掉电丢多久」的窗口。 */
-  sync(machineName: string): Promise<void>
+  // ---- 数据卷 ----
+  //
+  // 实例数据是一块**运行时管理的卷**，不是宿主目录。宿主路径、卷名、镜像落在哪，
+  // 都由运行时决定；业务层只认那个不透明的 `storageKey`。
+  /**
+   * 建数据卷。**同名已存在就抛 `StorageExistsError`**，绝不静默复用（见该类注释）。
+   * `sizeMb` 是硬容量：卷灌满就是 ENOSPC，不是「预算」。
+   */
+  createStorage(key: string, sizeMb: number): Promise<void>
+  /** 确认数据卷在。不在就抛 `StorageNotFoundError`，**绝不新建**。 */
+  ensureStorage(key: string): Promise<void>
+  /** 删掉这一块卷。幂等。**只删这一个 key** —— 快照卷是上层的事（见 `DataStore`）。 */
+  removeStorage(key: string): Promise<void>
+  /** 已用容量（MiB）。**停机时也必须可读** —— 用量面板在实例没跑的时候也要有数。 */
+  storageUsageMb(key: string): Promise<number | undefined>
+  /**
+   * 把一块卷整体复制成新卷（升级/回退的唯一保险）。
+   * 目标已存在 → `StorageExistsError`；源不存在 → `StorageNotFoundError`。
+   */
+  copyStorage(fromKey: string, toKey: string): Promise<void>
 
   /** 回收孤儿进程 / 端口漂移。启动与每次对账时调。 */
   heal(): Promise<void>

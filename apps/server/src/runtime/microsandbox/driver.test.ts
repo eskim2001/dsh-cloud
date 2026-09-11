@@ -11,9 +11,26 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  */
 const mocks = vi.hoisted(() => ({
   imageGet: vi.fn(),
-  sandboxRemove: vi.fn(async () => undefined),
+  sandboxRemove: vi.fn(async (_name: string) => undefined),
   createWithPullProgress: vi.fn(),
+  volumeCreate: vi.fn(),
+  volumeGet: vi.fn(),
+  volumeRemove: vi.fn(async (_name: string) => undefined),
 }))
+
+/** 真 SDK 的异常类，测试里要能 `instanceof` 到。 */
+class FakeVolumeAlreadyExistsError extends Error {
+  constructor(name: string) {
+    super(`volume already exists: ${name}`)
+    this.name = 'VolumeAlreadyExistsError'
+  }
+}
+class FakeVolumeNotFoundError extends Error {
+  constructor(name: string) {
+    super(`volume not found: ${name}`)
+    this.name = 'VolumeNotFoundError'
+  }
+}
 
 vi.mock('microsandbox', () => {
   class SandboxBuilder {
@@ -39,13 +56,35 @@ vi.mock('microsandbox', () => {
       return mocks.createWithPullProgress()
     }
   }
+  class VolumeBuilder {
+    disk(): this {
+      return this
+    }
+    size(): this {
+      return this
+    }
+    create(): unknown {
+      return mocks.volumeCreate()
+    }
+  }
   return {
     Image: { get: mocks.imageGet },
     Sandbox: { remove: mocks.sandboxRemove },
     SandboxBuilder,
+    Volume: Object.assign(
+      {
+        builder: () => new VolumeBuilder(),
+        get: mocks.volumeGet,
+        remove: mocks.volumeRemove,
+      },
+      {},
+    ),
+    VolumeAlreadyExistsError: FakeVolumeAlreadyExistsError,
+    VolumeNotFoundError: FakeVolumeNotFoundError,
   }
 })
 
+const { StorageExistsError, StorageNotFoundError } = await import('../driver.js')
 const { MicrosandboxDriver } = await import('./driver.js')
 
 const REF = 'ghcr.io/eskim2001/dsh-instance:0.1.0_1'
@@ -156,5 +195,59 @@ describe('MicrosandboxDriver.openImagePull（预热）', () => {
 
     const lines = text.split('\n').filter((l) => l.includes('下载'))
     expect(lines).toHaveLength(2) // 0 MiB 一行、3 MiB 一行；中间那两条被去重掉
+  })
+})
+
+/**
+ * 数据卷原语。这几条是这次存储模型改动的**语义底线**：
+ * D18「绝不静默覆盖」和「绝不静默新建」现在都落在卷的存在性上，而不是宿主目录的空满。
+ */
+describe('MicrosandboxDriver 存储原语', () => {
+  it('建卷：同名已存在 → StorageExistsError（D18）', async () => {
+    mocks.volumeCreate.mockRejectedValueOnce(new FakeVolumeAlreadyExistsError('k'))
+    const driver = new MicrosandboxDriver()
+
+    await expect(driver.createStorage('k', 10_240)).rejects.toThrow(StorageExistsError)
+  })
+
+  it('建卷：正常路径不抛', async () => {
+    mocks.volumeCreate.mockResolvedValueOnce({ path: '/vols/k' })
+    const driver = new MicrosandboxDriver()
+
+    await expect(driver.createStorage('k', 10_240)).resolves.toBeUndefined()
+  })
+
+  it('ensure：卷不在 → StorageNotFoundError（绝不静默新建）', async () => {
+    mocks.volumeGet.mockRejectedValueOnce(new FakeVolumeNotFoundError('k'))
+    const driver = new MicrosandboxDriver()
+
+    await expect(driver.ensureStorage('k')).rejects.toThrow(StorageNotFoundError)
+  })
+
+  it('用量：读运行时的 usedBytes，停机时也有值', async () => {
+    mocks.volumeGet.mockResolvedValueOnce({ usedBytes: 3 * 1024 * 1024 })
+    const driver = new MicrosandboxDriver()
+
+    await expect(driver.storageUsageMb('k')).resolves.toBe(3)
+  })
+
+  it('用量：卷读不到 → undefined，不抛（面板显示不出来比整个页面 500 好）', async () => {
+    mocks.volumeGet.mockRejectedValueOnce(new FakeVolumeNotFoundError('k'))
+    const driver = new MicrosandboxDriver()
+
+    await expect(driver.storageUsageMb('k')).resolves.toBeUndefined()
+  })
+
+  it('复制卷：源不存在 → StorageNotFoundError（快照不能建立在空气上）', async () => {
+    mocks.volumeGet.mockRejectedValueOnce(new FakeVolumeNotFoundError('k'))
+    const driver = new MicrosandboxDriver()
+
+    await expect(driver.copyStorage('k', 'k.prev')).rejects.toThrow(StorageNotFoundError)
+  })
+
+  it('删卷：只删传进来的那个 key', async () => {
+    const driver = new MicrosandboxDriver()
+    await driver.removeStorage('k')
+    expect(mocks.volumeRemove).toHaveBeenCalledWith('k')
   })
 })

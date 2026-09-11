@@ -9,56 +9,54 @@ export interface RenderContext {
   /** 入口注入的 token（每实例独立随机值）。 */
   gateToken: string
   /**
-   * 宿主上该实例的数据目录（`:staged` 的源）。
+   * 该实例的数据卷标识。**不透明** —— 宿主路径、卷名、镜像落在哪，全由运行时决定；
+   * 平台只负责「在这个 key 下建卷、用它挂载、删它」。
    *
-   * **不再是 loop 挂载点**：microVM 下没有宿主侧 loop/ext4，这就是一个普通目录。
-   * 它的属主决定工作负载以什么 uid 运行 —— 见 `dataDirOwner`。
+   * 从前这里是一份**宿主目录**。换成卷是因为宿主目录直挂走的是 virtiofs passthrough，
+   * 而那个后端有个硬链接 bug（上游 #1559）：unlink 掉两个名字中的一个，剩下的那个
+   * 名字会永久只读 —— dsh 的会话日志每次落盘都会踩到。见驱动的类注释。
    */
-  dataDir: string
-  /**
-   * 数据目录的属主（`uid` 或 `uid:gid`），工作负载以它运行。
-   *
-   * **为什么必须显式传**：`:staged` 会把宿主的属主带进 guest，而镜像声明的 `USER`
-   * 是固定的 uid 1000。两者对不上时，entrypoint 对 `/data` 的第一句 `mkdir` 就 EACCES，
-   * 容器直接退出（实测：smolvm 会静默降级成一个空转容器，状态仍显示 running）。
-   */
-  dataDirOwner: string
+  storageKey: string
   /** 宿主上发布的回环端口（平台分配，唯一）。入口转发到这里。 */
   hostPort: number
 }
 
-/** 一个挂载：宿主路径 → guest 路径。 */
+/** 一个挂载：数据卷 → guest 路径。 */
 export interface RenderedMount {
-  host: string
+  /** 挂哪块卷（见 `RenderContext.storageKey`）。 */
+  storageKey: string
   guest: string
+  /** `rw` = 可写；`ro` = 只读。 */
+  mode: 'ro' | 'rw'
   /**
-   * `rw` = 直通（virtiofs / bind）；`ro` = 只读；`staged` = 复制进 VM、停机回传。
-   *
-   * ⚠️ `staged` **每次启动整份复制**，文件数一多就超过运行时的启动超时 ——
-   * 实测 14473 个文件必现起不来。除非确认目录很小，别用它。
+   * 这块卷的**容量上限**（MiB）。在磁盘卷上是**硬限制** —— 灌满就是 ENOSPC，
+   * 不是「预算」。容量在创建时定死，**不能原地扩容**（改了要么迁移要么拒绝）。
    */
-  mode: 'staged' | 'ro' | 'rw'
-  /**
-   * 这个挂载的**写入配额**（MB）。由运行时在宿主侧强制执行，超了 guest 收 ENOSPC。
-   *
-   * 运行时应当让 guest 的 `df` 报这个额度而不是宿主的真实磁盘 ——
-   * 否则就是把宿主的磁盘规模暴露给租户。
-   */
-  quotaMb: number
+  sizeMb: number
 }
 
 /** runtime 中立的最小结果：编排层只认这些。 */
 export interface RenderedInstance {
   slug: string
-  /** 运行时侧标识（smolvm 的 machine name）。 */
+  /** 运行时侧标识（实例机器名）。 */
   machineName: string
   hostname: string
   image: string
   /**
-   * 工作负载的运行用户。**等于 `ctx.dataDirOwner`**，不是镜像的 `USER`。
-   * 理由见 `RenderContext.dataDirOwner` 的注释。
+   * 工作负载的运行用户。**固定 `'0'`（root）** —— 数据卷的根目录归 root，而
+   * `.owner()` 这类声明式属主映射对磁盘卷无效，所以工作负载只能是 root。
+   *
+   * 这不是「懒得降权」：guest 里能写的只有 `/data`，而它归 root。安全边界是 microVM
+   * 本身，不是 guest 内的 uid。
    */
   user: string
+  /**
+   * 运行时的 **WORKDIR**。运行时会**在建配置时**校验它在 guest 里存在，所以只能是
+   * 挂载点本身（`/data`）—— 空卷里还没有 `/data/home/workspace` 那层骨架。
+   *
+   * dsh 真正的工作目录由镜像的 entrypoint 建出来再 `cd` 进去，保证它的 cwd 仍是
+   * `/data/home/workspace`（会话目录名的前缀编码的就是 cwd，变了会让已有会话看着像丢了）。
+   */
   workingDir: string
   /** `KEY=VALUE`，与 Docker `Env` 同形，便于两边对照。 */
   env: string[]
@@ -66,8 +64,6 @@ export interface RenderedInstance {
   guestPort: number
   /** 宿主回环端口，入口转发目标。 */
   hostPort: number
-  /** 宿主数据目录（`:staged` 的源）。 */
-  dataDir: string
   /** 容器内数据根（`/data`）。 */
   guestDataDir: string
   mounts: RenderedMount[]

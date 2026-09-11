@@ -63,23 +63,14 @@ const EnvSchema = z.object({
   MAX_INSTANCES_PER_USER: z.coerce.number().int().positive().default(3),
 
   /**
-   * 宿主上存放实例数据的目录。每个实例一个子目录（按 `storage_key` 命名），
-   * 用 `:staged` 复制进 VM 当 `/data`。
+   * 宿主上存放实例数据的地方。**它现在是 microsandbox 家目录的根** —— 实例数据卷、
+   * 镜像缓存、运行时的 sqlite 注册表都在它的 `.msb/` 下面（`MSB_HOME` 由 index.ts 设，
+   * 见那里的注释：不设的话这些会落进 `~/.microsandbox` 那种点目录，备份和盘点都答不上来）。
    *
-   * **不再是 loop 挂载点**：microVM 时代它就是个普通目录，没有 `.img`、没有 loop 设备、
-   * 也没有 ext4。控制面跑在宿主上，所以这是**宿主路径**。
+   * **不再是「每个实例一个子目录」**：数据是一块运行时管理的 ext4 卷，宿主上是个镜像文件。
+   * 控制面跑在宿主上，所以这是**宿主路径**。
    */
   HOST_STORAGE_ROOT: z.string().min(1).default('/var/lib/dsh'),
-
-  /**
-   * 数据目录的属主（`uid` 或 `uid:gid`）。**工作负载以它运行**，所以它必须同时是
-   * 该目录的属主——两者不一致时，entrypoint 对 `/data` 的第一句 `mkdir` 就 EACCES，
-   * 而 smolvm 会静默降级成一个空转容器、状态仍报 running（实测）。
-   *
-   * 省略 = `1000`（镜像里那个 `dsh` 用户）。运行时会把它**声明式**地映射到挂载上，
-   * 所以宿主目录本身归谁不影响 guest 里看到什么。
-   */
-  HOST_DATA_OWNER: z.string().min(1).default('1000'),
 
   /**
    * 实例后端的**上游主机名** —— Traefik 用它去连实例发布的宿主回环端口。
