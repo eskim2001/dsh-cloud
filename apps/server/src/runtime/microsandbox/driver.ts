@@ -9,6 +9,7 @@ import {
   Volume,
   VolumeAlreadyExistsError,
   VolumeNotFoundError,
+  type ExecHandle,
   type SandboxHandle,
 } from 'microsandbox'
 import type { InstanceSpec, RenderContext, RenderedInstance } from '@dsh-cloud/instance-spec'
@@ -69,6 +70,16 @@ export class MicrosandboxDriver implements RuntimeDriver {
    * 同一版本重复调用时去重；`heal()` 靠它避开本进程正在跑的那几台。
    */
   private readonly prewarming = new Map<string, string | null>()
+
+  /**
+   * 工作负载的 exec 句柄，按机器名存着。
+   *
+   * **必须持有引用**：`execDefaultStream()` 返回的句柄就是那条后台命令的会话，丢掉引用
+   * 之后它会被回收，**连接一拆命令就跟着死**。症状极具迷惑性 —— 沙箱状态 running、
+   * 端口却没人监听、`/data` 空的、guest 里连 tini 都没有，而且**时好时坏**（取决于 GC
+   * 时机）。实测：同一段代码，保留句柄 `dsh web` 正常起来，丢掉就一个进程都没有。
+   */
+  private readonly workloads = new Map<string, ExecHandle>()
 
   constructor(private readonly opts: MicrosandboxDriverOptions = {}) {}
 
@@ -308,7 +319,9 @@ export class MicrosandboxDriver implements RuntimeDriver {
     // ⚠️ **`create()` 只建沙箱、不跑镜像的 ENTRYPOINT。** 实测：建完之后 guest 里
     // 一个监听都没有；必须再 `execDefaultStream()` 才会把 caddy+dsh 拉起来
     //（它是流式句柄，命令在后台继续跑 —— 正是我们这种常驻服务要的语义）。
-    await sb.execDefaultStream()
+    //
+    // ⚠️⚠️ 句柄**必须存起来**（见 `workloads` 的注释）：丢掉引用 = 命令被杀。
+    this.workloads.set(r.machineName, await sb.execDefaultStream())
     return r
   }
 
@@ -322,11 +335,14 @@ export class MicrosandboxDriver implements RuntimeDriver {
     const sb = await Sandbox.startDetached(machineName)
     // **同理**：`startDetached` 只把机器开机，workload 不会自己回来（实测：
     // stop → startDetached 之后 guest 里没有监听；补一次 `execDefaultStream` 才有）。
-    await sb.execDefaultStream()
+    // 新的句柄覆盖旧的，旧的连接已经被 stop 断掉了。
+    this.workloads.set(machineName, await sb.execDefaultStream())
   }
 
   /** 停实例。已经停了或不存在都当成功。 */
   async stop(machineName: string): Promise<void> {
+    // 先放手：句柄存着的话连接会一直挂着
+    this.workloads.delete(machineName)
     const h = await this.handle(machineName)
     if (h === undefined) return
     await h.stop()
@@ -334,6 +350,7 @@ export class MicrosandboxDriver implements RuntimeDriver {
 
   /** 幂等删除。不存在也算成功。 */
   async remove(machineName: string): Promise<void> {
+    this.workloads.delete(machineName)
     try {
       await Sandbox.remove(machineName)
     } catch {
