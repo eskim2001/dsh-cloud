@@ -8,8 +8,8 @@
 </p>
 
 <p align="center">
-  面向 DeepSeek Harness 的多租户托管平台。<br>
-  <sub>Self-hosted or cloud-hosted multi-tenant platform for deploying and hosting DeepSeek Harness (dsh) instances.</sub>
+  <b>DSH as a Service</b> —— 面向 DeepSeek Harness 的多租户托管平台。<br>
+  <sub>DSH as a Service: a self-hosted or cloud-hosted, multi-tenant platform for deploying and hosting DeepSeek Harness (dsh) instances.</sub>
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
   <a href="#参与贡献">参与贡献</a>
 </p>
 
-**dshcloud** 为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）提供账号管理、实例创建和访问控制。每个实例运行在独立的 Docker 容器中，拥有专属网络、持久化数据文件系统和资源限制。用户通过经过认证的子域访问自己的实例，运营者通过 Web 管理台管理账号、资源容量和实例版本。
+**dshcloud** 为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）提供账号管理、实例创建和访问控制。每个实例跑在自己的 microVM 里，拥有专属网络、持久化数据卷和资源限制。用户通过经过认证的子域访问自己的实例，运营者通过 Web 管理台管理账号、资源容量和实例版本。
 
 > **项目处于早期开发阶段。** 当前适合评估与开发，尚不具备生产可用性；部署验证和安全工作仍有未决项。暴露到公网前，请先阅读[架构与安全模型](docs/ARCHITECTURE.md)里的权限边界与运行限制。
 
@@ -31,9 +31,9 @@
 
 - **实例管理：** 创建、启动、停止、重建和删除实例。通过每用户实例数上限，允许用户在分配的额度内拥有多个实例。
 - **资源控制：** CPU、内存、进程数限制，以及每实例 `/data` 文件系统的容量硬限制。管理员可以在创建后调整资源配额。
-- **认证访问：** Traefik 后的实例独立子域、所有者授权，以及通过 HMAC 派生的实例专属入口令牌。实例容器不发布宿主端口。
-- **持久化工作区：** 工作区、配置和用户安装的软件包均指向 `/data`，在容器重建与镜像切换时保留。镜像切换前创建快照，供回滚使用。
-- **运维管理：** 账号封禁、配额管理、镜像选择、基于 Docker 的状态查询、用量采样和容器日志流。各角色的权限边界见下文。
+- **认证访问：** Traefik 后的实例独立子域、所有者授权，以及通过 HMAC 派生的实例专属入口令牌。实例不发布宿主端口。
+- **持久化工作区：** 工作区、配置和用户安装的软件包均指向 `/data`（一块独立的 ext4 数据卷），在实例重建与镜像切换时保留。镜像切换前创建快照，供回滚使用。
+- **运维管理：** 账号封禁、配额管理、版本上架、基于运行时的状态查询、用量采样和实例日志流。各角色的权限边界见下文。
 - **双语管理台：** 英文与简体中文、明暗主题、邮箱密码登录和会话管理。
 
 ## 截图
@@ -75,7 +75,7 @@
 - Node.js 22 或更新版本，以及 pnpm 10.10.0，版本要求见 [package.json](package.json)。
 - 装了 Docker Desktop（能跑 Linux 容器，且带 Compose v2）。控制面**启动时**就要连它的 daemon，不是只在建实例时才用。
 - 宿主端口 `80` / `443` / `3000` / `5173` / `55432` 空闲。
-- 实例存储要求 Docker 宿主支持 loop 设备、ext4 和[存储助手](apps/server/src/instance/host-storage.ts)使用的宿主工具。存储操作需要短时运行的特权助手容器。在 Docker Desktop 上，这里的宿主是它的 Linux 虚拟机，而不是 macOS。
+- 实例运行在 microVM 里（microsandbox，macOS 仅 Apple Silicon），实例数据是运行时管理的 ext4 数据卷。**本地开发不需要 KVM、签名或 entitlement**；Docker Desktop 只用来跑上面的 Postgres 和入口。
 
 ### 起
 
