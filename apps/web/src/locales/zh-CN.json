@@ -18,7 +18,7 @@
     "sessions": "会话",
     "members": "成员",
     "admin": "平台管理",
-    "adminImages": "镜像管理"
+    "adminVersions": "版本管理"
   },
   "language": {
     "label": "语言",
@@ -217,42 +217,46 @@
       "pidsLimit": "进程数上限",
       "loadFailed": "加载实例列表失败"
     },
-    "images": {
-      "title": "镜像版本",
-      "description": "平台发布的实例镜像。新建实例默认用「默认」那一版，也可以在创建时另选；用户面能自助升到的版本 = 已发布且宿主上真有。点「同步」从注册表拉取最新 tag。",
-      "sync": "同步",
-      "syncing": "同步中…",
-      "syncedAt": "上次同步：{{time}}",
-      "neverSynced": "还没同步过",
-      "syncResult": "已同步 {{count}} 个版本",
-      "syncSkipped": "，忽略 {{skipped}} 个非版本 tag",
+    "versions": {
+      "title": "版本管理",
+      "description": "用户可以创建和升级到的 dsh 版本。上架一个版本，用户就能在自己的实例里切到它。",
+      "check": "检查更新",
+      "checking": "检查中…",
+      "checkedAt": "上次检查：{{time}}",
+      "neverChecked": "还没检查过",
+      "checkResult": "注册表上读到 {{count}} 个版本",
+      "checkSkipped": "，忽略 {{skipped}} 个非版本 tag",
       "state": "状态",
       "stateLabel": {
-        "remote": "未下载",
-        "local": "已下载",
-        "published": "已发布"
+        "default": "默认",
+        "published": "已上架",
+        "unpublished": "未上架"
       },
-      "notOnHost": "宿主上已删除；用到时会自动重新下载",
+      "warmed": "已预热",
+      "warmedHint": "镜像已在本机缓存，用户第一次创建这个版本时不用等下载",
+      "dshLine": "dsh {{dsh}} · 修订 {{revision}}",
       "digest": "Digest",
       "ref": "版本",
-      "publishedAt": "发布时间",
-      "default": "默认",
+      "publishedAt": "上架时间",
       "actions": "操作",
-      "download": "下载",
-      "pullTitle": "下载 {{ref}}",
-      "pullState": {
-        "pulling": "下载中…",
-        "done": "下载完成",
-        "failed": "下载失败"
-      },
-      "pullWaiting": "正在连接…",
-      "publish": "发布",
+      "publish": "上架",
       "setDefault": "设为默认",
       "unpublish": "下架",
+      "unpublishDefault": "默认版本不能下架，先把别的版本设为默认",
       "unpublishTitle": "下架这个版本？",
       "unpublishConfirm": "{{ref}} 不再出现在用户面的「换版本」列表里；已经在用它的实例不受影响。",
-      "empty": "还没有任何版本——先点右上角「同步」拉取注册表上的 tag。",
-      "loadFailed": "加载镜像版本失败"
+      "warm": "预热到本机",
+      "warmTitle": "预热 {{ref}}",
+      "warmState": {
+        "pulling": "预热中…",
+        "done": "预热完成",
+        "failed": "预热失败"
+      },
+      "warmWaiting": "正在连接…",
+      "notOnHost": "本机还没缓存；用户第一次创建这个版本时会自动下载",
+      "emptyTitle": "还没有上架任何版本",
+      "emptyBody": "用户现在创建不了实例。先「检查更新」把注册表上的版本读进来，再上架要用的那一版。",
+      "loadFailed": "加载版本失败"
     }
   },
   "status": {

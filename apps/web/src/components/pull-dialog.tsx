@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog.js'
 import { adminImagePullUrl } from '@/lib/api.js'
 
-/** 留太多行会卡——超出从头部丢。docker pull 的进度行刷得很快。 */
+/** 留太多行会卡——超出从头部丢。拉取的进度行刷得很快。 */
 const MAX_LINES = 500
 /** 连接层连续失败这么多次就断开（EventSource 自己会无限重连）。 */
 const MAX_ERRORS = 3
@@ -19,13 +19,13 @@ const MAX_ERRORS = 3
 type PullState = 'pulling' | 'done' | 'failed'
 
 /**
- * 下载镜像的进度对话框（D23，SSE）。
+ * 预热镜像的进度对话框（D23，SSE）。
  *
  * 写法照抄 `log-panel.tsx`：原生 `EventSource`（只认 cookie，所以 `withCredentials`）、
  * 收到 `end` 主动 `close()`（否则会被当成断线一直重连）。两处不同：
  * - 服务端用 `event: error` 送**流内**失败（HTTP 200 + `{"error":…}`），它和连接层
  *   错误的 `error` 事件同名——靠 `instanceof MessageEvent` 区分（只有前者带 `data`）；
- * - 结束/失败后回调一次，让页面刷新三态。
+ * - 结束/失败后回调一次，让页面刷新（比如「已预热」标记）。
  */
 export function PullDialog({
   imageRef,
@@ -106,14 +106,14 @@ export function PullDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{t('admin.images.pullTitle', { ref: imageRef })}</DialogTitle>
-          <DialogDescription>{t(`admin.images.pullState.${state}`)}</DialogDescription>
+          <DialogTitle>{t('admin.versions.warmTitle', { ref: imageRef })}</DialogTitle>
+          <DialogDescription>{t(`admin.versions.warmState.${state}`)}</DialogDescription>
         </DialogHeader>
         <pre
           ref={preRef}
           className="h-72 overflow-auto rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap"
         >
-          {lines.length === 0 ? t('admin.images.pullWaiting') : lines.join('\n')}
+          {lines.length === 0 ? t('admin.versions.warmWaiting') : lines.join('\n')}
         </pre>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

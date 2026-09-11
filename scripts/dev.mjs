@@ -14,6 +14,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -105,10 +106,16 @@ function generateEnvFile() {
     'TRAEFIK_ENTRYPOINT=websecure',
     '# 留空 = 不挂 ACME resolver，落到 Traefik 内置的默认自签证书（浏览器红锁，点继续）',
     'TRAEFIK_CERT_RESOLVER=',
-    'TRAEFIK_CONTAINER=dsh-ingress',
     'FORWARD_AUTH_ADDRESS=http://host.docker.internal:3000/auth/verify',
     'TRAEFIK_ROUTES_PATH=./traefik-dynamic/routes.yml',
     'INSTANCE_IMAGE_REPO=ghcr.io/eskim2001/dsh-instance',
+    '',
+    '# ── 实例数据与入口 ──',
+    '# 实例数据落在家目录：默认值是 /var/lib/dsh，给 Linux 生产用，macOS 上建不了。',
+    `HOST_STORAGE_ROOT=${path.join(os.homedir(), 'dsh-data')}`,
+    '# Traefik 跑在容器里，它自己的 127.0.0.1 不是宿主 —— 实例后端必须经 host.docker.internal，',
+    '# 否则实例一律 502。',
+    'INSTANCE_UPSTREAM_HOST=host.docker.internal',
     '',
     '# ── 随机生成，不打印 ──',
     `PLATFORM_SECRET=${randomBytes(32).toString('hex')}`,

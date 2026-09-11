@@ -1,4 +1,4 @@
-import { BoxesIcon, ImagesIcon, MonitorSmartphoneIcon, ShieldCheckIcon, UserIcon, UsersIcon } from 'lucide-react'
+import { BoxesIcon, MonitorSmartphoneIcon, ShieldCheckIcon, TagIcon, UserIcon, UsersIcon } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation } from 'react-router-dom'
@@ -38,7 +38,7 @@ export function AppSidebar() {
     ...(user?.role === 'admin'
       ? [
           { title: t('nav.admin'), url: '/admin', icon: ShieldCheckIcon, end: true },
-          { title: t('nav.adminImages'), url: '/admin/images', icon: ImagesIcon },
+          { title: t('nav.adminVersions'), url: '/admin/versions', icon: TagIcon },
         ]
       : []),
   ]
