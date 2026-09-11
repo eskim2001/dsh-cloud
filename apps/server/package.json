@@ -26,6 +26,7 @@
     "dockerode": "^4.0.4",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.12.3",
+    "microsandbox": "^0.6.18",
     "postgres": "^3.4.9",
     "yaml": "^2.9.0",
     "zod": "^3.24.1"

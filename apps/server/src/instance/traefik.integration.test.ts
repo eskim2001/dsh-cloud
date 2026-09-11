@@ -55,7 +55,7 @@ describe.runIf(process.env.DSH_SECURITY_INTEGRATION === '1')('real Traefik sessi
     const address = backend.server.address()
     if (address === null || typeof address === 'string') throw new Error('No backend port')
     const origin = `http://host.docker.internal:${address.port}`
-    const config = buildTraefikConfig([{ instance: 'alice', hostname: 'alice.app.example.com' }], {
+    const config = buildTraefikConfig([{ instance: 'alice', hostname: 'alice.app.example.com', hostPort: 20001 }], {
       forwardAuthAddress: `${origin}/auth/verify`, entryPoint: 'web',
     })
     config.http.services!['instance-alice']!.loadBalancer.servers = [{ url: origin }]

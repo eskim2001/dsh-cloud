@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import { describe, expect, it, vi } from 'vitest'
-import { containerName } from '@dsh-cloud/instance-spec'
+import { machineName } from '@dsh-cloud/instance-spec'
 import type { InstanceRow } from '../db/schema.js'
 import type { Env } from '../env.js'
 import { ImageRejectedError, NoRollbackError, SlugConfirmMismatchError } from '../instance/provisioner.js'
@@ -27,6 +27,7 @@ function row(over: Partial<InstanceRow> = {}): InstanceRow {
     image: 'dsh-instance:0.1.0',
     previousImage: null,
     containerId: 'c-1',
+    hostPort: null,
     cpus: 1,
     memoryMb: 2048,
     pidsLimit: 512,
@@ -465,7 +466,7 @@ describe('实例面：状态以 Docker 为准', () => {
       listContainerStates: async () =>
         new Map([
           [
-            containerName('alice'),
+            machineName('alice'),
             { state: 'restarting', statusText: 'Restarting (3) 20 seconds ago' },
           ],
         ]),

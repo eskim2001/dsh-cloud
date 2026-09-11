@@ -577,3 +577,140 @@
   `dynamic-dev/platform.yml` 的 upstream，否则预检的硬编码就是错的）；或把本地栈拆成
   「只要控制台」和「要打开实例」两档时（当前 `pnpm dev` 明确定义为**只到控制台可用**，
   不预拉实例镜像、不管宿主存储）。
+
+
+## D28 · 容器内沙箱：装 bubblewrap 让能力可用，模式交给用户
+
+- **决策**：实例镜像装 `bubblewrap`（构建时剥掉 setuid 位），让 dsh 的 Linux 进程沙箱
+  后端可用；**平台不注入 `DSH_PERMISSION_MODE`**（或任何等价手段）去决定沙箱模式——
+  用哪一档、什么时候切，是用户在 dsh 会话里的选择。
+- **理由**：dsh 的 Linux 候选链是 `bwrap → Landlock → fail closed`，两档全灭时它
+  **拒绝执行任何命令**（不是「某条命令越界被拦」）。而 Docker Desktop 的内核没编 Landlock
+  （实测 `# CONFIG_SECURITY_LANDLOCK is not set`，且 `CONFIG_LSM` 也不含 `landlock`），
+  那个内核由 Docker 自行编译、**用户不可配置**；镜像里原先也没有 bwrap → 每个实例的 bash
+  都是死的。平台侧设 `danger-full-access` 固然能让命令跑起来，但那是**越权**：权限模式是
+  用户在自己会话里的选择，而且该环境变量会**连带**把 `approval.policy` 从 `ask` 切成
+  `never`（dsh 的 `@deepseek-ai/dsh-base` 组合里 `sandbox-policy` 与 `approval` 两处都读
+  这个变量），等于平台替用户决定「放开到哪一档、要不要人工审批」。
+  平台只负责让沙箱**可用**，不替用户选。
+- **备选**：① 平台设 `DSH_PERMISSION_MODE=danger-full-access`——否，越权 + 连带改审批，
+  `docker.test.ts` 有断言守着这条不被加回去；② 改宿主运行时（Colima / Lima）或在 macOS
+  原生跑 dsh，那能拿到 Landlock / Seatbelt——否，要换运行时，且「宿主内核配置不可控」
+  这件事本身就该绕开，而不是依赖一个可用性会随版本回归的内核；③ 不装 bwrap、只靠用户在
+  UI 里切 `danger-full-access`——否，那三档里只有一档能用，「在 dsh 里切模式」是空头承诺。
+- **代价**：① 镜像多一个包（构建期 apt 装 + 剥 setuid）；② 默认仍是 `workspace-write`，
+  所以「装依赖 / 装 CLI」（写工作区之外）需要用户自己在会话里切到 `danger-full-access`；
+  ③ 这层沙箱是「同世界」的进程级隔离，与容器**共享内核**，**不构成跨实例边界**——
+  那条边界仍是容器（D1 / D3）。
+- **重审**：宿主内核开始带 Landlock 时（可以去掉 bwrap 这档，留着也无害）；或 dsh 改了
+  候选链语义时。
+- **补充**：装 bwrap 只是**必要条件**。光装它，探测仍会失败——Docker 默认的
+  masked/readonly 路径挡着 bwrap 建 proc，见 D30。
+
+## D29 · 卷内属主只能在平台侧落地（容器内降不了权）
+
+- **决策**：实例卷里 `/data/home` 与工作区的属主，由**平台**在挂载脚本里 chown
+  （[`host-storage.ts`](../apps/server/src/instance/host-storage.ts) 的 `mountScript`，
+  非递归、只碰 home 子树），既不靠镜像层，也不靠 entrypoint。
+- **理由**：三件事叠出来的 —— ① 镜像里 `chown -R dsh:dsh /data` 作用于**镜像层**的
+  `/data`，而运行时 `/data` 被实例自己的文件系统 bind **整个覆盖**
+  （[`renderers/docker.ts`](../packages/instance-spec/src/renderers/docker.ts) 的 `Binds`），
+  那次 chown 运行时根本看不到；② 挂载脚本原来只 `chown` 挂载根，管不到里面的 `home`；
+  ③ dsh 以 uid 1000 跑，写不进别人的目录 → `EACCES`。**为什么不能放 entrypoint**：
+  容器跑 `CapDrop: ALL`，容器内连 uid 0 都没有 capability（实测 `CapEff: 0`），
+  `setpriv` / `su` / `gosu` 全部 `EPERM` —— 降权这条路在容器内根本不存在。
+- **备选**：① entrypoint 以 root 起、chown 后 `gosu` 降权——否，实测不可能（见上）；
+  ② 平台侧只做一次性初始化、不放进挂载脚本——否，放进挂载脚本才有**自愈**
+  （`ensure()` 每次开机都跑，属主被外部改坏也能修回来）；③ 对整个 `/data` 递归 chown
+  ——否，浪费且会碰到 ext4 固有的 `lost+found`（`drwx------ root`）。
+- **代价**：① 每次开机多两条命令（非递归，可忽略）；② `lost+found` 与 entrypoint 自建
+  的那批目录不在管辖内，属主出问题要单独看。
+- **未解**：**`/data/home` 那个 root 属主究竟是谁建的仍未坐实**（模拟空目录 bind 到
+  `/data` 时 Docker 反而保留 1000:1000，没复现出 root）。修法不依赖这个答案——无论谁建的
+  都能被上面那句 chown 修掉——但要知道这里留了个未解的点。
+- **重审**：宿主存储换成 Docker named volume 时（镜像层 chown 的语义不同了，要重新判断
+  谁负责属主）。
+
+## D30 · 覆盖 Docker 默认路径屏蔽：清掉 `/proc` 下的条目，bwrap 才建得起 proc
+
+- **决策**：容器 HostConfig 显式写死 `MaskedPaths: ['/sys/firmware']` 与
+  `ReadonlyPaths: ['/sys/devices/virtual/powercap']` —— 即从 Docker 的默认列表里**去掉
+  `/proc` 下的全部条目**，`/sys` 那两条保留。
+- **理由**：D28 装 bwrap 是**必要但不充分**的。dsh 的探测跑的是
+  `bwrap --ro-bind / / --dev /dev --unshare-pid --proc /proc --die-with-parent -- true`，
+  在平台加固下报 `Can't mount proc on /proc: Operation not permitted`。根因不在 bwrap
+  缺不缺 capability：Docker 默认的 masked/readonly 列表含 `/proc` 下的条目，bwrap 在新
+  PID namespace 里建 procfs 会被它们挡掉。实测矩阵（同一镜像、同一内核）：
+
+  | 容器配置 | 探测 |
+  |---|---|
+  | `CapDrop: ALL` + `no-new-privileges`（平台现状） | FAIL |
+  | 同上 + `--cap-add SYS_ADMIN` / `--cap-add ALL` / `seccomp=unconfined` / `apparmor=unconfined` | 全 FAIL |
+  | `--privileged` | OK |
+  | 只清 `/proc` 下的屏蔽、保留 `/sys` 两条 | **OK** |
+
+  另测：只留 `/proc` 条目 → FAIL，只留 `/sys` 条目 → OK；清掉任一侧都不够，必须两侧的
+  `/proc` 条目都去掉。
+- **备选**：① `--privileged`——否，架构 §五明令禁止；② 加回 capability（含 SYS_ADMIN）
+  ——否，实测无效，说明不是权限级别问题；③ 恢复 bwrap 的 setuid 位——否，
+  `no-new-privileges` 本来就会忽略它，且上一条已证 SYS_ADMIN 都没用；④ 用 dsh 的
+  `runnerCommand` 配置绕开内置 profile——否，那要平台自己重实现沙箱 profile，脆弱，
+  且违背「不越过 dsh 管沙箱」的立场（D28）。
+- **代价**：丢掉一批 `/proc` 下的屏蔽。其中只有 `/proc/sched_debug` 是全局可读（可能泄漏
+  内核指针、削弱 KASLR）；其余（`/proc/kcore`、`/proc/keys`、`/proc/timer_list`、
+  `/proc/latency_stats`、`/proc/timer_stats`、`/proc/acpi`、`/proc/asound`、`/proc/scsi`
+  等）都是 root-only `0400`，而实例以 uid 1000 跑且 `CapDrop: ALL`，够不到；`/proc/sys`、
+  `/proc/bus`、`/proc/fs`、`/proc/irq` 那几条只读保护同样因非 root 而不可写。这层是
+  纵深防御，不是跨实例边界——边界仍是容器（D1 / D3），内核残余风险本就已接受（§四）。
+- **重审**：宿主内核开始带 Landlock 时（bwrap 那档可以退场，屏蔽可以加回来）；或 dsh 改了
+  bwrap profile args（不再要求新 PID namespace 时）。**另需在原生 Linux Docker 上复验一次**
+  ——默认 masked/readonly 列表是 Docker 通用行为，预期生产同样需要这处改动，但本机只在
+  Docker Desktop 上验过。
+
+## D31 · 运行时改用 smolvm microVM，`/data` 走 `:staged`
+
+- **决策**：实例运行时从 Podman/Docker 换成 **smolvm 1.14.6**（microVM / libkrun）。五条具体形态：
+  1. **不再有 per-实例网络，也不再有入口接入** —— 每台 VM 自带独立 NAT，宿主只看到
+     `127.0.0.1:<hostPort>`。入口按**宿主回环端口**转发（D3 的「不发布宿主端口」被放宽为
+     「只发到回环」，依据见下面的 ④ 实测）。
+  2. **`/data` 用 `:staged`** —— 平台在宿主维护数据目录（`HOST_STORAGE_ROOT/<storage_key>`），
+     启动时整份复制进 VM，靠周期 `machine sync` 与**优雅停机**回传。
+  3. **工作负载以数据目录的属主运行**（`-u <uid>`），**不用**镜像声明的 `USER`
+     —— 两者不一致时 entrypoint 对 `/data` 的第一句 `mkdir` 就 EACCES，而 smolvm 会**静默**
+     降级成一个空转容器、状态仍报 running。
+  4. **磁盘配额改由运行时的 `--storage` 承载**（GiB，**只能扩不能缩**）。旧的 loop+ext4
+     与 `nsenter` 特权助手容器整套退场（D18 的实现形态被取代，其「固定大小 = 配额」的思路保留）。
+  5. **运行时接缝**收进 [`apps/server/src/runtime/driver.ts`](../apps/server/src/runtime/driver.ts)，
+     业务层不认任何具体运行时。
+- **理由**：§四 自己写明的「剩下的唯一缺口：内核」——容器与宿主共享内核，实例逃逸即宿主沦陷。
+  microVM 用 hypervisor 补上这一层。实测另有两个甜头：**热启动 1–3 秒**（实例可按需休眠、
+  秒级唤醒）与**闲置成本趋近于零**（每台 VM 进程 RSS 25–42 MB，`--cpus`/`--mem` 是上限非预留）。
+- **代价**（必须显式认下，不埋在代码里）：
+  1. **macOS 上拿不到 egress 限制** —— smolvm 源码显式拒绝非「Linux + firecracker」的 egress
+     策略。「限制实例能访问什么」这条在 macOS 上没有实现路径（Linux 上有）。
+  2. **`:staged` 的写入有丢失窗口** —— 数据先在 VM 内，靠 sync/优雅停机回传，**异常掉电会丢
+     最近一段**。兜底：45s 周期 sync、高风险动作前（升级/改配额/删除）显式 sync+停机、
+     DB 记 `lastSyncedAt` 供 UI 显示、宿主目录为空但 DB 记有数据时**拒绝启动**。
+  3. **磁盘只能扩不能缩** —— 需要更小的盘只能重建实例并迁移数据。UI 不给缩容入口，
+     后端遇到缩容请求直接 400。
+  4. **入口从「按容器名」变成「按宿主端口」** —— 每实例占一个宿主回环端口，要落库（`host_port`
+     唯一索引）、要分配前真探、要回收。**Traefik 必须从容器搬到宿主**：容器里的 Traefik 在
+     macOS 上够不到宿主的 `127.0.0.1`。
+  5. **`pidsLimit` 无处落地** —— smolvm 没有对应参数。
+  6. **`stats` 降级** —— smolvm 没有用量采样接口，指标表暂时只有磁盘用量。
+  7. **VM 内必须保留一个转发器**（现为 Caddy）—— dsh 拒绝绑非回环（flag 的字面量比较 +
+     config schema 的字面量联合类型两道），而 `-p` 转发是连 guest 的 NIC 地址，绑回环的端口
+     够不到（实测 `HTTP 000`）。Caddy 另外还承担门校验与 `/__open` 的 token 注入（D14），
+     那两件与转发无关，删不掉。
+- **实测关键数据（2026-09-11，macOS 14.5 / M1 / smolvm 1.14.6）**：
+  - 直接拉公开 GHCR 镜像可用（14 层，1.34GB 拉取 ~86s）；`ENTRYPOINT`/`WORKDIR`/`USER` 都尊重，
+    **`VOLUME` 声明被忽略**（我们的镜像本来就不靠它）
+  - `--storage` 是**硬上限**：灌 4 GiB 只写进 2990 MiB 就 ENOSPC，**宿主不受影响**
+    （需宿主装 `e2fsprogs` 才能取小于模板的值，否则只打 WARN 并保持模板大小）
+  - **④ 跨实例隔离成立**：网关转发、对端 IP、机器名、宿主回环**全部不通**（对照：自己的端口通）。
+    注意这条**依附于运行时**，换运行时必须重验
+  - 删除干净、失败路径不留孤儿（上游 #582「失败留孤儿 `_boot-vm` 永久占端口」已在 1.14.6 修）
+- **备选**：Kata / Firecracker（要 Linux + KVM，macOS 上不可用）；gVisor（用户态内核，隔离弱于
+  hypervisor）；继续用容器 + 内核加固（就是被换掉的那条路）。
+- **重审**：smolvm 在 macOS 支持 egress 策略时；dsh 允许绑非回环（可去掉 Caddy 的转发职责）；
+  需要磁盘缩容时；`stats` 有采样接口时。

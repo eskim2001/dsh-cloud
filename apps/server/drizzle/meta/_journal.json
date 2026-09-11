@@ -57,6 +57,13 @@
       "when": 1788976928921,
       "tag": "0007_image_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789101040450,
+      "tag": "0008_thankful_exiles",
+      "breakpoints": true
     }
   ]
 }

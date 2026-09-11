@@ -5,8 +5,8 @@ import { GATE_INSTANCE_HEADER, GATE_TOKEN_HEADER, RESERVED_SLUGS } from '@dsh-cl
 import { buildTraefikConfig, renderTraefikConfig, type TraefikOptions } from './traefik.js'
 
 const ROUTES = [
-  { instance: 'alice', hostname: 'alice.app.example.com' },
-  { instance: 'bob', hostname: 'bob.app.example.com' },
+  { instance: 'alice', hostname: 'alice.app.example.com', hostPort: 20001 },
+  { instance: 'bob', hostname: 'bob.app.example.com', hostPort: 20002 },
 ]
 
 function render(over: Partial<TraefikOptions> = {}) {
@@ -33,10 +33,10 @@ describe('renderTraefikConfig', () => {
     ])
   })
 
-  it('后端是实例网络里的容器名（D3：不发布宿主端口，入口进网络直连）', () => {
+  it('后端是宿主回环端口（microVM 只能发布到 127.0.0.1，入口按端口转发）', () => {
     const cfg = render()
     expect(cfg.http.services!['instance-alice']?.loadBalancer.servers[0]?.url).toBe(
-      'http://dsh-instance-alice:8080',
+      'http://127.0.0.1:20001',
     )
   })
 

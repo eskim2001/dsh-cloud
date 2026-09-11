@@ -46,12 +46,6 @@ const EnvSchema = z.object({
   EXTRA_TRUSTED_ORIGINS: z.string().default(''),
 
   /**
-   * 入口容器名（Traefik）。控制面要把它接进每个实例网络——实例容器不发布
-   * 宿主端口，入口只有在同一网络里才够得着它（D3）。
-   */
-  TRAEFIK_CONTAINER: z.string().default('dsh-ingress'),
-
-  /**
    * 实例路由挂的 entryPoint。生产是 `websecure`（TLS 终结在 Traefik）；
    * 本地也是 `websecure`（没配静态证书，回落到 Traefik 的默认自签证书）。
    */
@@ -69,18 +63,33 @@ const EnvSchema = z.object({
   MAX_INSTANCES_PER_USER: z.coerce.number().int().positive().default(3),
 
   /**
-   * 宿主上存放实例数据文件系统的目录（D18）。每个实例一个 `<slug>.img`
-   * （大小 = 磁盘配额）挂到 `<root>/<slug>`，再 bind 进容器当 `/data`。
-   * 控制面跑在宿主上，所以这是**宿主路径**。
+   * 宿主上存放实例数据的目录。每个实例一个子目录（按 `storage_key` 命名），
+   * 用 `:staged` 复制进 VM 当 `/data`。
+   *
+   * **不再是 loop 挂载点**：microVM 时代它就是个普通目录，没有 `.img`、没有 loop 设备、
+   * 也没有 ext4。控制面跑在宿主上，所以这是**宿主路径**。
    */
   HOST_STORAGE_ROOT: z.string().min(1).default('/var/lib/dsh'),
 
   /**
-   * 执行宿主存储操作的助手镜像。它只用来 `nsenter` 进宿主执行
-   * `losetup` / `mkfs.ext4` / `mount` 那几条命令——镜像里的工具用不上，
-   * 真正跑的是宿主自己的（`nsenter -t 1 -m` 后 PATH 解析到宿主根）。
+   * 数据目录的属主（`uid` 或 `uid:gid`）。**工作负载以它运行**，所以它必须同时是
+   * 该目录的属主——两者不一致时，entrypoint 对 `/data` 的第一句 `mkdir` 就 EACCES，
+   * 而 smolvm 会静默降级成一个空转容器、状态仍报 running（实测）。
+   *
+   * 省略 = `1000`（镜像里那个 `dsh` 用户）。运行时会把它**声明式**地映射到挂载上，
+   * 所以宿主目录本身归谁不影响 guest 里看到什么。
    */
-  STORAGE_HELPER_IMAGE: z.string().min(1).default('alpine:3.20'),
+  HOST_DATA_OWNER: z.string().min(1).default('1000'),
+
+  /**
+   * 实例后端的**上游主机名** —— Traefik 用它去连实例发布的宿主回环端口。
+   *
+   * 默认 `127.0.0.1`（Traefik 跑在**宿主上**时正确）。但本地开发里 Traefik 是**容器**，
+   * 它自己的 `127.0.0.1` 跟宿主不是一回事 —— 实测那样会得到 **502 Bad Gateway**。
+   * 容器场景要改成 `host.docker.internal`（compose 里已经配了 `extra_hosts`，
+   * 控制台那条路由就是靠它连宿主回环的）。
+   */
+  INSTANCE_UPSTREAM_HOST: z.string().min(1).default('127.0.0.1'),
 
   /**
    * 平台自己的实例镜像仓库（D22）。发布准入和「宿主上可发布」都按它过滤——

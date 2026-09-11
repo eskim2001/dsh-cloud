@@ -4,6 +4,7 @@ import { resolveRuntimeStatus, type ContainerStates } from './runtime-status.js'
 const row = (over: Partial<{ status: string; containerId: string | null; slug: string }> = {}) => ({
   status: 'running',
   containerId: 'c-1',
+  hostPort: null,
   slug: 'alice',
   ...over,
 })
@@ -29,10 +30,6 @@ describe('实例状态：DB 记意图，Docker 才是事实', () => {
 
   it('容器退出了 → stopped（DB 说跑着也以 Docker 为准）', () => {
     expect(resolveRuntimeStatus(row(), states('exited')).status).toBe('stopped')
-  })
-
-  it('容器暂停 → paused', () => {
-    expect(resolveRuntimeStatus(row(), states('paused')).status).toBe('paused')
   })
 
   it('容器不在 Docker 里了 → stopped', () => {

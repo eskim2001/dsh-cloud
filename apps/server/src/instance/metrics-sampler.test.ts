@@ -14,6 +14,7 @@ function row(slug: string, over: Partial<InstanceRow> = {}): InstanceRow {
     image: 'dsh-instance:0.1.0',
     previousImage: null,
     containerId: `c-${slug}`,
+    hostPort: null,
     cpus: 1,
     memoryMb: 2048,
     pidsLimit: 512,

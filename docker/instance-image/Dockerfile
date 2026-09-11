@@ -6,6 +6,7 @@
 #   · 用户内容（含 workspace）全部落 /data 卷 —— 容器重建不丢
 #   · rootfs 可写：dsh 是编码 agent，装依赖 / 装 CLI 是日常（D12）
 #   · 全局包前缀指向 /data，升级也不丢
+#   · 装 bubblewrap：dsh 的进程沙箱在 Linux 上先试它，缺了就拒绝执行任何命令
 #   · tini 作 PID 1，回收 agent 派生的僵尸进程
 #   · Caddy 用官方静态二进制，不走 apt（版本可控、构建快）
 
@@ -81,8 +82,16 @@ LABEL org.opencontainers.image.title="dsh-instance" \
 # 编译器默认保留（INSTALL_TOOLCHAIN=1）—— 去掉它会让 npm 装原生依赖时
 # 报出难以定位的错，省下的体积不值这个代价。要精简就传 --build-arg
 # INSTALL_TOOLCHAIN=0。
+#
+# bubblewrap 是 dsh 在 Linux 上的首档进程沙箱：它的候选链是
+# `bwrap → Landlock → fail closed`，两档全灭时 dsh 会拒绝执行**任何**命令。
+# Docker Desktop 的内核没编 Landlock（`# CONFIG_SECURITY_LANDLOCK is not set`），
+# 所以不装 bwrap 就等于每个实例都不能跑 bash。平台侧 `CapDrop: ALL` 下
+# 非特权 user namespace 实测可用，bwrap 不需要提权；而 `no-new-privileges`
+# 会忽略 setuid 位，留着只是多余攻击面 —— 剥掉（同 Caddy 那次）。
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
+      bubblewrap \
       ca-certificates \
       curl \
       git \
@@ -90,7 +99,14 @@ RUN apt-get update \
  && if [ "${INSTALL_TOOLCHAIN}" = "1" ]; then \
       apt-get install -y --no-install-recommends build-essential python3; \
     fi \
+ && chmod u-s /usr/bin/bwrap \
  && rm -rf /var/lib/apt/lists/*
+
+# 运行用户改名 node → dsh：base 镜像自带 uid/gid 1000 的 node，但实例里跑的是
+# dsh，叫 node 会误导。**必须保留 uid/gid 1000** —— 宿主的实例卷和
+# host-storage 的 DATA_UID 都按 1000 归属，改了号等于所有已有数据失主。
+RUN usermod -l dsh -d /home/dsh -m node \
+ && groupmod -n dsh node
 
 COPY --from=caddy /caddy /usr/local/bin/caddy
 # 同一 base image，整目录覆盖是安全的，且能带上 dsh / pnpm 的符号链接
@@ -117,11 +133,14 @@ ENV DSH_HOME=/data \
     PATH=/data/.npm-global/bin:/data/.pnpm:/usr/local/bin:/usr/bin:/bin \
     NODE_ENV=production
 
-RUN mkdir -p /data/home/workspace && chown -R node:node /data
+# 注意：这只管镜像层里的 /data。运行时 /data 会被实例自己的文件系统
+# bind 覆盖（apps/server/src/instance/host-storage.ts），这一句的属主结果
+# 看不到 —— 真正生效的是平台建卷时的 chown，别指望靠这里修属主。
+RUN mkdir -p /data/home/workspace && chown -R dsh:dsh /data
 
 VOLUME ["/data"]
 WORKDIR /data/home/workspace
-USER node
+USER dsh
 
 # tini 作 PID 1：agent 会大量 spawn 子进程，必须有东西回收僵尸
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]

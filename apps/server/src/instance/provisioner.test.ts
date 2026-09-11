@@ -1,19 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { InstanceRow } from '../db/schema.js'
 import type { Env } from '../env.js'
-import type { HostStorage } from './host-storage.js'
+import type { DataStore } from './data-store.js'
 import type { InstanceOrchestrator } from './orchestrator.js'
 import {
   ImageRejectedError,
   ImageUpgradeFailedError,
   InstanceProvisioner,
   NoRollbackError,
-  ShrinkBelowUsageError,
-  ShrinkFailedError,
+  DiskShrinkUnsupportedError,
 } from './provisioner.js'
 
 vi.mock('../db/instance-repo.js', () => ({
   findInstanceById: vi.fn(),
+  listAllInstances: vi.fn(async () => []),
   updateInstance: vi.fn(),
   countInstancesByOwner: vi.fn(),
   createInstanceRecord: vi.fn(),
@@ -60,6 +60,7 @@ function row(over: Partial<InstanceRow> = {}): InstanceRow {
     image: 'dsh-instance:0.1.0_1',
     previousImage: null,
     containerId: 'c-1',
+    hostPort: null,
     cpus: 1,
     memoryMb: 2048,
     pidsLimit: 512,
@@ -73,18 +74,22 @@ function row(over: Partial<InstanceRow> = {}): InstanceRow {
 }
 
 interface Fakes {
-  storage: HostStorage
+  dataStore: DataStore
   orchestrator: InstanceOrchestrator
   syncRoutes: () => Promise<void>
   calls: {
+    createData: ReturnType<typeof vi.fn>
     ensure: ReturnType<typeof vi.fn>
     usage: ReturnType<typeof vi.fn>
-    resize: ReturnType<typeof vi.fn>
-    shrink: ReturnType<typeof vi.fn>
     snapshot: ReturnType<typeof vi.fn>
     restoreSnapshot: ReturnType<typeof vi.fn>
-    removeContainer: ReturnType<typeof vi.fn>
+    destroy: ReturnType<typeof vi.fn>
+    stopInstance: ReturnType<typeof vi.fn>
+    removeInstance: ReturnType<typeof vi.fn>
+    startInstance: ReturnType<typeof vi.fn>
+    resizeStorage: ReturnType<typeof vi.fn>
     createInstance: ReturnType<typeof vi.fn>
+    inspectStatus: ReturnType<typeof vi.fn>
     listImageTags: ReturnType<typeof vi.fn>
     ensureImage: ReturnType<typeof vi.fn>
     syncRoutes: ReturnType<typeof vi.fn>
@@ -92,60 +97,86 @@ interface Fakes {
 }
 
 function build(): Fakes {
+  const createData = vi.fn(async () => undefined)
   const ensure = vi.fn(async () => undefined)
-  const usage = vi.fn(async () => ({ usedMb: 100, quotaMb: 10_240 }))
-  const resize = vi.fn(async () => undefined)
-  const shrink = vi.fn(async () => undefined)
+  const usage = vi.fn(async () => ({ usedMb: 100 }))
   const snapshot = vi.fn(async () => undefined)
   const restoreSnapshot = vi.fn(async () => undefined)
-  const removeContainer = vi.fn(async () => undefined)
+  const destroy = vi.fn(async () => undefined)
+  const snapshotUsage = vi.fn(async () => undefined)
+
+  const stopInstance = vi.fn(async () => undefined)
+  const removeInstance = vi.fn(async () => undefined)
+  const startInstance = vi.fn(async () => undefined)
+  const resizeStorage = vi.fn(async () => undefined)
+  const inspectStatus = vi.fn(async () => 'running')
   const listImageTags = vi.fn(async () => ['dsh-instance:0.1.0_1', 'dsh-instance:0.1.1_1'])
   const ensureImage = vi.fn(async () => undefined)
   const syncRoutes = vi.fn(async () => undefined)
+
+  // 返回的形状是**运行时中立**的 `RenderedInstance` + 状态：不再有 containerName /
+  // networkName / containerPort 这些容器概念，身份是 machineName。
   const createInstance = vi.fn(async () => ({
     slug: 'alice',
-    containerName: 'dsh-instance-alice',
-    networkName: 'dsh-net-alice',
-    dataDir: '/var/lib/dsh/alice',
+    machineName: 'dsh-instance-alice',
     hostname: 'alice.app.example.com',
-    containerPort: 8080,
-    containerId: 'c-2',
+    image: 'dsh-instance:0.1.0_1',
+    user: '502',
+    workingDir: '/data/home/workspace',
+    env: [],
+    guestPort: 8080,
+    hostPort: 20001,
+    dataDir: '/var/lib/dsh/alice',
+    guestDataDir: '/data',
+    mounts: [],
+    storageGb: 10,
+    overlayGb: 10,
+    labels: {},
     status: 'running',
   }))
 
-  const storage = {
+  const dataStore = {
+    create: createData,
     ensure,
     usage,
-    resize,
-    shrink,
+    dir: (key: string) => `/var/lib/dsh/${key}`,
     snapshot,
     restoreSnapshot,
-    create: vi.fn(),
-    destroy: vi.fn(),
-    assertMounted: vi.fn(),
-    mountPoint: (slug: string) => `/var/lib/dsh/${slug}`,
-  } as unknown as HostStorage
+    snapshotUsage,
+    destroy,
+    ownerId: '502',
+  } as unknown as DataStore
+
   const orchestrator = {
-    removeContainer,
-    removeInstance: vi.fn(),
+    // 让准入逻辑照常跑「本地有没有」那一关（真运行时为 false 时才跳过）
+    canReportLocalImages: true,
     createInstance,
+    stopInstance,
+    removeInstance,
+    startInstance,
+    resizeStorage,
+    inspectStatus,
     listImageTags,
     ensureImage,
   } as unknown as InstanceOrchestrator
 
   return {
-    storage,
+    dataStore,
     orchestrator,
     syncRoutes,
     calls: {
+      createData,
       ensure,
       usage,
-      resize,
-      shrink,
       snapshot,
       restoreSnapshot,
-      removeContainer,
+      destroy,
+      stopInstance,
+      removeInstance,
+      startInstance,
+      resizeStorage,
       createInstance,
+      inspectStatus,
       listImageTags,
       ensureImage,
       syncRoutes,
@@ -157,7 +188,7 @@ function makeProvisioner(fakes: Fakes): InstanceProvisioner {
   return new InstanceProvisioner(
     {} as never,
     fakes.orchestrator,
-    fakes.storage,
+    fakes.dataStore,
     env,
     fakes.syncRoutes,
   )
@@ -186,7 +217,7 @@ describe('storage ownership across lifecycle operations', () => {
     const fakes = build()
     await makeProvisioner(fakes).create({ slug: 'alice', ownerId: 'u1', ...quota })
     expect(createInstanceRecord).toHaveBeenCalledWith({}, expect.objectContaining({ ownerId: 'u1' }), 3)
-    expect(fakes.storage.create).toHaveBeenCalledWith('unique-data-key', quota.diskMb)
+    expect(fakes.dataStore.create).toHaveBeenCalledWith('unique-data-key')
     expect(fakes.calls.createInstance).toHaveBeenCalledWith(expect.objectContaining({ slug: 'alice' }), expect.objectContaining({ dataDir: '/var/lib/dsh/unique-data-key' }))
   })
 
@@ -196,14 +227,14 @@ describe('storage ownership across lifecycle operations', () => {
     await makeProvisioner(fakes).remove('i-1')
     expect(retainInstanceRecord).toHaveBeenCalledWith({}, 'i-1')
     expect(deleteInstanceRecord).not.toHaveBeenCalled()
-    expect(fakes.storage.destroy).not.toHaveBeenCalled()
+    expect(fakes.dataStore.destroy).not.toHaveBeenCalled()
   })
 
   it('purges only the selected storage key after slug confirmation', async () => {
     findById.mockResolvedValue(row({ storageKey: 'unique-data-key' }))
     const fakes = build()
     await makeProvisioner(fakes).remove('i-1', { purgeVolume: true, confirmSlug: 'alice' })
-    expect(fakes.storage.destroy).toHaveBeenCalledWith('unique-data-key')
+    expect(fakes.dataStore.destroy).toHaveBeenCalledWith('unique-data-key')
     expect(deleteInstanceRecord).toHaveBeenCalledWith({}, 'i-1')
     expect(retainInstanceRecord).not.toHaveBeenCalled()
   })
@@ -216,7 +247,7 @@ describe('storage ownership across lifecycle operations', () => {
     await provisioner.rollbackImage('i-1')
     expect(fakes.calls.snapshot).toHaveBeenCalledWith('unique-data-key')
     expect(fakes.calls.restoreSnapshot).toHaveBeenCalledWith('unique-data-key')
-    expect(fakes.calls.ensure).toHaveBeenCalledWith('unique-data-key', quota.diskMb)
+    expect(fakes.calls.ensure).toHaveBeenCalledWith('unique-data-key')
     expect(fakes.calls.createInstance).toHaveBeenLastCalledWith(expect.objectContaining({ slug: 'alice' }), expect.objectContaining({ dataDir: '/var/lib/dsh/unique-data-key' }))
   })
 })
@@ -228,7 +259,7 @@ describe('存量实例的 slug 落进保留字表之后', () => {
     findById.mockResolvedValue(row({ slug: 'test', storageKey: 'unique-data-key' }))
     const fakes = build()
     await makeProvisioner(fakes).remove('i-1', { purgeVolume: true, confirmSlug: 'test' })
-    expect(fakes.storage.destroy).toHaveBeenCalledWith('unique-data-key')
+    expect(fakes.dataStore.destroy).toHaveBeenCalledWith('unique-data-key')
     expect(deleteInstanceRecord).toHaveBeenCalledWith({}, 'i-1')
   })
 
@@ -323,114 +354,83 @@ describe('新建：镜像取自库里的默认版本（D21）', () => {
 })
 
 describe('改配额：扩容', () => {
-  it('uses the immutable storage key instead of a reused slug', async () => {
-    findById.mockResolvedValue(row({ storageKey: 'new-owner-data' }))
-    const fakes = build()
-    await makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 20_480 })
-    expect(fakes.calls.resize).toHaveBeenCalledWith('new-owner-data', 20_480)
-    expect(fakes.calls.resize).not.toHaveBeenCalledWith('alice', 20_480)
-  })
-
-  it('只扩容时**不重建容器**，在线 resize', async () => {
+  it('磁盘扩容 → 重建实例（配额是建实例时的参数，不能在线改）', async () => {
     findById.mockResolvedValue(row())
     const fakes = build()
     await makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 20_480 })
 
-    expect(fakes.calls.resize).toHaveBeenCalledWith('alice', 20_480)
-    expect(fakes.calls.removeContainer).not.toHaveBeenCalled()
-    expect(fakes.calls.shrink).not.toHaveBeenCalled()
-    // 落库不带 containerId: null——容器没动，得留着
-    expect(update).toHaveBeenCalledWith({}, 'i-1', { ...quota, diskMb: 20_480 })
+    // 配额落成**挂载选项**，改它等于改运行时参数 → 必须重建。
+    // 数据在宿主目录里，重建不碰它；重建后按新配额重新声明挂载。
+    expect(fakes.calls.stopInstance).not.toHaveBeenCalled() // 重建走 removeInstance
+    expect(fakes.calls.removeInstance).toHaveBeenCalledWith('dsh-instance-alice')
+    expect(fakes.calls.createInstance).toHaveBeenCalled()
+    // 落库时清掉运行时标识，等重建写回
+    expect(update).toHaveBeenCalledWith({}, 'i-1', expect.objectContaining({ diskMb: 20_480, containerId: null }))
+  })
+
+  it('原本停着的实例扩容后**保持停止**（不擅自启动）', async () => {
+    findById.mockResolvedValue(row({ status: 'stopped' }))
+    const fakes = build()
+    await makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 20_480 })
+
+    expect(fakes.calls.removeInstance).toHaveBeenCalled()
+    expect(fakes.calls.createInstance).not.toHaveBeenCalled() // 停着的只落库，下次 start 才重建
   })
 })
 
-describe('改配额：缩容', () => {
-  it('已用超过目标 → 直接拒绝，容器和配额都不动', async () => {
+describe('改配额：缩容（microVM 的盘只扩不缩）', () => {
+  it('目标小于当前 → 直接拒绝，运行时和配额都不动', async () => {
     findById.mockResolvedValue(row())
     const fakes = build()
-    fakes.calls.usage.mockResolvedValue({ usedMb: 5_000, quotaMb: 10_240 })
 
     await expect(
       makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 1_024 }),
-    ).rejects.toThrow(ShrinkBelowUsageError)
+    ).rejects.toThrow(DiskShrinkUnsupportedError)
 
-    expect(fakes.calls.removeContainer).not.toHaveBeenCalled()
-    expect(fakes.calls.shrink).not.toHaveBeenCalled()
+    // 关键：**动任何东西之前就拒绝** —— 不探用量、不停机、不删机器、不落库。
+    // 这跟 Docker 时代不同：那时会先探已用、再卸文件系统试缩，失败才回滚。
+    // microVM 直接说明「只能扩」，所以一条运行时调用都不该发生。
+    expect(fakes.calls.usage).not.toHaveBeenCalled()
+    expect(fakes.calls.snapshot).not.toHaveBeenCalled()
+    expect(fakes.calls.stopInstance).not.toHaveBeenCalled()
+    expect(fakes.calls.removeInstance).not.toHaveBeenCalled()
+    expect(fakes.calls.resizeStorage).not.toHaveBeenCalled()
+    expect(fakes.calls.createInstance).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
   })
 
-  it('预检前先确保挂载（停着的实例也要读得到用量）', async () => {
+  it('停着的实例也一样拒绝（不因为「反正没在跑」就放行）', async () => {
     findById.mockResolvedValue(row({ status: 'stopped' }))
     const fakes = build()
-    fakes.calls.usage.mockResolvedValue({ usedMb: 5_000, quotaMb: 10_240 })
 
     await expect(
       makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 1_024 }),
-    ).rejects.toThrow(ShrinkBelowUsageError)
-    expect(fakes.calls.ensure).toHaveBeenCalledWith('alice', 10_240)
-  })
-
-  it('shrink 失败 → 配额回滚为原值、实例按原规格恢复', async () => {
-    findById.mockResolvedValue(row())
-    const fakes = build()
-    fakes.calls.shrink.mockRejectedValue(new Error('New size smaller than minimum (32041)'))
-
-    await expect(
-      makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 1_024 }),
-    ).rejects.toThrow(ShrinkFailedError)
-
-    // 先落新配额、再回滚旧配额
-    expect(update).toHaveBeenNthCalledWith(1, {}, 'i-1', {
-      ...quota,
-      diskMb: 1_024,
-      containerId: null,
-    })
-    expect(update).toHaveBeenNthCalledWith(2, {}, 'i-1', quota)
-    // 恢复：容器重建（applyRuntime）
-    expect(fakes.calls.createInstance).toHaveBeenCalled()
-  })
-
-  it('缩容成功 → 删容器 → 卸载缩容 → 按新规格重建', async () => {
-    findById.mockResolvedValue(row())
-    const fakes = build()
-    await makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 5_120 })
-
-    expect(fakes.calls.removeContainer).toHaveBeenCalledWith('c-1')
-    expect(fakes.calls.shrink).toHaveBeenCalledWith('alice', 5_120)
-    expect(fakes.calls.createInstance).toHaveBeenCalled()
-    expect(fakes.calls.resize).not.toHaveBeenCalled()
-  })
-
-  it('原本停着的实例缩容后**保持停止**（只删旧容器，不擅自启动）', async () => {
-    findById.mockResolvedValue(row({ status: 'stopped' }))
-    const fakes = build()
-    await makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 5_120 })
-
-    expect(fakes.calls.shrink).toHaveBeenCalled()
-    expect(fakes.calls.createInstance).not.toHaveBeenCalled()
+    ).rejects.toThrow(DiskShrinkUnsupportedError)
+    expect(update).not.toHaveBeenCalled()
   })
 })
 
 describe('改配额：计算资源变化', () => {
-  it('CPU 变了 → 删旧容器并按新规格重建', async () => {
+  it('CPU 变了 → 删旧机器并按新规格重建', async () => {
     findById.mockResolvedValue(row())
     const fakes = build()
     await makeProvisioner(fakes).setQuota('i-1', { ...quota, cpus: 2 })
 
-    expect(fakes.calls.removeContainer).toHaveBeenCalledWith('c-1')
+    // 机器名由 slug 现算，不再拿容器 id
+    expect(fakes.calls.removeInstance).toHaveBeenCalledWith('dsh-instance-alice')
     expect(fakes.calls.createInstance).toHaveBeenCalled()
-    expect(fakes.calls.shrink).not.toHaveBeenCalled()
-    expect(fakes.calls.resize).not.toHaveBeenCalled()
+    expect(fakes.calls.resizeStorage).not.toHaveBeenCalled()
   })
 
-  it('什么都没变 → 只落库，不碰 Docker', async () => {
+  it('什么都没变 → 只落库，不碰运行时', async () => {
     findById.mockResolvedValue(row())
     const fakes = build()
     await makeProvisioner(fakes).setQuota('i-1', quota)
 
-    expect(fakes.calls.removeContainer).not.toHaveBeenCalled()
+    expect(fakes.calls.stopInstance).not.toHaveBeenCalled()
+    expect(fakes.calls.removeInstance).not.toHaveBeenCalled()
     expect(fakes.calls.createInstance).not.toHaveBeenCalled()
-    expect(fakes.calls.resize).not.toHaveBeenCalled()
+    expect(fakes.calls.resizeStorage).not.toHaveBeenCalled()
   })
 })
 
@@ -457,7 +457,7 @@ describe('换镜像：准入', () => {
     await expect(makeProvisioner(fakes).setImage('i-1', 'dsh-instance:0.9.9')).rejects.toThrow(
       ImageRejectedError,
     )
-    expect(fakes.calls.removeContainer).not.toHaveBeenCalled()
+    expect(fakes.calls.removeInstance).not.toHaveBeenCalled()
     expect(fakes.calls.snapshot).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
   })
@@ -537,7 +537,9 @@ describe('换镜像：升级', () => {
 
     const updated = await makeProvisioner(fakes).setImage('i-1', NEW_IMAGE)
 
-    expect(fakes.calls.removeContainer).toHaveBeenCalledWith('c-1')
+    // 先**优雅停机**（`:staged` 靠这一步把 guest 的写入回传宿主），再打快照。
+    // 这里不是「删容器」——直接删会丢掉未回传的写入。
+    expect(fakes.calls.stopInstance).toHaveBeenCalledWith('dsh-instance-alice')
     expect(fakes.calls.snapshot).toHaveBeenCalledWith('alice')
     expect(update).toHaveBeenCalledWith({}, 'i-1', {
       image: NEW_IMAGE,

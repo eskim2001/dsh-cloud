@@ -1,6 +1,7 @@
 import {
   ImageRefSchema,
   InstanceSpecSchema,
+  machineName,
   type RenderContext,
   type InstanceSpec,
 } from '@dsh-cloud/instance-spec'
@@ -10,18 +11,19 @@ import {
   deleteInstanceRecord,
   retainInstanceRecord,
   findInstanceById,
+  listAllInstances,
   updateInstance,
   type NewInstance,
 } from '../db/instance-repo.js'
 import { findDefaultImageRelease, isImageRelease } from '../db/image-release-repo.js'
 import { isImageInCatalog } from '../db/image-catalog-repo.js'
-import { isNotFound } from '../docker/client.js'
 import type { InstanceRow } from '../db/schema.js'
 import type { Env } from '../env.js'
+import type { DataStore } from './data-store.js'
 import { gateToken } from './gate-token.js'
-import type { HostStorage } from './host-storage.js'
 import { imageRepo, isReleaseTag } from './image-catalog.js'
 import type { InstanceOrchestrator } from './orchestrator.js'
+import { allocateHostPort } from './port-allocator.js'
 
 export interface ProvisionInput {
   slug: string
@@ -51,22 +53,20 @@ export class SlugConfirmMismatchError extends Error {
   }
 }
 
-/** 目标配额比已用还小——缩不下去，且这时还没动任何东西。 */
-export class ShrinkBelowUsageError extends Error {
-  constructor(usedMb: number, targetMb: number) {
-    super(`该实例已用 ${usedMb} MB，不能缩到 ${targetMb} MB`)
-    this.name = 'ShrinkBelowUsageError'
-  }
-}
-
 /**
- * 缩容在「已删容器、已卸载」之后失败（`resize2fs` 的最小值比 `df` 报的已用更高，
- * 挂载状态下算不准）。此时配额已回滚、实例已按原规格恢复——但操作整体是失败的。
+ * 要求缩小磁盘配额。
+ *
+ * **microVM 的磁盘只扩不缩**：smolvm 的 `--storage` 只接受更大的值（`machine update` 也标注
+ * `expand only`）。所以这里**明确拒绝**，而不是像 Docker 时代那样去 `resize2fs`——
+ * 更不能用「静默忽略」糊过去（smolvm 自己缺 e2fsprogs 时就是静默忽略，我们已经踩过）。
  */
-export class ShrinkFailedError extends Error {
-  constructor(detail: string) {
-    super(`磁盘缩容失败，配额已回滚为原值：${detail}`)
-    this.name = 'ShrinkFailedError'
+export class DiskShrinkUnsupportedError extends Error {
+  constructor(fromMb: number, toMb: number) {
+    super(
+      `磁盘配额只能扩大，不能缩小（当前 ${fromMb} MB，目标 ${toMb} MB）。` +
+        `需要更小的盘，请重建实例并迁移数据。`,
+    )
+    this.name = 'DiskShrinkUnsupportedError'
   }
 }
 
@@ -118,7 +118,7 @@ export class InstanceProvisioner {
   constructor(
     private readonly db: Db,
     private readonly orchestrator: InstanceOrchestrator,
-    private readonly storage: HostStorage,
+    private readonly dataStore: DataStore,
     private readonly env: Env,
     private readonly syncRoutes: () => Promise<void>,
   ) {}
@@ -169,7 +169,10 @@ export class InstanceProvisioner {
   }
 
   /**
-   * 停实例。可逆——容器和卷都留着，`start` 能原样起来。
+   * 停实例。可逆——机器和数据都留着，`start` 能原样起来。
+   *
+   * **顺带是一次数据落盘**：`:staged` 靠优雅停机把 guest 的写入回传宿主，
+   * 所以「停」不只是省资源，也是把最近一段写入变持久的手段。
    * 停下来的实例不进 Traefik 投影，所以同步一次路由把它摘掉。
    */
   async stop(id: string): Promise<InstanceRow> {
@@ -177,7 +180,7 @@ export class InstanceProvisioner {
     if (row === undefined) throw new Error(`实例不存在：${id}`)
 
     try {
-      if (row.containerId !== null) await this.orchestrator.stopContainer(row.containerId)
+      if (row.containerId !== null) await this.orchestrator.stopInstance(machineName(row.slug))
       const updated = await updateInstance(this.db, row.id, { status: 'stopped', lastError: null })
       await this.syncRoutes()
       return updated ?? row
@@ -198,14 +201,16 @@ export class InstanceProvisioner {
     if (row.containerId === null) return this.applyRuntime(row)
 
     try {
-      try {
-        await this.storage.ensure(row.storageKey, row.diskMb)
-        await this.storage.assertMounted(row.storageKey)
-        await this.orchestrator.startContainer(row.containerId)
-      } catch (err) {
-        if (!isNotFound(err)) throw err
+      // 机器不在了（被 prune / 手动删）→ 回落重建。数据在宿主目录里，内容保留。
+      if ((await this.orchestrator.inspectStatus(row.containerId)) === 'unknown') {
         return await this.applyRuntime(row)
       }
+
+      // 数据目录**只 ensure 不新建**：目录不见了就抛错，别静默建个空的把
+      // 「数据丢了」伪装成正常——这条铁律从 D18 继承下来，是这一层最重要的一条。
+      await this.dataStore.ensure(row.storageKey)
+      await this.orchestrator.startInstance(row.containerId)
+
       const updated = await updateInstance(this.db, row.id, { status: 'running', lastError: null })
       await this.syncRoutes()
       return updated ?? row
@@ -232,11 +237,15 @@ export class InstanceProvisioner {
       await updateInstance(this.db, row.id, { status: 'removing' })
       await this.syncRoutes()
 
-      // ② 删容器 + 网络（数据文件系统不动——它不属于 Docker）
-      await this.orchestrator.removeInstance(this.specOf(row))
+      // ② 先优雅停，再删机器。顺序不能反：
+      //    `:staged` 靠**优雅停机**把 guest 的写入回传宿主，直接删会丢掉未回传的部分。
+      //    而这一步之后数据默认是**保留**的（除非明确 purgeVolume）——丢了就是真丢。
+      //    机器名用 slug 现算，不读 row.containerId（它可能已经是 null）。
+      await this.orchestrator.stopInstance(machineName(row.slug))
+      await this.orchestrator.removeInstance(machineName(row.slug))
 
-      // ③ 彻底删除：容器已停，这时才敢卸载 + 删文件（不可逆）
-      if (opts.purgeVolume === true) await this.storage.destroy(row.storageKey)
+      // ③ 彻底删除：机器已停，这时才敢删数据（不可逆）
+      if (opts.purgeVolume === true) await this.dataStore.destroy(row.storageKey)
 
       // ④ 删记录，再投影一次让路由条目彻底消失
       if (opts.purgeVolume === true) await deleteInstanceRecord(this.db, row.id)
@@ -262,59 +271,32 @@ export class InstanceProvisioner {
     const row = await findInstanceById(this.db, id)
     if (row === undefined) throw new Error(`实例不存在：${id}`)
 
+    // **microVM 的盘只扩不缩** → 明确拒绝。放在动任何东西之前，
+    // 不能像 smolvm 自己缺 e2fsprogs 时那样静默忽略。
+    if (quota.diskMb < row.diskMb) throw new DiskShrinkUnsupportedError(row.diskMb, quota.diskMb)
+
     const computeChanged =
       row.cpus !== quota.cpus ||
       row.memoryMb !== quota.memoryMb ||
       row.pidsLimit !== quota.pidsLimit
-    const diskShrank = quota.diskMb < row.diskMb
-    const rebuild = computeChanged || diskShrank
+    // 磁盘配额也是**建实例时**的参数（它落成挂载配额），改了同样要重建。
+    const diskGrew = quota.diskMb > row.diskMb
+    const rebuild = computeChanged || diskGrew
     const wasRunning = row.status === 'running'
 
-    // 缩容预检，放在**动任何东西之前**：明显缩不下去就直接拒绝，容器和配额都不动。
-    // 这一关只能挡「已用 > 目标」；挂载状态下 resize2fs -P 会把最小可能大小报小
-    // （脏页没落盘，实测写入 100MB 后仍报 26MB），所以真正的兜底是下面的回滚。
-    if (diskShrank) {
-      await this.storage.ensure(row.storageKey, row.diskMb)
-      const usage = await this.storage.usage(row.storageKey, row.diskMb)
-      if (usage === undefined) {
-        throw new Error(`读不到 ${row.slug} 的磁盘用量，拒绝缩容`)
-      }
-      if (usage.usedMb > quota.diskMb) {
-        throw new ShrinkBelowUsageError(usage.usedMb, quota.diskMb)
-      }
-    }
-
-    // 先落库：即使下面 Docker 操作失败，配额意图也已记下，重试走 restart 即可
+    // 先落库：即使下面运行时操作失败，配额意图也已记下，重试走 restart 即可
     const updated = await updateInstance(this.db, row.id, {
       ...quota,
       ...(rebuild ? { containerId: null } : {}),
     })
     if (updated === undefined) throw new Error(`实例不存在：${id}`)
 
-    // 扩容在线完成，容器不用动
-    if (quota.diskMb > row.diskMb) await this.storage.resize(row.storageKey, quota.diskMb)
-
     if (rebuild) {
-      if (row.containerId !== null) await this.orchestrator.removeContainer(row.containerId)
-      if (diskShrank) {
-        try {
-          // 卸载由 shrink 自己做——容器刚删掉，这时才卸得下来
-          await this.storage.shrink(row.storageKey, quota.diskMb)
-        } catch (err) {
-          // 回滚：resize2fs 拒绝时文件系统本身没动，只是已卸载。把配额写回原值、
-          // 按原规格把实例恢复起来——别留下「容器没了、配额却记着小值」的半截状态。
-          await updateInstance(this.db, row.id, {
-            cpus: row.cpus,
-            memoryMb: row.memoryMb,
-            pidsLimit: row.pidsLimit,
-            diskMb: row.diskMb,
-          })
-          if (wasRunning) await this.restart(id)
-          throw new ShrinkFailedError(messageOf(err))
-        }
-      }
+      if (row.containerId !== null) await this.orchestrator.removeInstance(machineName(row.slug))
       return wasRunning ? this.restart(id) : updated
     }
+    // 只扩了盘：原本在跑的拉回来；原本停着的保持停止
+    if (diskGrew && wasRunning) return this.start(id)
 
     return updated
   }
@@ -345,13 +327,14 @@ export class InstanceProvisioner {
 
     const wasRunning = row.status === 'running'
 
-    // ① 停容器：快照要的是一致状态，容器还在写就没法复制
-    if (row.containerId !== null) await this.orchestrator.removeContainer(row.containerId)
+    // ① 优雅停机器：**`:staged` 靠这一步把 guest 的写入回传宿主**。
+    //    这里绝不能用删除/强杀代替——那会丢掉所有未回传的数据。
+    //    停下之后宿主数据目录才是最新的一致状态，才谈得上打快照。
+    await this.orchestrator.stopInstance(machineName(row.slug))
 
-    // ② 快照。失败时容器已删、文件系统已卸载，但**数据一个字节没动**——
-    //    按原规格重建就回到了原样。
+    // ② 快照宿主数据目录。失败时机器已停、数据一个字节没动——按原规格重建就回到原样。
     try {
-      await this.storage.snapshot(row.storageKey)
+      await this.dataStore.snapshot(row.storageKey)
     } catch (err) {
       if (wasRunning) await this.restart(id)
       throw new ImageRejectedError(`升级前打快照失败，实例未改动：${messageOf(err)}`)
@@ -417,9 +400,11 @@ export class InstanceProvisioner {
   ): Promise<InstanceRow> {
     const row = await findInstanceById(this.db, id)
     if (row === undefined) throw new Error(`实例不存在：${id}`)
-    if (row.containerId !== null) await this.orchestrator.removeContainer(row.containerId)
+    // 先优雅停（回传 guest 的写入），再用快照覆盖 —— 顺序反了就会拿旧数据
+    // 盖掉刚从 guest 同步回来的新数据。
+    await this.orchestrator.stopInstance(machineName(row.slug))
 
-    await this.storage.restoreSnapshot(row.storageKey)
+    await this.dataStore.restoreSnapshot(row.storageKey)
 
     const updated = await updateInstance(this.db, row.id, {
       image: previousImage,
@@ -469,6 +454,10 @@ export class InstanceProvisioner {
 
     if (opts.requireLocal === false) return
 
+    // 运行时若根本报不了本地镜像（smolvm 1.14.6 就是），跳过这一关：
+    // 把「不给信息」当成「本地没有」会让升级永远被拒。真正用到时创建那一步会自己拉。
+    if (!this.orchestrator.canReportLocalImages) return
+
     const local = await this.orchestrator.listImageTags()
     if (local.includes(image)) return
 
@@ -511,17 +500,20 @@ export class InstanceProvisioner {
   ): Promise<InstanceRow> {
     const spec = this.specOf(row)
 
-    // ★ 唯一的收口点：**先有数据，再有容器**。
-    // 存储没就位就直接抛，实例标 error——绝不能建出一个 bind 到空目录的容器：
-    // 那样容器照常跑、UI 照常绿，用户看到的是「数据没了」（D18）。
-    // 只有建实例这条路允许「建」文件系统；其余一律只挂载，缺文件就报错。
-    if (opts.createData === true) await this.storage.create(row.storageKey, row.diskMb)
-    else await this.storage.ensure(row.storageKey, row.diskMb)
-    await this.storage.assertMounted(row.storageKey)
+    // ★ 唯一的收口点：**先有数据，再有实例**。
+    // 数据目录没就位就直接抛，实例标 error——绝不能建出一个指向空目录的实例：
+    // 那样实例照常跑、UI 照常绿，用户看到的是「数据没了」（D18 的铁律）。
+    // 只有建实例这条路允许「建」；其余一律只 ensure，缺了就报错。
+    if (opts.createData === true) await this.dataStore.create(row.storageKey)
+    else await this.dataStore.ensure(row.storageKey)
 
-    // ★ 镜像也要**先有**。宿主上被 prune 掉之后再重建，Docker 只会甩一句
+    // ★ 镜像也要**先有**。宿主上被 prune 掉之后再重建，运行时只会甩一句
     // `No such image`；这里补拉一次，把「镜像没了」和「规格写错了」区分开。
     await this.orchestrator.ensureImage(row.image)
+
+    // 宿主端口：**已有就沿用**——重启不能换地址，否则 Traefik 的路由会指向别处。
+    // 没有才分配，分配时会真探端口（不能只信 DB，见 port-allocator）。
+    const hostPort = row.hostPort ?? (await this.allocateHostPort())
 
     const ctx: RenderContext = {
       // 用实例自己记录的 tag，不是平台的当前版本：升级是**按实例**的
@@ -530,18 +522,35 @@ export class InstanceProvisioner {
       baseImage: row.image,
       baseDomain: this.env.BASE_DOMAIN,
       gateToken: gateToken(row.slug, this.env.PLATFORM_SECRET),
-      dataDir: this.storage.mountPoint(row.storageKey),
+      dataDir: this.dataStore.dir(row.storageKey),
+      // 工作负载以**数据目录的属主**运行，不是镜像的 USER —— 见 RenderContext 的注释。
+      dataDirOwner: this.dataStore.ownerId,
+      hostPort,
     }
 
     const runtime = await this.orchestrator.createInstance(spec, ctx)
 
     const updated = await updateInstance(this.db, row.id, {
       status: 'running',
-      containerId: runtime.containerId,
+      // 运行时侧标识。列名沿用它（DB 迁移另开一步），装的现在是机器名。
+      containerId: runtime.machineName,
+      hostPort,
       lastError: null,
     })
     await this.syncRoutes()
     return updated ?? row
+  }
+
+  /** 分配宿主回环端口。判据 = 「DB 里没占 且 宿主上真的空闲」。 */
+  private allocateHostPort(): Promise<number> {
+    return allocateHostPort({
+      takenPorts: async () => {
+        const rows = await listAllInstances(this.db)
+        return new Set(
+          rows.map((r) => r.hostPort).filter((p): p is number => p !== null && p !== undefined),
+        )
+      },
+    })
   }
 }
 
