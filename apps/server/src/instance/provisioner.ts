@@ -70,6 +70,25 @@ export class DiskShrinkUnsupportedError extends Error {
   }
 }
 
+/**
+ * 磁盘**扩容**也做不了：数据卷的容量在创建时定死。
+ *
+ * 命名磁盘卷没有原地扩容的 API（`Volume.builder().create()` 对同名卷直接抛），
+ * 所以只能「建一块更大的卷 → 迁移 → 换过去」，还没做。
+ *
+ * **必须响亮拒绝，不能像从前那样假装成功**：旧实现改了库、重启了实例，但卷的容量
+ * 一个字节没变 —— 管理台显示新配额，用户灌满才发现还是老尺寸。那是把谎言写进数据库。
+ */
+export class DiskGrowUnsupportedError extends Error {
+  constructor(fromMb: number, toMb: number) {
+    super(
+      `磁盘配额不能在原地扩大（当前 ${fromMb} MB，目标 ${toMb} MB）。` +
+        `数据卷的容量在创建时定死；需要更大的盘请重建实例并迁移数据。`,
+    )
+    this.name = 'DiskGrowUnsupportedError'
+  }
+}
+
 /** 目标镜像被拒：引用非法 / 不是平台自己的镜像仓库 / 不在可选范围 / 宿主上没有。 */
 export class ImageRejectedError extends Error {
   constructor(message: string) {
@@ -260,28 +279,28 @@ export class InstanceProvisioner {
   /**
    * 改资源配额（D17：创建后只有管理员能改）。
    *
-   * **CPU / 内存 / pids** 是 Docker 参数，只在建容器时生效 → 改了必须重建容器
-   * （中断几秒，数据不动）。**磁盘**不一样：它就是数据文件系统的大小，
-   * 扩容可以**在线**做（不动容器），只有缩容要先停容器、卸载文件系统。
+   * **CPU / 内存 / pids** 只在建沙箱时生效 → 改了必须重建（中断几秒，数据不动）。
+   * **磁盘不在其列**：容量在建数据卷时就定死了，`setQuota` 两个方向都直接拒绝 ——
+   * 见 `DiskGrowUnsupportedError` / `DiskShrinkUnsupportedError`。
    *
-   * 原本在跑的实例重建后照旧运行；原本停着的**保持停止**——只把旧容器删掉
-   * （否则 `start` 会复用旧容器、带着旧配额起来），等用户自己 `start`。
+   * 原本在跑的实例重建后照旧运行；原本停着的**保持停止** —— 只把旧沙箱删掉
+   * （否则 `start` 会复用旧沙箱、带着旧配额起来），等用户自己 `start`。
    */
   async setQuota(id: string, quota: QuotaInput): Promise<InstanceRow> {
     const row = await findInstanceById(this.db, id)
     if (row === undefined) throw new Error(`实例不存在：${id}`)
 
-    // **microVM 的盘只扩不缩** → 明确拒绝。放在动任何东西之前，
-    // 不能像 smolvm 自己缺 e2fsprogs 时那样静默忽略。
+    // **盘的容量定死在创建时**，两个方向都改不了 —— 放在动任何东西之前。
+    // 「落库 + 重启」的假装成功比报错糟得多：那是把谎言写进数据库，
+    // 管理台显示新配额，用户灌满才发现还是老尺寸。
     if (quota.diskMb < row.diskMb) throw new DiskShrinkUnsupportedError(row.diskMb, quota.diskMb)
+    if (quota.diskMb > row.diskMb) throw new DiskGrowUnsupportedError(row.diskMb, quota.diskMb)
 
     const computeChanged =
       row.cpus !== quota.cpus ||
       row.memoryMb !== quota.memoryMb ||
       row.pidsLimit !== quota.pidsLimit
-    // 磁盘配额也是**建实例时**的参数（它落成挂载配额），改了同样要重建。
-    const diskGrew = quota.diskMb > row.diskMb
-    const rebuild = computeChanged || diskGrew
+    const rebuild = computeChanged
     const wasRunning = row.status === 'running'
 
     // 先落库：即使下面运行时操作失败，配额意图也已记下，重试走 restart 即可
@@ -295,8 +314,6 @@ export class InstanceProvisioner {
       if (row.containerId !== null) await this.orchestrator.removeInstance(machineName(row.slug))
       return wasRunning ? this.restart(id) : updated
     }
-    // 只扩了盘：原本在跑的拉回来；原本停着的保持停止
-    if (diskGrew && wasRunning) return this.start(id)
 
     return updated
   }
@@ -504,7 +521,7 @@ export class InstanceProvisioner {
     // 数据目录没就位就直接抛，实例标 error——绝不能建出一个指向空目录的实例：
     // 那样实例照常跑、UI 照常绿，用户看到的是「数据没了」（D18 的铁律）。
     // 只有建实例这条路允许「建」；其余一律只 ensure，缺了就报错。
-    if (opts.createData === true) await this.dataStore.create(row.storageKey)
+    if (opts.createData === true) await this.dataStore.create(row.storageKey, row.diskMb)
     else await this.dataStore.ensure(row.storageKey)
 
     // ★ 镜像也要**先有**。宿主上被 prune 掉之后再重建，运行时只会甩一句
@@ -522,9 +539,8 @@ export class InstanceProvisioner {
       baseImage: row.image,
       baseDomain: this.env.BASE_DOMAIN,
       gateToken: gateToken(row.slug, this.env.PLATFORM_SECRET),
-      dataDir: this.dataStore.dir(row.storageKey),
-      // 工作负载以**数据目录的属主**运行，不是镜像的 USER —— 见 RenderContext 的注释。
-      dataDirOwner: this.dataStore.ownerId,
+      // 数据卷的名字。宿主路径、卷名、镜像落在哪都由运行时决定 —— 编排层只认这个 key。
+      storageKey: row.storageKey,
       hostPort,
     }
 

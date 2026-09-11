@@ -19,6 +19,16 @@ mkdir -p \
   "${XDG_DATA_HOME:-$DATA_ROOT/.caddy/data}" \
   "${XDG_CONFIG_HOME:-$DATA_ROOT/.caddy/config}"
 
+# dsh 的工作目录要**显式 cd 进去**：
+# 运行时的 WORKDIR 只能给挂载点本身（`/data`）—— 它建配置时会校验 WORKDIR 在 guest 里
+# 存在，而一块全新的数据卷里还没有上面那句 `mkdir` 建出来的 `home/workspace`。
+# 但这句 mkdir 是**运行时**才跑的，赶不上那个校验，所以 WORKDIR 只能是 `/data`。
+#
+# 为什么不能将就着用 `/data` 当 cwd：dsh 的会话目录名编码的就是 cwd
+# （`sessions/--data-home-workspace--/`）。cwd 一换，前缀就变，用户的历史会话
+# 在新的前缀下一条都找不到 —— 看起来就是「数据全丢了」，而实际上都还在。
+cd "$HOME_DIR/workspace"
+
 # dsh 的 /api 浏览器信任围栏只放行回环和 `--trusted-host` 声明的 authority。
 # 经 Traefik 进来的 Host 是实例公开域名，不声明就被 403（页面能开、API 全挂）。
 # 平台用 DSH_TRUSTED_HOSTS 传这个域名，这里翻译成 dsh 的 CLI 参数。

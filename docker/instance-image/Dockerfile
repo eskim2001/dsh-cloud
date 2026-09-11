@@ -133,13 +133,22 @@ ENV DSH_HOME=/data \
     PATH=/data/.npm-global/bin:/data/.pnpm:/usr/local/bin:/usr/bin:/bin \
     NODE_ENV=production
 
-# 注意：这只管镜像层里的 /data。运行时 /data 会被实例自己的文件系统
-# bind 覆盖（apps/server/src/instance/host-storage.ts），这一句的属主结果
-# 看不到 —— 真正生效的是平台建卷时的 chown，别指望靠这里修属主。
+# 这只管**镜像层**里的 /data。运行时 /data 是一整块数据卷（ext4）盖在上面，
+# 所以这里的属主结果看不到 —— 真正生效的是 entrypoint 里那句 `mkdir -p`
+# （它是以 root 跑的，见下面的 USER）。
 RUN mkdir -p /data/home/workspace && chown -R dsh:dsh /data
 
 VOLUME ["/data"]
-WORKDIR /data/home/workspace
+# ⚠️ **必须是 `/data`，不能是 `/data/home/workspace`。**
+# 运行时执行 ENTRYPOINT 时会 chdir 到镜像的 WORKDIR，而一块**全新的数据卷**里还没有
+# 那层骨架 —— chdir 失败，ENTRYPOINT 一个进程都起不来（表现：实例状态 running，
+# 但 guest 里连 tini 都没有，入口 502）。
+# 旧模型下宿主目录里由平台预建了骨架，所以这个坑一直没露头。
+# 骨架由 entrypoint 建出来，建完它自己 `cd` 进 workspace（见 entrypoint.sh）。
+WORKDIR /data
+# 平台侧由驱动 `.user('0')` 覆盖成 **root**：数据卷的根目录归 root，而 `.owner()`
+# 这类声明式属主映射对磁盘卷无效，所以工作负载必须是 root 才写得进 /data。
+# 保留 `dsh` 是为了直接 `docker run` 这个镜像时仍然是非特权的。
 USER dsh
 
 # tini 作 PID 1：agent 会大量 spawn 子进程，必须有东西回收僵尸

@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { buildApp } from './app.js'
 import { createAuth } from './auth.js'
 import { createDb } from './db/client.js'
@@ -19,13 +20,19 @@ const { db } = createDb(env.DATABASE_URL)
 
 const auth = createAuth(env, db)
 
+// microsandbox 的家目录（**镜像缓存、sqlite 注册表、实例命名卷**都在它下面）指到我们
+// 自己的数据根。不设的话实例数据会落在 `~/.microsandbox` 那种点目录里 —— 平台的备份、
+// 磁盘盘点、「数据在哪」全都答不上来。
+//
+// ⚠️ **必须在任何卷/沙箱出现之前设**：绑定层只在初始化时读一次，晚了会把注册表和实际
+// 文件分到两个地方。⚠️ 代价：整个家目录一起搬，共享的镜像缓存会重拉一次。
+process.env.MSB_HOME = join(env.HOST_STORAGE_ROOT, '.msb')
+
 // 运行时驱动是**唯一**接触具体运行时的接口（见 runtime/driver.ts）。
 const driver = new MicrosandboxDriver()
 const orchestrator = new InstanceOrchestrator(driver, env.INSTANCE_IMAGE_REPO)
-const dataStore = new DataStore({
-  root: env.HOST_STORAGE_ROOT,
-  ...(env.HOST_DATA_OWNER === undefined ? {} : { owner: env.HOST_DATA_OWNER }),
-})
+// 数据卷是运行时的概念，原语在驱动上；DataStore 只留策略（见 instance/data-store.ts）。
+const dataStore = new DataStore({ driver })
 
 const routesConfigPath = process.env.TRAEFIK_ROUTES_PATH ?? '/etc/traefik/dynamic/routes.yml'
 const forwardAuthAddress =
@@ -77,22 +84,15 @@ const reconcile = async (): Promise<void> => {
 }
 
 /**
- * 周期性的数据落盘与清理。
+ * 周期性的孤儿清理。
  *
- * `sync` 是 `:staged` 的**持久化手段**：guest 内的写入要靠它回传宿主，所以两次之间的
- * 写入在异常掉电时会丢——周期越密，能丢的越少。优雅停机也会同步一次（见 provisioner）。
+ * 以前这里还带一个 `sync` —— `:staged` 时代靠它把 guest 内的写入回传宿主，两次之间的
+ * 写入在异常掉电时会丢。数据改成「运行时管理的卷」之后就没有「回传」这回事了：写入直接
+ * 落在卷上，没有窗口可压缩。所以只剩 `heal`。
  *
- * 两者都**尽力而为**：失败只告警，不影响对账主流程。
+ * **尽力而为**：失败只告警，不影响对账主流程。
  */
-const syncAndHeal = async (): Promise<void> => {
-  const running = (await listAllInstances(db)).filter(
-    (r) => r.status === 'running' && r.containerId !== null,
-  )
-  for (const row of running) {
-    await orchestrator.sync(machineName(row.slug)).catch((err: unknown) => {
-      console.warn(`回传实例 ${row.slug} 的数据失败：${messageOf(err)}`)
-    })
-  }
+const healOrphans = async (): Promise<void> => {
   await orchestrator.heal().catch((err: unknown) => {
     console.warn(`清理孤儿失败：${messageOf(err)}`)
   })
@@ -117,7 +117,7 @@ await syncRoutes()
 
 // 外部改动（宿主重启、手动删机器、被 prune）只能靠定时对账收敛
 const reconcileTimer = setInterval(() => {
-  void syncAndHeal()
+  void healOrphans()
     .then(() => reconcile())
     .catch((err: unknown) => {
       console.warn(`对账失败：${messageOf(err)}`)

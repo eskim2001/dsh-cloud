@@ -1,9 +1,4 @@
-import {
-  BRIDGE_PORT,
-  DATA_ROOT,
-  GATE_TOKEN_HEADER,
-  WORKSPACE_DIR,
-} from '../constants.js'
+import { BRIDGE_PORT, DATA_ROOT, GATE_TOKEN_HEADER } from '../constants.js'
 import type { InstanceSpec } from '../schema.js'
 import type {
   InstanceRenderer,
@@ -51,28 +46,29 @@ function renderEnv(spec: InstanceSpec, ctx: RenderContext): string[] {
 /**
  * 把实例规格渲染成一份**运行时中立**的机器定义。
  *
- * 中立到什么程度：这里不认识 smolvm 也不认识 microsandbox —— 挂载、端口、
- * 用户、配额都是通用概念，由各个 driver 翻成自己的参数。
+ * 中立到什么程度：这里不认识 microsandbox —— 挂载、端口、用户、容量都是通用概念，
+ * 由 driver 翻成自己的参数。数据卷在驱动那边是 ext4 磁盘卷，在这里只是一个不透明的 key。
  *
  * 关键设计（见 docs/ARCHITECTURE.md §四 / D31）：
- * - **`/data` 必须落在宿主上**：升级走「删掉重建」，VM 盘一定重造，
- *   只有宿主上的东西才活得过升级。这是我们用哪个运行时都不变的硬约束。
- * - **挂载走直通（`rw`），不走 `staged`**：`staged` 每次启动整份复制，
- *   实测 14473 个文件就超过运行时的启动超时、实例**永远起不来**。
- * - **配额 = `quota.diskMb`**：由运行时在宿主侧强制执行，且要让 guest 的 `df`
- *   报这个额度而不是宿主的真实磁盘。
- * - **运行用户 = 宿主数据目录的属主**，不是镜像的 `USER`：两者不一致时
- *   entrypoint 对 `/data` 的第一句 `mkdir` 就 EACCES。
+ * - **`/data` 必须活得过升级**：升级走「删掉重建」，VM 盘一定重造，只有平台侧的数据
+ *   才活得过去。这份约束换运行时也不变。
+ * - **不能用宿主目录直挂**：passthrough 后端有硬链接 bug（上游 #1559）——unlink 掉两个
+ *   名字中的一个，剩下的那个会永久只读，而 dsh 的会话日志每次落盘都会踩到。卷是真
+ *   文件系统，没有这个问题。
+ * - **容量 = `quota.diskMb`**，是**硬限制**（灌满即 ENOSPC），而且**不能原地扩容**。
+ * - **运行用户 = root**（`'0'`）：卷的根目录归 root，声明式属主映射对磁盘卷无效。
+ * - **WORKDIR = 挂载点本身**（`/data`）：运行时会校验它在 guest 里存在，而空卷里还没有
+ *   `/data/home/workspace` —— 那层骨架归镜像的 entrypoint 建，建完再 cd 进去。
  */
 export function renderInstance(spec: InstanceSpec, ctx: RenderContext): RenderedInstance {
   const { slug, quota } = spec
 
   const mounts: RenderedMount[] = [
     {
-      host: ctx.dataDir,
+      storageKey: ctx.storageKey,
       guest: DATA_ROOT,
       mode: 'rw',
-      quotaMb: quota.diskMb,
+      sizeMb: quota.diskMb,
     },
   ]
 
@@ -81,12 +77,11 @@ export function renderInstance(spec: InstanceSpec, ctx: RenderContext): Rendered
     machineName: machineName(slug),
     hostname: instanceHostname(slug, ctx.baseDomain),
     image: ctx.baseImage,
-    user: ctx.dataDirOwner,
-    workingDir: WORKSPACE_DIR,
+    user: '0',
+    workingDir: DATA_ROOT,
     env: renderEnv(spec, ctx),
     guestPort: BRIDGE_PORT,
     hostPort: ctx.hostPort,
-    dataDir: ctx.dataDir,
     guestDataDir: DATA_ROOT,
     mounts,
     labels: {
