@@ -108,12 +108,26 @@ export const instance = pgTable(
      */
     previousImage: text('previous_image'),
     containerId: text('container_id'),
+    /**
+     * 该实例在**宿主回环**上发布的端口，入口（Traefik）按它转发。
+     *
+     * 为什么必须有：microVM 下每台 VM 的 guest IP 都一样（`192.168.127.2`），
+     * 宿主只能靠发布端口区分实例（smolvm 的 `-p`，**不支持自动分配**）。
+     * 所以这是实例在宿主上的**地址**，不是可选配置。
+     *
+     * 唯一约束由数据库兜底；跨实例冲突会让启动直接失败，所以分配前必须真探端口。
+     * 可为空 —— 存量行（Docker 时代）没有这个值，重建时才会分配。
+     */
+    hostPort: integer('host_port').unique(),
     cpus: real('cpus').notNull(),
     memoryMb: integer('memory_mb').notNull(),
     pidsLimit: integer('pids_limit').notNull().default(512),
     /**
-     * 磁盘配额 = 数据文件系统的大小（D18）。不是 Docker 参数，
-     * 由 `host-storage` 落地成宿主上一个 ext4 文件系统。
+     * 磁盘配额。**语义已变**：Docker 时代它是数据文件系统的大小（D18，由 host-storage
+     * 落地成宿主上的 ext4）；microVM 下它是运行时的可写数据盘上限（`--storage`，GiB），
+     * 数据本身走 `:staged` 的宿主目录、不再由它承载。
+     *
+     * 仍是 MB 粒度（对外接口不变），传运行时前由 `diskMbToGiB` 向上取整。
      */
     diskMb: integer('disk_mb').notNull().default(10_240),
     /** 最近一次编排失败的原因，供管理台显示。 */

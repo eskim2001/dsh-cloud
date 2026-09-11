@@ -12,6 +12,7 @@ function row(over: Partial<InstanceRow> & { slug: string }): InstanceRow {
     image: 'dsh-instance:0.1.0',
     previousImage: null,
     containerId: `c-${over.slug}`,
+    hostPort: null,
     cpus: 1,
     memoryMb: 2048,
     pidsLimit: 512,
@@ -45,7 +46,7 @@ function build(rows: InstanceRow[], over: Partial<Parameters<typeof bootInstance
   return { deps, events, markError, warn }
 }
 
-describe('启动恢复：先挂数据，再拉容器', () => {
+describe('启动恢复：先校验数据，再拉起实例', () => {
   it('mounts the stored data identity rather than the public slug', async () => {
     const { deps, events } = build([row({ slug: 'alice', storageKey: 'unique-data-key' })])
     await bootInstances(deps)
@@ -75,7 +76,7 @@ describe('启动恢复：先挂数据，再拉容器', () => {
     expect(events).toEqual(['error:i-alice'])
     expect(markError).toHaveBeenCalledWith(
       'i-alice',
-      '数据文件系统挂载失败：数据文件不存在',
+      '数据目录不可用：数据文件不存在',
     )
     expect(warn).toHaveBeenCalled()
   })

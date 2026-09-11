@@ -28,7 +28,7 @@ import { registerForwardAuth } from './http/forward-auth-route.js'
 import { registerSessionRoutes } from './http/session-routes.js'
 import { registerInstanceRoutes } from './http/instance-routes.js'
 import { streamContainerLogs } from './http/log-stream.js'
-import type { HostStorage } from './instance/host-storage.js'
+import type { DataStore } from './instance/data-store.js'
 import { syncImageCatalog } from './instance/image-sync.js'
 import type { InstanceOrchestrator } from './instance/orchestrator.js'
 import type { InstanceProvisioner } from './instance/provisioner.js'
@@ -39,10 +39,10 @@ export interface AppDeps {
   db: Db
   auth: Auth
   provisioner: InstanceProvisioner
-  /** 直接读容器的地方（用量快照、日志流）走它。 */
+  /** 直接读实例的地方（用量快照、日志）走它。 */
   orchestrator: InstanceOrchestrator
-  /** 实例数据在宿主上的存储（读用量）。 */
-  storage: HostStorage
+  /** 实例数据在宿主上的目录（读用量、快照占用）。 */
+  dataStore: DataStore
   logger?: boolean
   /**
    * 测试用：观察**实际注册**的路由集合。Fastify 没有公开的路由枚举 API
@@ -94,8 +94,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       reply,
       containerId,
       opts,
-      (id, o) => deps.orchestrator.logs(id, o),
-      (raw, out, err) => deps.orchestrator.demuxStream(raw, out, err),
+      (machineName, o) => deps.orchestrator.logs(machineName, o),
+      // microVM 的输出没有 Docker 那种「8 字节头 + 负载」的复用帧，所以不需要 demux，
+      // 原样转发给调用方即可。
+      (raw, out) => {
+        raw.pipe(out)
+      },
     )
 
   // 注册表只读客户端（D23）。公开包匿名即可，所以凭据是**可选**的——
@@ -152,13 +156,16 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     provisioner: deps.provisioner,
     listMine: (ownerId) => listInstancesByOwner(deps.db, ownerId),
     getById: (id) => findInstanceById(deps.db, id),
-    listContainerStates: () => deps.orchestrator.listContainerStates(),
+    listContainerStates: () => deps.orchestrator.listInstanceStates(),
     readStats: (containerId) => deps.orchestrator.stats(containerId),
-    readDisk: (slug, quotaMb) => deps.storage.usage(slug, quotaMb),
+    readDisk: async (storageKey, quotaMb) => {
+      const u = await deps.dataStore.usage(storageKey)
+      return u === undefined ? undefined : { usedMb: u.usedMb, quotaMb }
+    },
     listMetrics: (instanceId, limit) => listRecentMetrics(deps.db, instanceId, limit),
     listLocalImages: () => deps.orchestrator.listImageTags(),
     listImageReleases: () => listImageReleases(deps.db),
-    readSnapshot: (slug) => deps.storage.snapshotUsage(slug),
+    readSnapshot: async (storageKey) => (await deps.dataStore.snapshotUsage(storageKey))?.usedMb,
     streamLogs,
     getUserId: (req) => sessionUser(req.headers).then((u) => u?.id),
   })
@@ -174,7 +181,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     env: deps.env,
     listUsers: () => listUsersWithInstanceCount(deps.db),
     listInstances: () => listInstancesWithOwner(deps.db),
-    listContainerStates: () => deps.orchestrator.listContainerStates(),
+    listContainerStates: () => deps.orchestrator.listInstanceStates(),
     // 封禁 = 打标记 + 踢掉所有会话。少一半都封不住（见 user-repo 注释）。
     ban: async (userId, reason) => {
       if (!(await setUserBanned(deps.db, userId, true, reason))) return false
@@ -212,10 +219,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     listImageCatalog: () => listImageCatalog(deps.db),
     syncImages: () => syncImageCatalog(deps.db, registry, deps.env.INSTANCE_IMAGE_REPO),
     pullImageStream: (ref) => deps.orchestrator.openImagePull(ref),
-    publishImage: (ref) => publishImageRelease(deps.db, ref),
+    publishImage: (ref, defaultIfFirst) => publishImageRelease(deps.db, ref, defaultIfFirst),
     unpublishImage: (ref) => unpublishImageRelease(deps.db, ref),
     setDefaultImage: (ref) => setDefaultImageRelease(deps.db, ref),
-    readSnapshot: (slug) => deps.storage.snapshotUsage(slug),
+    readSnapshot: async (storageKey) => (await deps.dataStore.snapshotUsage(storageKey))?.usedMb,
     // 管理员可选**任意**平台仓库的本地镜像，不受已发布列表限制
     setInstanceImage: async (id, image) => {
       if ((await findInstanceById(deps.db, id)) === undefined) return false

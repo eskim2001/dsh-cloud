@@ -13,6 +13,7 @@ function row(over: Partial<InstanceRow> & { slug: string }): InstanceRow {
     image: 'dsh-instance:0.1.0',
     previousImage: null,
     containerId: `c-${over.slug}`,
+    hostPort: null,
     cpus: 1,
     memoryMb: 2048,
     pidsLimit: 512,
@@ -39,7 +40,7 @@ function build(rows: InstanceRow[], containerStatus: string | null = 'running') 
         listInstances: async () => rows,
         inspectStatus,
         update,
-        listContainerNames: async () => [],
+        listInstanceNames: async () => [],
         warn,
       }),
   }
@@ -72,12 +73,11 @@ describe('对账：DB 状态 ↔ Docker 事实', () => {
     expect(update).toHaveBeenCalledWith('i-alice', { status: 'stopped', containerId: null })
   })
 
-  it('paused / restarting 都算活着，不误判成停止', async () => {
-    for (const status of ['paused', 'restarting']) {
-      const { run, update } = build([row({ slug: 'alice' })], status)
-      await run()
-      expect(update, status).not.toHaveBeenCalled()
-    }
+  it('restarting 算活着，不误判成停止', async () => {
+    // microVM 没有 pause，所以只剩 restarting 这一档（crash-loop 会自己回来）。
+    const { run, update } = build([row({ slug: 'alice' })], 'restarting')
+    await run()
+    expect(update).not.toHaveBeenCalled()
   })
 
   it('编排进行中的实例不插手', async () => {
@@ -106,7 +106,7 @@ describe('对账：DB 状态 ↔ Docker 事实', () => {
         throw new Error('docker 挂了')
       },
       update,
-      listContainerNames: async () => [],
+      listInstanceNames: async () => [],
       warn,
     })
     expect(changed).toBe(0)
@@ -120,7 +120,7 @@ describe('对账：DB 状态 ↔ Docker 事实', () => {
       listInstances: async () => [row({ slug: 'alice' })],
       inspectStatus: async () => 'running',
       update: async () => undefined,
-      listContainerNames: async () => ['dsh-instance-alice', 'dsh-instance-ghost'],
+      listInstanceNames: async () => ['dsh-instance-alice', 'dsh-instance-ghost'],
       warn,
     })
     expect(warn).toHaveBeenCalledTimes(1)

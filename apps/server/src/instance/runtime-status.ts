@@ -1,26 +1,32 @@
-import { containerName } from '@dsh-cloud/instance-spec'
-import type { ContainerLiveState } from './orchestrator.js'
+import { machineName } from '@dsh-cloud/instance-spec'
+import type { InstanceLiveState } from './orchestrator.js'
 
-/** 编排正在进行的状态：容器是死的活的都不算数，等动作自己收尾。 */
+/** 编排正在进行的状态：实例是死的活的都不算数，等动作自己收尾。 */
 const IN_FLIGHT = new Set(['provisioning', 'removing'])
 
-/** 容器名 → 实时状态。整张表取不到时用 `undefined`（别传空表，那等于「所有容器都没了」）。 */
-export type ContainerStates = Map<string, ContainerLiveState>
+/** 机器名 → 实时状态。整张表取不到时用 `undefined`（别传空表，那等于「所有实例都没了」）。 */
+export type ContainerStates = Map<string, InstanceLiveState>
 
 export interface RuntimeStatus {
   /** 对外的实例状态。非落定态（provisioning / removing / restarting）时前端要接着轮询。 */
   status: string
-  /** Docker 的原文描述，例如 `Restarting (3) 20 seconds ago`；没有就是 null。 */
+  /** 运行时的原文描述，例如 `running (pid 12345)`；没有就是 null。 */
   statusText: string | null
 }
 
 /**
- * 把「DB 记的意图」和「Docker 的事实」合成对外状态。
+ * 把「DB 记的意图」和「运行时的事实」合成对外状态。
  *
- * DB 的 `status` 是意图不是事实：容器 crash-loop 时它仍写着 running，因为它记的是
- * 「我们想让它跑」。所以**除了编排进行中和 error**，其余一律以 Docker 为准。
- * `states` 为 `undefined` 表示这次取不到实时状态（Docker 抖了）——退回 DB 快照，
+ * DB 的 `status` 是意图不是事实：工作负载 crash-loop 时它仍写着 running，因为它记的是
+ * 「我们想让它跑」。所以**除了编排进行中和 error**，其余一律以运行时为准。
+ * `states` 为 `undefined` 表示这次取不到实时状态（运行时抖了）——退回 DB 快照，
  * 宁可显示旧值也不要谎报「全部已停止」。
+ *
+ * ⚠️ 但运行时的自报状态**也不可信**：smolvm 实测会在工作负载崩溃时换一个空转容器顶上，
+ * 状态照样报 running。真正的死活要看 `InstanceOrchestrator.probeHealthy`。
+ *
+ * 注：`row.containerId` 现在装的是**机器名**（运行时侧标识）。列名等 DB 迁移时再改，
+ * 现在先保持最小改动。
  */
 export function resolveRuntimeStatus(
   row: { status: string; containerId: string | null; slug: string },
@@ -31,9 +37,9 @@ export function resolveRuntimeStatus(
   }
   if (states === undefined) return { status: row.status, statusText: null }
 
-  // 没有容器 id、或容器已经不在（被 prune / 手动删）——都算停着
+  // 还没有运行时侧标识、或机器已经不在（被 prune / 手动删）——都算停着
   if (row.containerId === null) return { status: 'stopped', statusText: null }
-  const live = states.get(containerName(row.slug))
+  const live = states.get(machineName(row.slug))
   if (live === undefined) return { status: 'stopped', statusText: null }
 
   switch (live.state) {
@@ -41,10 +47,8 @@ export function resolveRuntimeStatus(
       return { status: 'running', statusText: live.statusText }
     case 'restarting':
       return { status: 'restarting', statusText: live.statusText }
-    case 'paused':
-      return { status: 'paused', statusText: live.statusText }
     default:
-      // exited / created / dead / removing：都不是「跑着」
+      // stopped / created / dead / unknown：都不是「跑着」
       return { status: 'stopped', statusText: live.statusText }
   }
 }

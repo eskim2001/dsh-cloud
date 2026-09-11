@@ -3,14 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
-import { containerName } from '@dsh-cloud/instance-spec'
+import { machineName } from '@dsh-cloud/instance-spec'
 import type { InstanceRow } from '../db/schema.js'
 import type { ContainerStates } from './runtime-status.js'
-import { routableInstanceSlugs, syncRoutesFromInstances } from './routes-sync.js'
+import { routableInstances, syncRoutesFromInstances } from './routes-sync.js'
 
 /** 只给状态的实时表——路由判据只看 state。 */
 function states(entries: Array<[slug: string, state: string]>): ContainerStates {
-  return new Map(entries.map(([slug, state]) => [containerName(slug), { state, statusText: '' }]))
+  return new Map(entries.map(([slug, state]) => [machineName(slug), { state, statusText: '' }]))
 }
 
 function row(over: Partial<InstanceRow> & { slug: string }): InstanceRow {
@@ -23,6 +23,7 @@ function row(over: Partial<InstanceRow> & { slug: string }): InstanceRow {
     image: 'dsh-instance:0.1.0',
     previousImage: null,
     containerId: null,
+    hostPort: 20000,
     cpus: 1,
     memoryMb: 2048,
     pidsLimit: 512,
@@ -73,7 +74,7 @@ describe('syncRoutesFromInstances', () => {
     expect(Object.keys(cfg.http.routers)).toEqual(['instance-alice'])
     // 后端是实例网络里的容器名——不发布宿主端口
     expect(cfg.http.services['instance-alice']?.loadBalancer.servers[0]?.url).toBe(
-      'http://dsh-instance-alice:8080',
+      'http://127.0.0.1:20000',
     )
   })
 
@@ -111,7 +112,7 @@ describe('syncRoutesFromInstances', () => {
 
 describe('routableInstanceSlugs', () => {
   const slugsOf = (rows: InstanceRow[], s?: ContainerStates): string[] =>
-    routableInstanceSlugs(rows, s)
+    routableInstances(rows, s).map((r) => r.slug)
 
   it('操作失败（error）但容器还跑着 → 照样投影', () => {
     // 一次失败的操作会把 status 写成 error，容器却可能毫发无伤。照 status 判的话，
@@ -142,15 +143,12 @@ describe('routableInstanceSlugs', () => {
     expect(routed).toEqual([])
   })
 
-  it('restarting / paused 也算在服务（crash-loop 会自己回来，摘了反而回不来）', () => {
+  it('restarting 也算在服务（crash-loop 会自己回来，摘了反而回不来）', () => {
     const routed = slugsOf(
-      [row({ slug: 'alice' }), row({ slug: 'bob' })],
-      states([
-        ['alice', 'restarting'],
-        ['bob', 'paused'],
-      ]),
+      [row({ slug: 'alice' })],
+      states([['alice', 'restarting']]),
     )
-    expect(routed).toEqual(['alice', 'bob'])
+    expect(routed).toEqual(['alice'])
   })
 
   it('容器 exited → 不投影', () => {

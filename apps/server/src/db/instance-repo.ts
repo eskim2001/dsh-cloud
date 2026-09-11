@@ -88,11 +88,13 @@ export async function createInstanceRecord(db: Db, input: NewInstance, defaultLi
 export interface InstancePatch {
   status?: string
   containerId?: string | null
+  /** 宿主回环发布端口（实例在宿主上的地址，见 schema 的注释）。 */
+  hostPort?: number | null
   image?: string
   /** 非空 = 有一份升级前的数据快照可回滚（见 provisioner.setImage）。 */
   previousImage?: string | null
   lastError?: string | null
-  /** 资源配额。改了不会自己生效——CPU/内存要重建容器，磁盘走 host-storage（见 setQuota）。 */
+  /** 资源配额。改了不会自己生效——CPU/内存/磁盘都要重建实例（见 setQuota）。 */
   cpus?: number
   memoryMb?: number
   pidsLimit?: number

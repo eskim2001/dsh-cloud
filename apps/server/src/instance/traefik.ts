@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { stringify as toYaml } from 'yaml'
-import { BRIDGE_PORT, containerName } from '@dsh-cloud/instance-spec'
 
 /** 主机名必须是安全的 ASCII hostname——它会进 Traefik 的 Host() 规则。 */
 const HostnameSchema = z
@@ -12,6 +11,13 @@ const HostnameSchema = z
 export const TraefikRouteSchema = z.object({
   instance: z.string().regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/),
   hostname: HostnameSchema,
+  /**
+   * 该实例在**宿主回环**上发布的端口。入口转发到这里。
+   *
+   * microVM 下实例只能把端口发布到 `127.0.0.1`（运行时不给别的选择），
+   * 所以入口不能再按容器名解析——直接打回环端口。
+   */
+  hostPort: z.number().int().positive().max(65535),
 })
 
 export type TraefikRoute = z.infer<typeof TraefikRouteSchema>
@@ -19,6 +25,11 @@ export type TraefikRoute = z.infer<typeof TraefikRouteSchema>
 export interface TraefikOptions {
   /** forward-auth 端点（控制面）。 */
   forwardAuthAddress: string
+  /**
+   * 实例后端的上游主机名（见 `Env.INSTANCE_UPSTREAM_HOST`）。
+   * 省略 = `127.0.0.1`（Traefik 跑在宿主上）；容器里的 Traefik 要传 `host.docker.internal`。
+   */
+  upstreamHost?: string
   authMiddlewareName?: string
   entryPoint?: string
   /**
@@ -59,14 +70,21 @@ export interface TraefikConfig {
  * 每个实例一个 router + service，全部挂同一个 forward-auth 中间件——
  * **新增路由必须走这里**，否则会漏挂认证（见 docs/ARCHITECTURE.md §四）。
  *
- * 后端是**实例网络里的容器名**：入口被接进每个实例网络（D3），所以能按名字
- * 解析到容器。实例容器不发布任何宿主端口——发布出去就经 Docker Desktop 的
- * VM 网关对所有容器可见，门① 会破（见 OPEN-QUESTIONS #4）。
+ * 后端是**宿主回环上的端口**：microVM 下实例只能把端口发布到 `127.0.0.1`，
+ * 入口直接转发到那里。
+ *
+ * **回归红线**：D3 时代「不发布宿主端口」的理由是 Docker Desktop 的 VM 网关会让
+ * 发布端口对**所有**容器可见。换成 smolvm 后实测该暴露面**不存在**——每台 VM 独立 NAT、
+ * guest IP 都是 `192.168.127.2`（互指自己）、宿主的回环发布端口不经网关转发，
+ * 因此跨实例的所有路径（网关/对端 IP/机器名/回环）全部不通。
+ * ⚠️ 这条结论**依附于运行时**，换运行时必须重验，别继承（见 docs/DECISIONS.md）。
  *
  * 返回结构化对象（测试直接断言它，不经过序列化）；落盘用 `renderTraefikConfig`。
  */
 export function buildTraefikConfig(routes: TraefikRoute[], opts: TraefikOptions): TraefikConfig {
   const authName = opts.authMiddlewareName ?? 'platform-auth'
+  // Traefik 跑在容器里时 `127.0.0.1` 是**容器自己的**回环，打实例会 502。
+  const upstreamHost = opts.upstreamHost ?? '127.0.0.1'
   const entryPoint = opts.entryPoint ?? 'websecure'
 
   const parsed = routes.map((r) => TraefikRouteSchema.parse(r))
@@ -88,7 +106,7 @@ export function buildTraefikConfig(routes: TraefikRoute[], opts: TraefikOptions)
       `instance-${r.instance}`,
       {
         loadBalancer: {
-          servers: [{ url: `http://${containerName(r.instance)}:${BRIDGE_PORT}` }],
+          servers: [{ url: `http://${upstreamHost}:${r.hostPort}` }],
         },
       },
     ]),
