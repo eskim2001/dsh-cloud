@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import type { Db } from './client.js'
 import { imageRelease, type ImageReleaseRow } from './schema.js'
 
@@ -32,18 +32,47 @@ export async function isImageRelease(db: Db, ref: string): Promise<boolean> {
   return rows.length > 0
 }
 
-/** 发布。已存在返回 `'exists'`——**不覆盖 `isDefault`**，那是 `setDefaultImageRelease` 的事。 */
+/**
+ * 发布路径的咨询锁 key。任意常数，平台内不与其他用途冲突即可。
+ *
+ * 为什么需要锁：「至多一个默认」由 `image_release_default_unique` 部分唯一索引兜底，
+ * 而 `publishImageRelease` 的 `onConflictDoNothing` 仲裁者只有 `ref` 唯一约束 ——
+ * **挡不住**索引冲突。两个管理员同时上架第一版时两边都会读到「没有默认」，第二个插入
+ * 直接 23505 → 500。锁住整段「读有没有默认 + 插入」，事务结束自动释放。
+ */
+const PUBLISH_LOCK_KEY = 0x696d6772
+
+/**
+ * 发布。已存在返回 `'exists'`。
+ *
+ * `defaultIfFirst` 为真且**当前没有任何默认版本**时，把这一版定成默认。判据故意用
+ * 「没有默认」而不是「表为空」：`image_release` 非空但一行默认都没有，正是「用户创建
+ * 不了实例」的死状态（老版本只要求发布不要求设默认，能留下这种库），这样顺带自愈。
+ *
+ * 「还有没有默认版本」的读留在事务里 —— 放到调用方读了再传就是 TOCTOU。
+ */
 export async function publishImageRelease(
   db: Db,
   ref: string,
-  isDefault = false,
+  defaultIfFirst = false,
 ): Promise<'ok' | 'exists'> {
-  const rows = await db
-    .insert(imageRelease)
-    .values({ id: crypto.randomUUID(), ref, isDefault })
-    .onConflictDoNothing({ target: imageRelease.ref })
-    .returning({ id: imageRelease.id })
-  return rows.length > 0 ? 'ok' : 'exists'
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(${PUBLISH_LOCK_KEY})`)
+
+    const existing = await tx
+      .select({ id: imageRelease.id })
+      .from(imageRelease)
+      .where(eq(imageRelease.isDefault, true))
+      .limit(1)
+    const isDefault = defaultIfFirst && existing.length === 0
+
+    const rows = await tx
+      .insert(imageRelease)
+      .values({ id: crypto.randomUUID(), ref, isDefault })
+      .onConflictDoNothing({ target: imageRelease.ref })
+      .returning({ id: imageRelease.id })
+    return rows.length > 0 ? 'ok' : 'exists'
+  })
 }
 
 /** 下架。默认版本不能下架——否则新建实例就没有镜像了。 */

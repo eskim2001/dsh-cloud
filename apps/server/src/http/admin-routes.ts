@@ -13,11 +13,7 @@ import {
   platformTags,
 } from '../instance/image-catalog.js'
 import { RegistryError, type SyncImagesResult } from '../instance/image-sync.js'
-import {
-  isImageFailure,
-  ShrinkBelowUsageError,
-  ShrinkFailedError,
-} from '../instance/provisioner.js'
+import { isImageFailure, DiskShrinkUnsupportedError } from '../instance/provisioner.js'
 import { resolveRuntimeStatus, type ContainerStates } from '../instance/runtime-status.js'
 import type { LogStreamOptions } from './log-stream.js'
 import { LogsQuerySchema } from './log-stream.js'
@@ -32,13 +28,19 @@ const ImageRefBodySchema = z.object({ ref: z.string().min(1).max(255) })
 /** 拉取走 GET（`EventSource` 只支持 GET），所以 ref 从 query 传。 */
 const PullQuerySchema = z.object({ ref: z.string().min(1).max(255) })
 
-/** 三态（D23）：在 `image_release` 里 = 已发布；否则宿主上有 = 已下载；否则在 catalog 里 = 未下载。 */
-export type AdminImageState = 'published' | 'local' | 'remote'
-
+/**
+ * 一条版本记录：catalog（上游有）∪ releases（我们上架了）∪ 宿主（本机缓存）三条来源取并集。
+ *
+ * **没有 `state` 三态**——「未下载 / 已下载 / 已发布」是把内部来源当成了产品状态，
+ * 而且 microsandbox 下「下载」根本不是必经步骤（运行时按需拉取，见 runtime/driver.ts）。
+ * 页面只关心两件事：这一版**上架了没有**（用户能不能选到），本机**缓存了没有**
+ * （用户第一次创建要不要等下载）。
+ */
 export interface AdminImage {
   ref: string
-  state: AdminImageState
-  /** 宿主上有没有——和 `state` 分开给：已发布但被 `docker rmi` 掉的版本要能看出来。 */
+  /** 在 `image_release` 里。新建实例的默认版本、用户面的「换版本」列表都按它来。 */
+  published: boolean
+  /** 宿主上有没有（运行时事实）。与 `published` 分开：上架了但本机没缓存是正常状态。 */
   onHost: boolean
   isDefault: boolean
   publishedAt: Date | null
@@ -67,11 +69,10 @@ function shapeImages(
 
   return [...refs].sort(byNewestFirst).map((ref) => {
     const release = published.get(ref)
-    const host = onHost.has(ref)
     return {
       ref,
-      state: release !== undefined ? 'published' : host ? 'local' : 'remote',
-      onHost: host,
+      published: release !== undefined,
+      onHost: onHost.has(ref),
       isDefault: release?.isDefault ?? false,
       publishedAt: release?.publishedAt ?? null,
       digest: digests.get(ref) ?? null,
@@ -120,8 +121,13 @@ export interface AdminRouteDeps {
   syncImages(): Promise<SyncImagesResult>
   /** 打开 `docker pull` 的进度流（SSE 用，实现负责 hijack）。 */
   pullImageStream(ref: string): Promise<Readable>
-  /** 发布一个宿主上已有的平台镜像。 */
-  publishImage(ref: string): Promise<'ok' | 'exists'>
+  /**
+   * 发布一个平台镜像。**不要求宿主已缓存**——上游存在即可，运行时按需拉取。
+   *
+   * `defaultIfFirst` 为真且平台当前没有任何默认版本时，这一版自动成为默认。
+   * 判据在仓储层的事务里算（不能读完再传，那是 TOCTOU）。
+   */
+  publishImage(ref: string, defaultIfFirst?: boolean): Promise<'ok' | 'exists'>
   /** 下架。默认版本不能下架（返回 `'default'`）。 */
   unpublishImage(ref: string): Promise<'ok' | 'missing' | 'default'>
   /** 设为新建实例用的默认版本。未发布返回 false。 */
@@ -262,8 +268,8 @@ export async function registerAdminRoutes(
           return reply.code(404).send({ error: '实例不存在' })
         }
       } catch (err) {
-        // 缩容缩不动是**请求本身**的问题（配额要得比已用还小），不是服务端故障
-        if (err instanceof ShrinkBelowUsageError || err instanceof ShrinkFailedError) {
+        // 要求缩小磁盘是**请求本身**的问题（microVM 的盘只扩不缩），不是服务端故障
+        if (err instanceof DiskShrinkUnsupportedError) {
           return reply.code(400).send({ error: err.message })
         }
         throw err
@@ -363,10 +369,13 @@ export async function registerAdminRoutes(
     })
 
     /**
-     * 把「未下载」的版本拉到宿主上（D23），SSE 推 `docker pull` 的逐行进度。
+     * 预热：把镜像提前拉到宿主缓存，SSE 推行级进度（D23）。
+     *
+     * **不是上架的前提** —— 运行时按需拉取，上架后才预热也行、不预热也行。
+     * 它只为「用户第一次创建这个版本时不用等下载」服务。
      *
      * 校验全部在 hijack 之前（hijack 之后只能自己写响应）。这里**不查 catalog**：
-     * 管理员有权拉平台仓库里任何形状合法的 tag，包括刚推上来还没同步过的那一版。
+     * 管理员有权预热平台仓库里任何形状合法的 tag，包括刚推上来还没同步过的那一版。
      */
     scope.get('/api/admin/images/pull', async (req: AuthedRequest, reply) => {
       const parsed = PullQuerySchema.safeParse(req.query)
@@ -389,7 +398,12 @@ export async function registerAdminRoutes(
       return streamImagePull(req, reply, () => deps.pullImageStream(ref))
     })
 
-    /** 发布一个宿主上已有的平台镜像。已发布 → 409。 */
+    /**
+     * 上架一个平台版本。已发布 → 409。
+     *
+     * 平台还没有任何默认版本时，这一版自动成为默认 —— 否则会出现「已上架但没有默认」
+     * 的死状态：用户看得见版本，却创建不了实例。
+     */
     scope.post('/api/admin/images', async (req: AuthedRequest, reply) => {
       const parsed = ImageRefBodySchema.safeParse(req.body)
       if (!parsed.success) return reply.code(400).send({ error: '参数不合法' })
@@ -409,11 +423,20 @@ export async function registerAdminRoutes(
           .code(400)
           .send({ error: `镜像 tag 不符合发布序列（<dsh版本>_<修订号>）：${ref}` })
       }
-      if (!(await deps.listLocalImages().catch((): string[] => [])).includes(ref)) {
-        return reply.code(400).send({ error: `宿主上没有镜像 ${ref}，先点「下载」` })
+      // **不要求宿主上已经有**：运行时按需拉取（`create` 的 pullPolicy 默认 `if-missing`，
+      // 见 runtime/microsandbox/driver.ts），「先下载」并不是建实例的前提 —— microVM
+      // 下镜像是在建沙箱那一刻才真的落到宿主上的。
+      // 判据改成「上游有没有」：同步见过的 tag 才算数，挡住手输的、上游不存在的 ref。
+      // 宿主已缓存的当然也算（离线预热过的情况）。
+      const [catalog, onHost] = await Promise.all([
+        deps.listImageCatalog().catch((): ImageCatalogRow[] => []),
+        deps.listLocalImages().catch((): string[] => []),
+      ])
+      if (!catalog.some((c) => c.ref === ref) && !onHost.includes(ref)) {
+        return reply.code(400).send({ error: `上游没有镜像 ${ref}，先点「同步」` })
       }
 
-      if ((await deps.publishImage(ref)) === 'exists') {
+      if ((await deps.publishImage(ref, true)) === 'exists') {
         return reply.code(409).send({ error: `${ref} 已经发布过了` })
       }
       return { ok: true }

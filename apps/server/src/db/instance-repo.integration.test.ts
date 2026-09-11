@@ -8,7 +8,7 @@ import { createDocker } from '../docker/client.js'
 import { createAuth } from '../auth.js'
 import { loadEnv } from '../env.js'
 import { createDb } from './client.js'
-import { instance, user } from './schema.js'
+import { imageRelease, instance, user } from './schema.js'
 import {
   countInstancesByOwner, createInstanceRecord, findInstanceById,
   findInstanceBySlug, listAllInstances, listInstancesByOwner,
@@ -232,6 +232,46 @@ describe.runIf(process.env.DSH_SECURITY_INTEGRATION === '1')('instance storage a
     expect(await unpublishImageRelease(db, 'dsh-instance:0.1.0')).toBe('ok')
     expect(await unpublishImageRelease(db, 'dsh-instance:0.1.0')).toBe('missing')
     expect((await findDefaultImageRelease(db))?.ref).toBe('dsh-instance:0.1.1')
+  })
+
+  /**
+   * 平台没有默认版本 = 用户创建不了实例。所以上架第一版必须顺手把默认定下来 ——
+   * 而且「有没有默认」的读要和插入在**同一个事务**里，否则两个管理员同时上架第一版时
+   * 两边都读到「没有」，第二个插入会撞 `image_release_default_unique` 部分唯一索引，
+   * 而 `onConflictDoNothing` 的仲裁者只有 `ref`，挡不住 —— 直接 23505 → 500。
+   */
+  it('并发上架第一版：恰好一个默认，且不撞部分唯一索引', async () => {
+    const db = database!.db
+    await db.delete(imageRelease) // 制造「全新安装」的起点
+
+    const results = await Promise.all([
+      publishImageRelease(db, 'dsh-instance:0.9.0_1', true),
+      publishImageRelease(db, 'dsh-instance:0.9.0_2', true),
+    ])
+    expect(results).toEqual(['ok', 'ok'])
+
+    const defaults = (await listImageReleases(db)).filter((r) => r.isDefault)
+    expect(defaults).toHaveLength(1)
+  })
+
+  it('已有默认版本时不抢默认；一行默认都没有时会补一个', async () => {
+    const db = database!.db
+    await db.delete(imageRelease)
+
+    expect(await publishImageRelease(db, 'dsh-instance:0.9.1_1', true)).toBe('ok')
+    expect((await findDefaultImageRelease(db))?.ref).toBe('dsh-instance:0.9.1_1')
+
+    // 已经有默认了，第二版不抢
+    expect(await publishImageRelease(db, 'dsh-instance:0.9.1_2', true)).toBe('ok')
+    expect((await findDefaultImageRelease(db))?.ref).toBe('dsh-instance:0.9.1_1')
+
+    // 制造「有版本但一行默认都没有」的死状态：老逻辑只要求发布、不要求设默认，
+    // 这种库真实存在，而且症状就是「用户建不了实例」。
+    await db.update(imageRelease).set({ isDefault: false })
+    expect(await findDefaultImageRelease(db)).toBeUndefined()
+
+    expect(await publishImageRelease(db, 'dsh-instance:0.9.1_3', true)).toBe('ok')
+    expect((await findDefaultImageRelease(db))?.ref).toBe('dsh-instance:0.9.1_3')
   })
 
   it('keeps the image catalog as a disposable snapshot (D23)', async () => {

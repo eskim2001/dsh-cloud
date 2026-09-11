@@ -387,15 +387,16 @@ export async function rollbackAdminInstanceImage(id: string): Promise<void> {
   await request(`/api/admin/instances/${id}/image/rollback`, { method: 'POST', body: '{}' })
 }
 
-// ─── 镜像版本管理（仅管理员，D21 / D23）────────────────────────────────────
-
-/** 三态：注册表上有 = 未下载；宿主上有 = 已下载；已发布 = 用户面可选。 */
-export type AdminImageState = 'remote' | 'local' | 'published'
+// ─── 版本管理（仅管理员，D21 / D23）───────────────────────────────────────
+//
+// HTTP 路径仍是 `/api/admin/images`：接口描述的是技术对象（镜像），页面表达的是产品
+// 概念（版本），两者本来就不同层——为改 UI 命名去动接口要连带路由白名单和一批测试。
 
 export interface AdminImage {
   ref: string
-  state: AdminImageState
-  /** 宿主上有没有。已发布但被 prune 掉的版本会同时是 published 且 onHost=false。 */
+  /** 在 `image_release` 里。用户面的「换版本」列表和新建实例都按它来。 */
+  published: boolean
+  /** 本机缓存了没有（运行时事实）。与 `published` 独立：上架了但没缓存是正常状态。 */
   onHost: boolean
   /** 新建实例用这一版。至多一个（数据库部分唯一索引兜住）。 */
   isDefault: boolean
@@ -421,7 +422,7 @@ export async function getAdminImages(): Promise<AdminImages> {
   return request<AdminImages>('/api/admin/images')
 }
 
-/** 拉一遍注册表的 tag 进库。慢——每个 tag 一次 HEAD，页面上要显示 pending。 */
+/** 跑一遍注册表，刷新「上游有哪些版本」的快照。慢——每个 tag 一次 HEAD，页面上要显示 pending。 */
 export async function syncAdminImages(): Promise<AdminImagesSyncResult> {
   return request<AdminImagesSyncResult>('/api/admin/images/sync', {
     method: 'POST',
@@ -429,12 +430,12 @@ export async function syncAdminImages(): Promise<AdminImagesSyncResult> {
   })
 }
 
-/** 下载进度流的地址（SSE，`EventSource` 只支持 GET）。 */
+/** 预热进度流的地址（SSE，`EventSource` 只支持 GET）。 */
 export function adminImagePullUrl(ref: string): string {
   return `/api/admin/images/pull?ref=${encodeURIComponent(ref)}`
 }
 
-/** 发布一个宿主上已有的平台镜像。 */
+/** 上架一个版本。平台还没有默认版本时，这一版自动成为默认（后端保证）。 */
 export async function publishAdminImage(ref: string): Promise<void> {
   await request('/api/admin/images', { method: 'POST', body: JSON.stringify({ ref }) })
 }

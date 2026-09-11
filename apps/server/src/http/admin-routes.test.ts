@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { describe, expect, it, vi } from 'vitest'
 import type { Env } from '../env.js'
 import { RegistryError } from '../instance/image-sync.js'
-import { ImageRejectedError, NoRollbackError, ShrinkBelowUsageError } from '../instance/provisioner.js'
+import { ImageRejectedError, NoRollbackError, DiskShrinkUnsupportedError } from '../instance/provisioner.js'
 import { registerAdminRoutes, type AdminRouteDeps } from './admin-routes.js'
 
 const env = { MAX_INSTANCES_PER_USER: 3, INSTANCE_IMAGE_REPO: 'dsh-instance' } as Env
@@ -339,10 +339,10 @@ describe('平台管理面：管理员路径', () => {
     })
   })
 
-  it('缩容缩不动 → 400 + 服务端文案（不是 500，也不是笼统的「操作失败」）', async () => {
+  it('要求缩容 → 400 + 说清「只能扩不能缩」（不是 500，也不是笼统的「操作失败」）', async () => {
     const { app } = await build(ADMIN, {
       setInstanceQuota: async () => {
-        throw new ShrinkBelowUsageError(5_000, 1_024)
+        throw new DiskShrinkUnsupportedError(5_000, 1_024)
       },
     })
     const res = await app.inject({
@@ -351,7 +351,8 @@ describe('平台管理面：管理员路径', () => {
       payload: { cpus: 1, memoryMb: 2048, pidsLimit: 512, diskMb: 1_024 },
     })
     expect(res.statusCode).toBe(400)
-    expect(res.json().error).toContain('已用 5000 MB')
+    // 新语义：不是「已用 > 目标」，而是 microVM 的盘**根本不能缩**，文案要说清这一点
+    expect(res.json().error).toContain('只能扩大，不能缩小')
   })
 
   it('看日志：实例不存在 → 404，还没容器 → 409', async () => {
@@ -449,7 +450,7 @@ describe('平台管理面：镜像目录与三态（D23）', () => {
     syncedAt: new Date('2026-09-10T00:00:00Z'),
   })
 
-  it('列表：catalog ∪ 已发布 ∪ 宿主，三态派生 + digest + 同步时间，新版本在前', async () => {
+  it('列表：catalog ∪ 已上架 ∪ 本机缓存，published/onHost 派生 + digest + 同步时间，新版本在前', async () => {
     const { app } = await build(ADMIN, {
       listImageCatalog: async () => [
         cat('dsh-instance:0.1.2_2', 'sha256:2222'),
@@ -467,7 +468,7 @@ describe('平台管理面：镜像目录与三态（D23）', () => {
       images: [
         {
           ref: 'dsh-instance:0.1.2_2',
-          state: 'published',
+          published: true,
           onHost: true,
           isDefault: true,
           publishedAt: '1970-01-01T00:00:00.000Z',
@@ -475,7 +476,7 @@ describe('平台管理面：镜像目录与三态（D23）', () => {
         },
         {
           ref: 'dsh-instance:0.1.2_1',
-          state: 'remote',
+          published: false,
           onHost: false,
           isDefault: false,
           publishedAt: null,
@@ -483,7 +484,7 @@ describe('平台管理面：镜像目录与三态（D23）', () => {
         },
         {
           ref: 'dsh-instance:0.1.1_3',
-          state: 'local',
+          published: false,
           onHost: true,
           isDefault: false,
           publishedAt: null,
@@ -505,7 +506,7 @@ describe('平台管理面：镜像目录与三态（D23）', () => {
       images: [
         {
           ref: 'dsh-instance:0.1.0_1',
-          state: 'local',
+          published: false,
           onHost: true,
           isDefault: false,
           publishedAt: null,
@@ -567,9 +568,13 @@ describe('平台管理面：镜像目录与三态（D23）', () => {
     expect(res.payload).toContain('no matching manifest for linux/arm64/v8')
   })
 
-  it('发布：宿主上没有 → 400（先点「下载」）', async () => {
+  it('发布：上游和本机都没有 → 400（先点「同步」）', async () => {
     const publishImage = vi.fn(async () => 'ok' as const)
-    const { app } = await build(ADMIN, { publishImage, listLocalImages: async () => [] })
+    const { app } = await build(ADMIN, {
+      publishImage,
+      listImageCatalog: async () => [],
+      listLocalImages: async () => [],
+    })
 
     const res = await app.inject({
       method: 'POST',
@@ -577,8 +582,30 @@ describe('平台管理面：镜像目录与三态（D23）', () => {
       payload: { ref: 'dsh-instance:0.1.1_1' },
     })
     expect(res.statusCode).toBe(400)
-    expect(res.json().error).toContain('宿主上没有镜像')
+    expect(res.json().error).toContain('上游没有镜像')
     expect(publishImage).not.toHaveBeenCalled()
+  })
+
+  /**
+   * 回归红线：上架**不要求本机已经缓存**。运行时按需拉取（`create` 的 pullPolicy
+   * 默认 `if-missing`），要求先下载的话全新安装根本发不出第一版 ——
+   * 没有 release 就没有默认版本，建实例直接 400，是一条死锁。
+   */
+  it('发布：上游见过、本机没缓存 → 200（不要求先下载，`defaultIfFirst` 传 true）', async () => {
+    const publishImage = vi.fn(async () => 'ok' as const)
+    const { app } = await build(ADMIN, {
+      publishImage,
+      listImageCatalog: async () => [cat('dsh-instance:0.1.1_1', 'sha256:abc')],
+      listLocalImages: async () => [],
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/admin/images',
+      payload: { ref: 'dsh-instance:0.1.1_1' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(publishImage).toHaveBeenCalledWith('dsh-instance:0.1.1_1', true)
   })
 
   it('发布：不是平台自己的仓库 → 400', async () => {
@@ -623,7 +650,7 @@ describe('平台管理面：镜像目录与三态（D23）', () => {
       payload: { ref: 'dsh-instance:0.1.0_1' },
     })
     expect(res.statusCode).toBe(200)
-    expect(publishImage).toHaveBeenCalledWith('dsh-instance:0.1.0_1')
+    expect(publishImage).toHaveBeenCalledWith('dsh-instance:0.1.0_1', true)
   })
 
   it('发布：正常 → 200；已存在 → 409', async () => {
@@ -638,7 +665,7 @@ describe('平台管理面：镜像目录与三态（D23）', () => {
       payload: { ref: 'dsh-instance:0.1.1_1' },
     })
     expect(res.statusCode).toBe(200)
-    expect(publishImage).toHaveBeenCalledWith('dsh-instance:0.1.1_1')
+    expect(publishImage).toHaveBeenCalledWith('dsh-instance:0.1.1_1', true)
 
     const { app: dup } = await build(ADMIN, {
       publishImage: async () => 'exists' as const,

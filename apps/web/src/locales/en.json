@@ -18,7 +18,7 @@
     "sessions": "Sessions",
     "members": "Members",
     "admin": "Platform admin",
-    "adminImages": "Images"
+    "adminVersions": "Versions"
   },
   "language": {
     "label": "Language",
@@ -218,42 +218,46 @@
       "pidsLimit": "Process limit",
       "loadFailed": "Failed to load instances"
     },
-    "images": {
-      "title": "Image versions",
-      "description": "Instance images published by the platform. New instances use the version marked default unless the creator picks another; what users can upgrade to on their own is published ∩ present on the host. Hit Sync to pull the latest tags from the registry.",
-      "sync": "Sync",
-      "syncing": "Syncing…",
-      "syncedAt": "Last synced: {{time}}",
-      "neverSynced": "Never synced",
-      "syncResult": "Synced {{count}} versions",
-      "syncSkipped": ", ignored {{skipped}} non-version tags",
+    "versions": {
+      "title": "Versions",
+      "description": "dsh versions your users can create and upgrade to. Publish one and it appears in the version picker on their instances.",
+      "check": "Check for updates",
+      "checking": "Checking…",
+      "checkedAt": "Last checked: {{time}}",
+      "neverChecked": "Never checked",
+      "checkResult": "Found {{count}} versions in the registry",
+      "checkSkipped": ", ignored {{skipped}} non-version tags",
       "state": "State",
       "stateLabel": {
-        "remote": "Not downloaded",
-        "local": "Downloaded",
-        "published": "Published"
+        "default": "Default",
+        "published": "Published",
+        "unpublished": "Not published"
       },
-      "notOnHost": "Removed from the host; it will be pulled again on demand",
+      "warmed": "Pre-warmed",
+      "warmedHint": "Cached on this host — the first instance on this version won't wait for a download",
+      "dshLine": "dsh {{dsh}} · revision {{revision}}",
       "digest": "Digest",
       "ref": "Version",
       "publishedAt": "Published",
-      "default": "Default",
       "actions": "Actions",
-      "download": "Download",
-      "pullTitle": "Download {{ref}}",
-      "pullState": {
-        "pulling": "Downloading…",
-        "done": "Download complete",
-        "failed": "Download failed"
-      },
-      "pullWaiting": "Connecting…",
       "publish": "Publish",
       "setDefault": "Set as default",
       "unpublish": "Unpublish",
+      "unpublishDefault": "The default version can't be unpublished — set another version as default first",
       "unpublishTitle": "Unpublish this version?",
       "unpublishConfirm": "{{ref}} disappears from the user-facing version picker; instances already running it are unaffected.",
-      "empty": "No versions yet — hit Sync in the top right to pull tags from the registry.",
-      "loadFailed": "Failed to load image versions"
+      "warm": "Pre-warm on this host",
+      "warmTitle": "Pre-warm {{ref}}",
+      "warmState": {
+        "pulling": "Pre-warming…",
+        "done": "Pre-warm complete",
+        "failed": "Pre-warm failed"
+      },
+      "warmWaiting": "Connecting…",
+      "notOnHost": "Not cached on this host; it downloads automatically the first time a user creates this version",
+      "emptyTitle": "No versions published yet",
+      "emptyBody": "Users can't create instances right now. Check for updates to read the registry, then publish the version you want.",
+      "loadFailed": "Failed to load versions"
     }
   },
   "status": {
