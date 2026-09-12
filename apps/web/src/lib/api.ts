@@ -18,8 +18,17 @@ export interface InstanceSummary {
   previousImage: string | null
   cpus: number
   memoryMb: number
-  /** 磁盘配额（MiB）。等于该实例数据文件系统的大小——写满就是写满。 */
+  /** 声明的磁盘容量（MiB）。**只是声明** —— 到底管不管用看 `diskEnforced`。 */
   diskMb: number
+  /** 已用磁盘（MiB）。**缺省 = 读不到**（不是 0）。 */
+  diskUsedMb?: number
+  /**
+   * 这份配额**真的在生效**吗。
+   *
+   * `false` 时必须显示「无上限」而不是 `diskMb` —— 开发机内核不支持配额、或实例没有池子时就是这样。
+   * 显示一个没生效的上限，比不显示更糟。
+   */
+  diskEnforced: boolean
   lastError: string | null
   /** 最后一次变成「已停止」的时刻；运行中为 null。 */
   stoppedAt: string | null
@@ -57,6 +66,13 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /**
+     * 机器可读的错误码（better-auth 的 `INVALID_PASSWORD` 之类）。
+     *
+     * 有它才能把「当前密码不对」这种话**翻译成本地文案**——better-auth 的 message
+     * 是英文的（"Invalid password"），直接摆给中文用户看很别扭。平台自己的接口一般不返回。
+     */
+    readonly code?: string,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -78,7 +94,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const body: unknown = text === '' ? null : safeJson(text)
 
   if (!res.ok) {
-    throw new ApiError(errorMessage(body) ?? `请求失败（${res.status}）`, res.status)
+    throw new ApiError(
+      errorMessage(body) ?? `请求失败（${res.status}）`,
+      res.status,
+      errorCode(body),
+    )
   }
   return body as T
 }
@@ -95,6 +115,12 @@ function errorMessage(body: unknown): string | undefined {
   if (typeof body !== 'object' || body === null) return undefined
   const b = body as { message?: string; error?: string }
   return b.message ?? b.error
+}
+
+function errorCode(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null) return undefined
+  const code = (body as { code?: unknown }).code
+  return typeof code === 'string' ? code : undefined
 }
 
 // ─── 认证（better-auth）───────────────────────────────────────────────────
@@ -128,6 +154,28 @@ export async function signOut(): Promise<void> {
   await request('/api/auth/sign-out', { method: 'POST', body: '{}' })
 }
 
+/** 改昵称。better-auth 的 update-user 接管（cookie 会话即授权）。 */
+export async function updateUserName(name: string): Promise<void> {
+  await request('/api/auth/update-user', { method: 'POST', body: JSON.stringify({ name }) })
+}
+
+/**
+ * 改密码。要带**当前密码**——这是防止「会话被人拿到后直接改密码锁死账号」的那道锁。
+ *
+ * `revokeOtherSessions` 打开时其余设备立刻下线（当前这台保留）。
+ * 邮箱改不了：better-auth 的换邮箱要求先发验证信，平台没配邮件通道（见设置页的说明）。
+ */
+export async function changePassword(input: {
+  currentPassword: string
+  newPassword: string
+  revokeOtherSessions: boolean
+}): Promise<void> {
+  await request('/api/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
 // ─── 实例（平台 API）─────────────────────────────────────────────────────
 
 export async function listInstances(): Promise<InstanceSummary[]> {
@@ -139,6 +187,8 @@ export async function createInstance(input: {
   slug: string
   cpus?: number
   memoryMb?: number
+  /** 进程数上限（PIDs cgroup 上限）。默认 512，够跑 dsh 本身。 */
+  pidsLimit?: number
   diskMb?: number
   /** 留空用平台默认版本。 */
   image?: string
@@ -305,7 +355,12 @@ export interface AdminInstance {
   cpus: number
   memoryMb: number
   pidsLimit: number
+  /** 声明的磁盘容量（MiB）。**只是声明** —— 到底管不管用看 `diskEnforced`。 */
   diskMb: number
+  /** 已用磁盘（MiB）。**缺省 = 读不到**（不是 0）。 */
+  diskUsedMb?: number
+  /** `false` 时必须显示「无上限」而不是 `diskMb`。 */
+  diskEnforced: boolean
   lastError: string | null
   createdAt: string
   ownerEmail: string
