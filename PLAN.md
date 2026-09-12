@@ -47,17 +47,20 @@
 
 - [x] 脚手架：pnpm workspace + `apps/server` + `apps/web` + `packages/instance-spec`
 - [x] 实例镜像：两段式 Dockerfile + tini + `DSH_HOME=/data` + **WORKDIR 落 `/data`**
-- [x] 编排闭环：dockerode 起实例容器（桥端口发布到宿主回环 + `/data` 走 Docker 命名卷）
+- [x] 编排闭环：dockerode 起实例容器（桥端口发布到宿主回环 + `/data` 落存储池里的独立目录，带 XFS project quota；配额落不了地的宿主退回 Docker 命名卷）
 - [x] 三道门：forward-auth + 每实例 gate token + 路由生成
 - [x] 页面：登录 + 实例列表 / 详情 / 打开
 - [x] 升级 / 回滚（D19）、配额管理（D17）、状态现算（D16）
-- [ ] **磁盘配额（D18）—— 没做**：实现随"切 microVM"那一轮被删，改回 Docker 时没恢复（现在只有命名卷 + 声明值，**没有硬限**，见 D18 的落地状态）
+- [x] **磁盘硬配额（D18）**：一个 XFS 池 + 每实例一个 project ID（字节 + inode 双限），
+      池子不可用时退回命名卷 + 一行警告。宿主不是 XFS 时平台自己建一块 loopback XFS 池。
+      选型与实测见 [docs/storage/README.md](docs/storage/README.md)。
 
 ### M1.5 能装 —— 待定，卡在选型
 
 让不读源码的人把平台装到自己的服务器上。这决定 README「快速开始」的终态 —— 现在那节写的是本地栈，是过渡形态。
 
-**卡在**：[OPEN-QUESTIONS](docs/OPEN-QUESTIONS.md) #6（DNS provider）和 #8（部署环境形态）。这两条不定，installer 的核心分支（证书走 HTTP-01 还是 DNS-01、宿主是什么形态）就定不了。
+**卡在**：[OPEN-QUESTIONS](docs/OPEN-QUESTIONS.md) #6（DNS provider）。它决定通配证书走 DNS-01 还是
+HTTP-01，也就决定 installer 的证书分支。（部署形态 #8 已定：容器，见 [OPEN-QUESTIONS](docs/OPEN-QUESTIONS.md) §三。）
 
 **installer 契约**（先定这个，脚本照此实现，README 那节也按这个写）：
 
@@ -66,7 +69,10 @@
 **部署前置条件**（和本地开发完全不重叠，别复用）：
 
 - Linux 主机，装了 Docker 与 Compose v2
-- 宿主支持 loop device 与 ext4 —— 实例磁盘配额靠「每实例一个 loop 文件系统」实现（[ARCHITECTURE](docs/ARCHITECTURE.md) §五），这是**硬门槛**
+- **一块能给硬配额的文件系统**：`HOST_STORAGE_ROOT` 落在一块 **XFS 且以 `pquota` 挂载**的盘上；
+  不是 XFS 时平台会自己建**一块** loopback XFS 镜像当池子（整机一个 loop，不是每实例一个），
+  那一步要宿主允许 loop 设备且控制面拿得到 `CAP_SYS_ADMIN`。**两条都做不到就拒绝启动** ——
+  池化之后"看起来有配额"比没有更糟（见 [D18](docs/DECISIONS.md)、[storage/README.md](docs/storage/README.md)）
 - 端口 `80` / `443` 空闲（ACME 的 HTTP-01 校验需要 `80`）
 - 一个域名，`A` 记录或 `*` 泛解析已指向该机器
 - 宿主能访问 GHCR（拉实例镜像）
@@ -107,7 +113,10 @@ K8s renderer；microVM / gVisor renderer；token 计费；更多形态（headles
 | 8 | 打开设置 → 模型提供方，填 key 保存 | 提供方目录正常加载、key 存得进（**D15**；每次升 dsh 必跑） |
 | 9 | 在宿主 `docker stop` 实例容器 / 让它 crash-loop | 10 秒内列表与详情显示「已停止」/「重启中」，不是「运行中」（**D16**） |
 
-自动化部分见 `apps/server/src/**/*.test.ts` 与 `pnpm --filter @dsh-cloud/server check:storage`。
+自动化部分见 `apps/server/src/**/*.test.ts`。**池子（`apps/server/src/instance/pool.ts`）是例外：
+它没有自动化用例**，目前只有一台真机上的手动核对（步骤与实测数字见
+[storage/README.md](docs/storage/README.md)）—— 而它恰好是"失败时静默无配额"的那一块，
+补用例值得优先做。
 
 ## 守则
 

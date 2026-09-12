@@ -34,7 +34,7 @@ dsh-cloud/
 │   │   ├── src/instance/  唯一接触 runtime 的地方（规格 / 编排 / 存储 / 路由）
 │   │   ├── src/http/      路由、forward-auth、日志流
 │   │   ├── src/db/        schema + repository
-│   │   └── scripts/       存储自检、端到端 spike
+│   │   └── scripts/       一次性脚本（seed 首个管理员）
 │   └── web/             Vite + React 19 + shadcn/ui（管理台）
 ├── packages/
 │   └── instance-spec/   ★ 实例规格 + runtime renderer（换 K8s / microVM 只换这层）
@@ -69,22 +69,21 @@ pnpm -r typecheck
 pnpm -r test
 ```
 
-实例镜像：正常**不用本地构建**——控制面起来后在「镜像管理」页「同步」→「下载」→「发布」，建实例时缺镜像会自动 pull。只有改了 `docker/instance-image/` 才：
+实例镜像：正常**不用本地构建**——控制面起来后在「版本管理」页「检查更新」→「上架」（想预热就「预热到本机」），
+建实例时缺镜像会自动 pull。只有改了 `docker/instance-image/` 才：
 
 ```bash
 ./docker/instance-image/build.sh
 ```
 
-存储自检（宿主持久化 / 配额 / 扩容缩容，会动 Docker）：
+存储自检**没有自动化命令**：池子（`src/instance/pool.ts`）验的是"限额到底设上没有"，
+只能在真机上跑 —— 步骤、期望值与实测数字见 [docs/storage/README.md](docs/storage/README.md)；
+宿主要求见 [PLAN.md](PLAN.md) M1.5 的前置条件。
+
+需要 Docker 的集成测试（真起 Traefik 容器，验会话边界与 cookie 过滤）：
 
 ```bash
-pnpm --filter @dsh-cloud/server check:storage
-```
-
-端到端 spike（起容器 → header 门 → 重建后内容还在）：
-
-```bash
-pnpm --filter @dsh-cloud/server spike
+pnpm --filter @dsh-cloud/server test:security
 ```
 
 完整本地链路（TLS + 子域 + cookie 作用域）见 [docker/compose/README.md](docker/compose/README.md)。配置项见 [.env.example](.env.example)。
