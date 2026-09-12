@@ -138,7 +138,7 @@ describe('platform admin role guard', () => {
   })
 
   it('refuses to demote the last admin and writes nothing', async () => {
-    vi.mocked(findUserById).mockResolvedValue({ id: 'only', role: 'admin' })
+    vi.mocked(findUserById).mockResolvedValue({ id: 'only', role: 'admin', instanceQuota: null })
     vi.mocked(countAdmins).mockResolvedValue(1)
     const app = await buildApp(dependencies(admin))
     try {
@@ -157,7 +157,7 @@ describe('platform admin role guard', () => {
   })
 
   it('demotes an admin while another one remains', async () => {
-    vi.mocked(findUserById).mockResolvedValue({ id: 'other', role: 'admin' })
+    vi.mocked(findUserById).mockResolvedValue({ id: 'other', role: 'admin', instanceQuota: null })
     vi.mocked(countAdmins).mockResolvedValue(2)
     const app = await buildApp(dependencies(admin))
     try {
@@ -175,7 +175,7 @@ describe('platform admin role guard', () => {
   })
 
   it('promotes an existing account without counting admins', async () => {
-    vi.mocked(findUserById).mockResolvedValue({ id: 'u-x', role: 'user' })
+    vi.mocked(findUserById).mockResolvedValue({ id: 'u-x', role: 'user', instanceQuota: null })
     const app = await buildApp(dependencies(admin))
     try {
       const response = await app.inject({

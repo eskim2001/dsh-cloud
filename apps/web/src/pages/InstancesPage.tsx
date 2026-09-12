@@ -41,8 +41,13 @@ export default function InstancesPage() {
     queryKey: keys.instances,
     queryFn: listInstances,
     // 编排进行中每 3 秒跟一次；其余每 10 秒兜底（见 lib/instance-status.ts 的说明）
-    refetchInterval: (query) => listRefetchInterval(query.state.data),
+    refetchInterval: (query) => listRefetchInterval(query.state.data?.instances),
   })
+
+  const list = instances.data?.instances ?? []
+  /** 额度：不知道就不显示（宁可不显示，也别编一个） */
+  const maxInstances = instances.data?.maxInstances
+  const atLimit = maxInstances !== undefined && list.length >= maxInstances
 
   const invalidate = () => invalidateInstances(queryClient)
 
@@ -54,20 +59,8 @@ export default function InstancesPage() {
   const [deleteError, setDeleteError] = useState<{ id: string; message: string } | null>(null)
 
   const remove = useMutation({
-    mutationFn: ({
-      id,
-      purge,
-      confirmSlug,
-    }: {
-      id: string
-      purge?: boolean
-      confirmSlug?: string
-    }) =>
-      removeInstance(id, {
-        // exactOptionalPropertyTypes：没传的键不要显式塞 undefined
-        ...(purge === undefined ? {} : { purge }),
-        ...(confirmSlug === undefined ? {} : { confirmSlug }),
-      }),
+    mutationFn: ({ id, confirmSlug }: { id: string; confirmSlug: string }) =>
+      removeInstance(id, confirmSlug),
     onSuccess: async (_data, { id }) => {
       setDeleteError((prev) => (prev?.id === id ? null : prev))
       await invalidate()
@@ -93,19 +86,30 @@ export default function InstancesPage() {
         title={t('instances.title')}
         description={t('instances.subtitle')}
         actions={
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger render={<Button />}>
-              <PlusIcon />
-              {t('instances.create')}
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>{t('instances.newTitle')}</DialogTitle>
-                <DialogDescription>{t('instances.newDescription')}</DialogDescription>
-              </DialogHeader>
-              <CreateInstanceForm onCreated={() => setCreateOpen(false)} />
-            </DialogContent>
-          </Dialog>
+          <div className="flex items-center gap-3">
+            {/* 额度摆在这儿：撞上之前就知道自己还能开几个（撞上去才被告知是折磨人） */}
+            {maxInstances !== undefined && (
+              <span
+                className="text-xs tabular-nums text-muted-foreground"
+                title={atLimit ? t('instances.quotaFull') : undefined}
+              >
+                {t('instances.quotaUsed', { used: list.length, limit: maxInstances })}
+              </span>
+            )}
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger render={<Button disabled={atLimit} />}>
+                <PlusIcon />
+                {t('instances.create')}
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{t('instances.newTitle')}</DialogTitle>
+                  <DialogDescription>{t('instances.newDescription')}</DialogDescription>
+                </DialogHeader>
+                <CreateInstanceForm onCreated={() => setCreateOpen(false)} />
+              </DialogContent>
+            </Dialog>
+          </div>
         }
       />
 
@@ -114,7 +118,7 @@ export default function InstancesPage() {
       )}
       {instances.isError && <p className="text-sm text-destructive">{t('instances.loadFailed')}</p>}
 
-      {instances.data?.length === 0 && (
+      {instances.data !== undefined && list.length === 0 && (
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
             <BrandMark className="mb-1 size-10 text-muted-foreground/40" />
@@ -128,7 +132,7 @@ export default function InstancesPage() {
       )}
 
       <div className="flex flex-col gap-3">
-        {instances.data?.map((instance) => (
+        {list.map((instance) => (
           <InstanceCard
             key={instance.id}
             instance={instance}
@@ -137,8 +141,7 @@ export default function InstancesPage() {
             onRestart={() => restart.mutate(instance.id)}
             onStop={() => stop.mutate(instance.id)}
             onStart={() => start.mutate(instance.id)}
-            onDelete={() => remove.mutate({ id: instance.id })}
-            onPurge={(confirmSlug) => remove.mutate({ id: instance.id, purge: true, confirmSlug })}
+            onDelete={(confirmSlug) => remove.mutate({ id: instance.id, confirmSlug })}
           />
         ))}
       </div>

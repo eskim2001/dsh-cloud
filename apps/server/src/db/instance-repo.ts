@@ -58,9 +58,9 @@ export async function countInstancesByOwner(db: Db, ownerId: string): Promise<nu
 /**
  * 建实例记录。slug 冲突由唯一索引兜底，转成可读错误。
  *
- * 软删的行**仍然占着 slug**：同一 owner 可以重建同名（卷还在、浏览器状态本来就是他的），
- * 换个人不行——域名一旦回收给另一个租户，上一个租户留在这个域名下的浏览器状态
- * （cookie / localStorage / service worker）就被继承过去了。要彻底释放走 purge。
+ * 已删除的行**仍然占着 slug**：同一 owner 可以重建同名（浏览器状态本来就是他的），换个人不行 ——
+ * 域名一旦回收给另一个租户，上一个租户留在这个域名下的浏览器状态（cookie / localStorage /
+ * service worker）就被继承过去了（D24 / D31）。删实例**不删这一行**，它退役成主机名占位。
  */
 export async function createInstanceRecord(db: Db, input: NewInstance, defaultLimit: number): Promise<InstanceRow> {
   try {
@@ -124,12 +124,15 @@ function stoppedAtPatch(patch: InstancePatch): { stoppedAt?: Date | null } {
   return {}
 }
 
-/** 删记录。**容器/卷的清理是调用方的事**——DB 只管自己这一份。 */
-export async function deleteInstanceRecord(db: Db, id: string): Promise<boolean> {
-  const rows = await db.delete(instance).where(eq(instance.id, id)).returning({ id: instance.id })
-  return rows.length > 0
-}
-
+/**
+ * 删实例后**留下的一行**：它退役成**主机名占位**，不是"数据还在"。
+ *
+ * 数据在删除时就被删了（见 `provisioner.remove`），这里保留的是那个子域名的归属：
+ * 同一 owner 还能拿它重建，别人不能 —— 否则域名一回收，上一个租户在这个域名下的浏览器状态
+ * （cookie / localStorage / service worker）就被继承了（D24 / D31）。
+ *
+ * 行留在库里还有个副作用：`deletedAt` 已置，所以所有列表/查询都看不见它 ✅ 用户视角就是删掉了。
+ */
 export async function retainInstanceRecord(db: Db, id: string): Promise<void> {
   await db.update(instance).set({
     deletedAt: new Date(),

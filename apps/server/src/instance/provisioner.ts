@@ -8,7 +8,6 @@ import {
 import type { Db } from '../db/client.js'
 import {
   createInstanceRecord,
-  deleteInstanceRecord,
   retainInstanceRecord,
   findInstanceById,
   listAllInstances,
@@ -37,10 +36,8 @@ export interface ProvisionInput {
 }
 
 export interface RemoveInput {
-  /** 连数据一起删。**不可逆**——只有调用方拿到子域名确认才该传。 */
-  purgeVolume?: boolean
-  /** 彻底删除时要求调用方回填的子域名，用来挡误操作。 */
-  confirmSlug?: string
+  /** 调用方回填的子域名。删除不可逆，用"打一遍名字"挡误操作。 */
+  confirmSlug: string
 }
 
 /** 资源配额四元组。只由管理员改（D17）。 */
@@ -48,7 +45,7 @@ export type QuotaInput = Pick<ProvisionInput, 'cpus' | 'memoryMb' | 'pidsLimit' 
 
 export class SlugConfirmMismatchError extends Error {
   constructor() {
-    super('彻底删除需要输入正确的子域名')
+    super('删除不可恢复：子域名没对上，请重新输入')
     this.name = 'SlugConfirmMismatchError'
   }
 }
@@ -110,7 +107,9 @@ export class InstanceProvisioner {
     // 没自选就用库里的默认版本（D21）——没有就响亮失败，别拿一个过期 env 顶上
     const image = input.image ?? (await findDefaultImageRelease(this.db))?.ref
     if (image === undefined) {
-      throw new ImageRejectedError('平台还没有默认镜像版本：在「版本管理」里上架一版并设为默认')
+      // 用户看得到这句。别再写"去「版本管理」上架一版"——他没有那个页面；
+      // 该怎么做，写在管理面的版本页里就够了。
+      throw new ImageRejectedError('平台还没有可用的镜像版本，暂时无法创建实例（请联系运营）')
     }
     // 自选版本走和升级一样的准入（平台仓库 + 发布序列 + 已发布），但**不要求宿主已有**：
     // 创建本来就会 ensureImage 自动拉（D23）。
@@ -203,15 +202,22 @@ export class InstanceProvisioner {
   }
 
   /**
-   * 删实例。默认**保留数据卷**——删实例不等于删数据，用同一个子域名重建还能拿回来。
-   * 只有 `purgeVolume` + 子域名确认都给了才连它删，那一步不可逆。
+   * 删实例。**这一步真的删数据** —— 用户说"删除"就该是这个意思，别让他以为删了却还留着，
+   * 也别留一份谁也够不到的残留占着宿主空间。
+   *
+   * 仍然要手打子域名：不可逆的动作必须过一道明确的确认。
+   *
+   * 唯一留下的是**主机名**：那一行不删，改成"退役"占位并继续绑定原 owner —— 域名一旦回收给
+   * 另一个租户，上一个租户留在这个域名下的浏览器状态（cookie / localStorage / service worker）
+   * 就被继承过去了（D24 / D31）。所以**数据没了、名字还是他的**：本人可以同名重建（拿到一份
+   * 空的新文件系统），别人抢不走。
    *
    * 顺序有意如此：先摘路由再删容器，否则容器删到一半时流量还会打进来。
    */
-  async remove(id: string, opts: RemoveInput = {}): Promise<void> {
+  async remove(id: string, opts: RemoveInput): Promise<void> {
     const row = await findInstanceById(this.db, id)
     if (row === undefined) throw new Error(`实例不存在：${id}`)
-    if (opts.purgeVolume === true && opts.confirmSlug !== row.slug) {
+    if (opts.confirmSlug !== row.slug) {
       throw new SlugConfirmMismatchError()
     }
 
@@ -221,18 +227,16 @@ export class InstanceProvisioner {
       await this.syncRoutes()
 
       // ② 先优雅停，再删机器。顺序不能反：
-      //    优雅停机让 dsh 把未落盘的会话写完，直接删会丢掉这一部分。
-      //    而这一步之后数据默认是**保留**的（除非明确 purgeVolume）——丢了就是真丢。
+      //    优雅停机让 dsh 把未落盘的会话写完；容器一删，这些就没了。
       //    机器名用 slug 现算，不读 row.containerId（它可能已经是 null）。
       await this.orchestrator.stopInstance(machineName(row.slug))
       await this.orchestrator.removeInstance(machineName(row.slug))
 
-      // ③ 彻底删除：机器已停，这时才敢删数据（不可逆）
-      if (opts.purgeVolume === true) await this.dataStore.destroy(row.storageKey)
+      // ③ 数据真删：容器已经不在，数据目录 + 升级快照 + 它的配额账一起清掉
+      await this.dataStore.destroy(row.storageKey)
 
-      // ④ 删记录，再投影一次让路由条目彻底消失
-      if (opts.purgeVolume === true) await deleteInstanceRecord(this.db, row.id)
-      else await retainInstanceRecord(this.db, row.id)
+      // ④ 记录留成"退役主机名"（见上），再投影一次让路由条目彻底消失
+      await retainInstanceRecord(this.db, row.id)
       await this.syncRoutes()
     } catch (err) {
       // 删失败就把状态写回去，别让实例永远卡在 removing——行还在，可以重试
@@ -444,7 +448,8 @@ export class InstanceProvisioner {
     if (local.includes(image)) return
 
     if (allowAny && (await isImageInCatalog(this.db, image))) return
-    throw new ImageRejectedError(`宿主上没有镜像 ${image}`)
+    // 用户看得到这句：说"平台侧暂时不可用"就够，"宿主上没有"是我们的实现细节
+    throw new ImageRejectedError(`这一版在平台侧暂时不可用：${image}`)
   }
 
   private specOf(row: InstanceRow): InstanceSpec {
