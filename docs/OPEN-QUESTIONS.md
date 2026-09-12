@@ -34,16 +34,19 @@ cookie，而是由控制台签一枚**短时、单实例、绑定 owner** 的 to
 
 ## 三、已解决（存档）
 
-### #8 部署环境：改走 microVM → **D31**
+### #8 部署环境：microVM → **已改回 Docker**（D31 作废）
 
-运行时从 Podman/Docker 换成 **smolvm microVM**，§四 里那个「剩下的唯一缺口：内核」随之闭合。
-换运行时后**重跑了 #4 那组网络路径测试**（这是本条要求的动作），结论：
+运行时一度从 Podman/Docker 换成 smolvm microVM（D31），后来又**改回 Docker** —— 见 D31 顶部的作废说明与
+[ARCHITECTURE §四](ARCHITECTURE.md)。
 
-- **跨实例隔离成立**：网关转发 / 对端 IP / 机器名 / 宿主回环**全部不通**（对照：自己的端口通）
-- **#4 里那条「Linux 上绑 127.0.0.1 的发布 socket 只接受回环连接」不再是问题** ——
-  实例只发布到宿主回环，而 guest 到不了它（实测）。这条结论**依附于运行时**，见 D31
+D31 里那条「这条结论**依附于运行时**，换运行时必须重验」因此**再次生效，且尚未重跑**：
 
-代价与残余风险（macOS 上拿不到 egress 限制等）写在 [D31](DECISIONS.md)。
+- microVM 时代实测的「跨实例网关 / 对端 IP / 机器名 / 宿主回环**全部不通**」**不能继承**到 Docker
+- **macOS / Docker Desktop 上已实测到相反结果**：容器可经 `host.docker.internal` 够到宿主回环上的**任何**监听 ——
+  别人的实例桥端口、控制面 API、Postgres 都在其中。跨实例现在靠**每实例门 token** 拦住（拿自己的 token 打别人 → 403）
+- **待办**：在生产宿主形态（Linux）上重跑同一组探针，看这条暴露面是否成立
+
+代价与残余风险（egress 无解、卷无配额等）写在 [ARCHITECTURE §四](ARCHITECTURE.md)。
 
 ### #3 / #12 WebSocket 握手与跨源写操作
 
@@ -90,4 +93,4 @@ Linux 上做磁盘配额只有四条路：文件系统级三条 + 块设备级�
 
 ### dsh 入口一次性 token → **D14**
 
-`dsh web` 每次启动 `randomBytes` 生成入口 token，没有 flag / 配置能固定或关闭。做法：桥在 `/__open` 这条精确路径上注入 token 再转发，**token 不进浏览器 URL / 历史 / Referer**。见 [D14](DECISIONS.md)。
+`dsh web` 每次启动 `randomBytes` 生成入口 token，没有 flag / 配置能固定或关闭。做法：桥在**无 cookie 的 `GET /`** 上注入 token 再转发（从前是 `/__open` 这条精确路径），**token 不进浏览器 URL / 历史 / Referer**，用户直接输裸域名即可。见 [D14](DECISIONS.md)。

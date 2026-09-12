@@ -103,31 +103,30 @@ export const instance = pgTable(
     status: text('status').notNull().default('provisioning'),
     image: text('image').notNull(),
     /**
-     * 上一版镜像。**非空 = 有一份升级前的数据快照可回滚**（快照本身在宿主上，
-     * `<HOST_STORAGE_ROOT>/<slug>.img.prev`，不进库）。回滚成功后置回 NULL。
+     * 上一版镜像。**非空 = 有一份升级前的数据快照可回滚**（快照本身是一块 `.prev` 命名卷，
+     * 不进库）。回滚成功后置回 NULL。
      */
     previousImage: text('previous_image'),
     containerId: text('container_id'),
     /**
      * 该实例在**宿主回环**上发布的端口，入口（Traefik）按它转发。
      *
-     * 为什么必须有：microVM 下每台 VM 的 guest IP 都一样（`192.168.127.2`），
-     * 宿主只能靠发布端口区分实例（smolvm 的 `-p`，**不支持自动分配**）。
-     * 所以这是实例在宿主上的**地址**，不是可选配置。
+     * 为什么必须有：实例只把桥端口发布到**宿主回环**，入口不按容器名解析、只认这个端口。
+     * 所以它是实例在宿主上的**地址**，不是可选配置。
      *
      * 唯一约束由数据库兜底；跨实例冲突会让启动直接失败，所以分配前必须真探端口。
-     * 可为空 —— 存量行（Docker 时代）没有这个值，重建时才会分配。
+     * 可为空 —— 存量行没有这个值，重建时才会分配。
      */
     hostPort: integer('host_port').unique(),
     cpus: real('cpus').notNull(),
     memoryMb: integer('memory_mb').notNull(),
     pidsLimit: integer('pids_limit').notNull().default(512),
     /**
-     * 磁盘配额。**语义已变**：Docker 时代它是数据文件系统的大小（D18，由 host-storage
-     * 落地成宿主上的 ext4）；microVM 下它是运行时的可写数据盘上限（`--storage`，GiB），
-     * 数据本身走 `:staged` 的宿主目录、不再由它承载。
+     * 磁盘配额。**语义已变**：现在它只是数据卷**声明的容量**，记进卷的 label，用于展示和
+     * 按同容量重建 —— Docker 命名卷没有硬配额，真正的上限要宿主侧文件系统配额
+     * （XFS project quota）来实现，见 `DockerDriver.createStorage`。
      *
-     * 仍是 MB 粒度（对外接口不变），传运行时前由 `diskMbToGiB` 向上取整。
+     * 仍是 MB 粒度（对外接口不变）。
      */
     diskMb: integer('disk_mb').notNull().default(10_240),
     /** 最近一次编排失败的原因，供管理台显示。 */
@@ -156,7 +155,7 @@ export const instanceMetric = pgTable(
   'instance_metric',
   {
     id: text('id').primaryKey(),
-    /** 实例记录删了就跟着删——指标属于记录，不属于数据文件系统。 */
+    /** 实例记录删了就跟着删——指标属于记录，不属于数据卷。 */
     instanceId: text('instance_id')
       .notNull()
       .references(() => instance.id, { onDelete: 'cascade' }),

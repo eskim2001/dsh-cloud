@@ -13,10 +13,7 @@
     "test:security": "DSH_SECURITY_INTEGRATION=1 vitest run src/db/instance-repo.integration.test.ts src/instance/traefik.integration.test.ts",
     "db:generate": "node --env-file-if-exists=.env.local node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "node --env-file-if-exists=.env.local node_modules/drizzle-kit/bin.cjs migrate",
-    "db:seed": "node --env-file-if-exists=.env.local --import tsx scripts/seed.ts",
-    "spike": "tsx scripts/spike-instance.ts",
-    "check:storage": "tsx scripts/check-storage.ts",
-    "migrate:img": "node --env-file-if-exists=.env.local --import tsx scripts/migrate-to-img.ts"
+    "db:seed": "node --env-file-if-exists=.env.local --import tsx scripts/seed.ts"
   },
   "dependencies": {
     "@dsh-cloud/instance-spec": "workspace:*",
@@ -26,7 +23,6 @@
     "dockerode": "^4.0.4",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.12.3",
-    "microsandbox": "^0.6.18",
     "postgres": "^3.4.9",
     "yaml": "^2.9.0",
     "zod": "^3.24.1"

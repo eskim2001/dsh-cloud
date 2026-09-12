@@ -385,7 +385,7 @@ describe('改配额：扩容（数据卷的容量建时定死，改不了）', (
   })
 })
 
-describe('改配额：缩容（microVM 的盘只扩不缩）', () => {
+describe('改配额：缩容（数据卷不能原地缩容）', () => {
   it('目标小于当前 → 直接拒绝，运行时和配额都不动', async () => {
     findById.mockResolvedValue(row())
     const fakes = build()
@@ -395,8 +395,7 @@ describe('改配额：缩容（microVM 的盘只扩不缩）', () => {
     ).rejects.toThrow(DiskShrinkUnsupportedError)
 
     // 关键：**动任何东西之前就拒绝** —— 不探用量、不停机、不删机器、不落库。
-    // 这跟 Docker 时代不同：那时会先探已用、再卸文件系统试缩，失败才回滚。
-    // microVM 直接说明「只能扩」，所以一条运行时调用都不该发生。
+    // 卷的容量创建时定死、没有原地缩容 API，所以一条运行时调用都不该发生。
     expect(fakes.calls.usage).not.toHaveBeenCalled()
     expect(fakes.calls.snapshot).not.toHaveBeenCalled()
     expect(fakes.calls.stopInstance).not.toHaveBeenCalled()
@@ -544,8 +543,8 @@ describe('换镜像：升级', () => {
 
     const updated = await makeProvisioner(fakes).setImage('i-1', NEW_IMAGE)
 
-    // 先**优雅停机**（`:staged` 靠这一步把 guest 的写入回传宿主），再打快照。
-    // 这里不是「删容器」——直接删会丢掉未回传的写入。
+    // 先**优雅停机**（让 dsh 把会话写完落进卷），再打快照。
+    // 这里不是「删容器」——直接删会丢掉还没落盘的写入。
     expect(fakes.calls.stopInstance).toHaveBeenCalledWith('dsh-instance-alice')
     expect(fakes.calls.snapshot).toHaveBeenCalledWith('alice')
     expect(update).toHaveBeenCalledWith({}, 'i-1', {

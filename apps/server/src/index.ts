@@ -1,4 +1,3 @@
-import { join } from 'node:path'
 import { buildApp } from './app.js'
 import { createAuth } from './auth.js'
 import { createDb } from './db/client.js'
@@ -13,23 +12,15 @@ import { InstanceOrchestrator } from './instance/orchestrator.js'
 import { InstanceProvisioner } from './instance/provisioner.js'
 import { reconcileInstances } from './instance/reconciler.js'
 import { syncRoutesFromInstances } from './instance/routes-sync.js'
-import { MicrosandboxDriver } from './runtime/microsandbox/driver.js'
+import { DockerDriver } from './runtime/docker/driver.js'
 
 const env = loadEnv()
 const { db } = createDb(env.DATABASE_URL)
 
 const auth = createAuth(env, db)
 
-// microsandbox 的家目录（**镜像缓存、sqlite 注册表、实例命名卷**都在它下面）指到我们
-// 自己的数据根。不设的话实例数据会落在 `~/.microsandbox` 那种点目录里 —— 平台的备份、
-// 磁盘盘点、「数据在哪」全都答不上来。
-//
-// ⚠️ **必须在任何卷/沙箱出现之前设**：绑定层只在初始化时读一次，晚了会把注册表和实际
-// 文件分到两个地方。⚠️ 代价：整个家目录一起搬，共享的镜像缓存会重拉一次。
-process.env.MSB_HOME = join(env.HOST_STORAGE_ROOT, '.msb')
-
 // 运行时驱动是**唯一**接触具体运行时的接口（见 runtime/driver.ts）。
-const driver = new MicrosandboxDriver()
+const driver = new DockerDriver()
 const orchestrator = new InstanceOrchestrator(driver, env.INSTANCE_IMAGE_REPO)
 // 数据卷是运行时的概念，原语在驱动上；DataStore 只留策略（见 instance/data-store.ts）。
 const dataStore = new DataStore({ driver })
@@ -86,7 +77,7 @@ const reconcile = async (): Promise<void> => {
 /**
  * 周期性的孤儿清理。
  *
- * 以前这里还带一个 `sync` —— `:staged` 时代靠它把 guest 内的写入回传宿主，两次之间的
+ * 以前这里还带一个 `sync` —— microVM 时代靠它把 guest 内的写入回传宿主，两次之间的
  * 写入在异常掉电时会丢。数据改成「运行时管理的卷」之后就没有「回传」这回事了：写入直接
  * 落在卷上，没有窗口可压缩。所以只剩 `heal`。
  *
@@ -127,8 +118,7 @@ const reconcileTimer = setInterval(() => {
 reconcileTimer.unref()
 
 // 用量采样：一分钟一轮，顺带清理 30 天前的点。
-// ⚠️ 当前运行时**没有用量采样接口**，`stats` 恒为 undefined → 采样任务会跳过这些轮次，
-// 指标表里只有磁盘用量。这是有意降级，不是坏了（见 runtime/driver.ts 的 stats）。
+// Docker 原生给 stats，所以 CPU / 内存和磁盘用量都能采到。
 const stopSampler = startMetricsSampler({
   listRunning: async () => (await listAllInstances(db)).filter((r) => r.status === 'running'),
   stats: (machineNameOrId) => orchestrator.stats(machineNameOrId),

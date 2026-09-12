@@ -1,11 +1,12 @@
 # 容器模式评估：Docker + gVisor + XFS 配额
 
 > 2026-09-11。评估「不需要 KVM 的容器方案」能否满足平台的目标、代价是什么。
-> 结论供 M1.5「能装」选型参考，**尚未成为决策**。
+> **落地情况**：这份评估的结论**已经被采纳** —— 运行时改回了 Docker（见 [ARCHITECTURE §四](ARCHITECTURE.md)
+> 与 DECISIONS 里 D31 的作废说明）。所以下面「尚未成为决策」那句话读作历史。
 
 ## 背景
 
-实例运行时现在是 microVM（microsandbox）。隔离最强，但它硬性要求宿主有 KVM。
+写这份评估时，实例运行时是 microVM（microsandbox）。隔离最强，但它硬性要求宿主有 KVM。
 
 在一台普通 VPS 上实测（Debian 13、4 核、8G、ext4），这台机器自己就是别人的 KVM guest：
 

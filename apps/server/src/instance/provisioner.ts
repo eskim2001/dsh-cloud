@@ -56,9 +56,9 @@ export class SlugConfirmMismatchError extends Error {
 /**
  * 要求缩小磁盘配额。
  *
- * **microVM 的磁盘只扩不缩**：smolvm 的 `--storage` 只接受更大的值（`machine update` 也标注
- * `expand only`）。所以这里**明确拒绝**，而不是像 Docker 时代那样去 `resize2fs`——
- * 更不能用「静默忽略」糊过去（smolvm 自己缺 e2fsprogs 时就是静默忽略，我们已经踩过）。
+ * **卷的容量在创建时就定死了**，没有原地缩容的 API。所以这里**明确拒绝**，而不是靠
+ * 「改库 + 重启」假装成功 —— 那会让管理台显示新配额、用户灌满才发现没变，等于把谎言
+ * 写进数据库。见 `DiskGrowUnsupportedError`。
  */
 export class DiskShrinkUnsupportedError extends Error {
   constructor(fromMb: number, toMb: number) {
@@ -73,8 +73,7 @@ export class DiskShrinkUnsupportedError extends Error {
 /**
  * 磁盘**扩容**也做不了：数据卷的容量在创建时定死。
  *
- * 命名磁盘卷没有原地扩容的 API（`Volume.builder().create()` 对同名卷直接抛），
- * 所以只能「建一块更大的卷 → 迁移 → 换过去」，还没做。
+ * 命名卷没有原地扩容的 API，所以只能「建一块更大的卷 → 迁移 → 换过去」，还没做。
  *
  * **必须响亮拒绝，不能像从前那样假装成功**：旧实现改了库、重启了实例，但卷的容量
  * 一个字节没变 —— 管理台显示新配额，用户灌满才发现还是老尺寸。那是把谎言写进数据库。
@@ -168,7 +167,7 @@ export class InstanceProvisioner {
     const row = await createInstanceRecord(this.db, newInstance, this.env.MAX_INSTANCES_PER_USER)
 
     try {
-      // 新建：数据文件系统允许在这里第一次创建
+      // 新建：数据卷允许在这里第一次创建
       return await this.applyRuntime(row, { createData: true })
     } catch (err) {
       return await this.failWith(row.id, err)
@@ -190,7 +189,7 @@ export class InstanceProvisioner {
   /**
    * 停实例。可逆——机器和数据都留着，`start` 能原样起来。
    *
-   * **顺带是一次数据落盘**：`:staged` 靠优雅停机把 guest 的写入回传宿主，
+   * **顺带是一次落盘**：优雅停机让容器里的 dsh 有时间把会话写完，
    * 所以「停」不只是省资源，也是把最近一段写入变持久的手段。
    * 停下来的实例不进 Traefik 投影，所以同步一次路由把它摘掉。
    */
@@ -211,8 +210,8 @@ export class InstanceProvisioner {
   /**
    * 启动实例。容器已经不在（被 prune / 手动删）就回落重建——数据不动，内容保留。
    *
-   * **起容器前必须先确认数据文件系统挂上了**：宿主重启后挂载全没了，而容器还在、
-   * 状态是 exited——直接 `start` 会让它 bind 到空目录，用户看到「数据没了」（D18）。
+   * **起容器前必须先确认数据卷在**：卷被删掉后 Docker 会默默建一个空卷顶上
+   * （见 `DockerDriver.create`），用户看到「数据没了」（D18）。
    */
   async start(id: string): Promise<InstanceRow> {
     const row = await findInstanceById(this.db, id)
@@ -220,12 +219,12 @@ export class InstanceProvisioner {
     if (row.containerId === null) return this.applyRuntime(row)
 
     try {
-      // 机器不在了（被 prune / 手动删）→ 回落重建。数据在宿主目录里，内容保留。
+      // 机器不在了（被 prune / 手动删）→ 回落重建。数据在卷里，内容保留。
       if ((await this.orchestrator.inspectStatus(row.containerId)) === 'unknown') {
         return await this.applyRuntime(row)
       }
 
-      // 数据目录**只 ensure 不新建**：目录不见了就抛错，别静默建个空的把
+      // 数据卷**只 ensure 不新建**：卷不见了就抛错，别静默建个空的把
       // 「数据丢了」伪装成正常——这条铁律从 D18 继承下来，是这一层最重要的一条。
       await this.dataStore.ensure(row.storageKey)
       await this.orchestrator.startInstance(row.containerId)
@@ -239,7 +238,7 @@ export class InstanceProvisioner {
   }
 
   /**
-   * 删实例。默认**保留数据文件系统**——删实例不等于删数据，用同一个子域名重建还能拿回来。
+   * 删实例。默认**保留数据卷**——删实例不等于删数据，用同一个子域名重建还能拿回来。
    * 只有 `purgeVolume` + 子域名确认都给了才连它删，那一步不可逆。
    *
    * 顺序有意如此：先摘路由再删容器，否则容器删到一半时流量还会打进来。
@@ -257,7 +256,7 @@ export class InstanceProvisioner {
       await this.syncRoutes()
 
       // ② 先优雅停，再删机器。顺序不能反：
-      //    `:staged` 靠**优雅停机**把 guest 的写入回传宿主，直接删会丢掉未回传的部分。
+      //    优雅停机让 dsh 把未落盘的会话写完，直接删会丢掉这一部分。
       //    而这一步之后数据默认是**保留**的（除非明确 purgeVolume）——丢了就是真丢。
       //    机器名用 slug 现算，不读 row.containerId（它可能已经是 null）。
       await this.orchestrator.stopInstance(machineName(row.slug))
@@ -279,12 +278,12 @@ export class InstanceProvisioner {
   /**
    * 改资源配额（D17：创建后只有管理员能改）。
    *
-   * **CPU / 内存 / pids** 只在建沙箱时生效 → 改了必须重建（中断几秒，数据不动）。
+   * **CPU / 内存 / pids** 只在建容器时生效 → 改了必须重建（中断几秒，数据不动）。
    * **磁盘不在其列**：容量在建数据卷时就定死了，`setQuota` 两个方向都直接拒绝 ——
    * 见 `DiskGrowUnsupportedError` / `DiskShrinkUnsupportedError`。
    *
-   * 原本在跑的实例重建后照旧运行；原本停着的**保持停止** —— 只把旧沙箱删掉
-   * （否则 `start` 会复用旧沙箱、带着旧配额起来），等用户自己 `start`。
+   * 原本在跑的实例重建后照旧运行；原本停着的**保持停止** —— 只把旧容器删掉
+   * （否则 `start` 会复用旧容器、带着旧配额起来），等用户自己 `start`。
    */
   async setQuota(id: string, quota: QuotaInput): Promise<InstanceRow> {
     const row = await findInstanceById(this.db, id)
@@ -323,7 +322,7 @@ export class InstanceProvisioner {
    *
    * 顺序：校验 → 停容器 → 快照 → 落库 → 重建。每一步都有明确退路：
    * - 校验不通过：什么都没碰。
-   * - 快照失败（多半是宿主空间不够）：文件系统只是被卸载了，按原规格把实例恢复起来。
+   * - 快照失败（多半是宿主空间不够）：容器已停、数据卷没动，按原规格把实例恢复起来。
    * - 新镜像起不来：**自动回滚**——数据回快照、镜像回旧版，然后抛错说明原因。
    *
    * 停机时间 = 停容器 + 复制已用数据 + 启动。数据越多越久（100MB 秒级，
@@ -344,12 +343,12 @@ export class InstanceProvisioner {
 
     const wasRunning = row.status === 'running'
 
-    // ① 优雅停机器：**`:staged` 靠这一步把 guest 的写入回传宿主**。
-    //    这里绝不能用删除/强杀代替——那会丢掉所有未回传的数据。
-    //    停下之后宿主数据目录才是最新的一致状态，才谈得上打快照。
+    // ① 优雅停机器：让 dsh 把会话写完落进卷。
+    //    这里绝不能用删除/强杀代替——那会丢掉还没落盘的数据。
+    //    停下之后卷才是最新的状态，才谈得上打快照。
     await this.orchestrator.stopInstance(machineName(row.slug))
 
-    // ② 快照宿主数据目录。失败时机器已停、数据一个字节没动——按原规格重建就回到原样。
+    // ② 快照数据卷。失败时机器已停、数据一个字节没动——按原规格重建就回到原样。
     try {
       await this.dataStore.snapshot(row.storageKey)
     } catch (err) {
@@ -417,8 +416,8 @@ export class InstanceProvisioner {
   ): Promise<InstanceRow> {
     const row = await findInstanceById(this.db, id)
     if (row === undefined) throw new Error(`实例不存在：${id}`)
-    // 先优雅停（回传 guest 的写入），再用快照覆盖 —— 顺序反了就会拿旧数据
-    // 盖掉刚从 guest 同步回来的新数据。
+    // 先优雅停（把未落盘的写入写完），再用快照覆盖 —— 顺序反了就会拿旧数据
+    // 盖掉刚写完的新数据。
     await this.orchestrator.stopInstance(machineName(row.slug))
 
     await this.dataStore.restoreSnapshot(row.storageKey)
@@ -471,7 +470,7 @@ export class InstanceProvisioner {
 
     if (opts.requireLocal === false) return
 
-    // 运行时若根本报不了本地镜像（smolvm 1.14.6 就是），跳过这一关：
+    // 运行时若报不了本地镜像（`canReportLocalImages` 为 false），跳过这一关：
     // 把「不给信息」当成「本地没有」会让升级永远被拒。真正用到时创建那一步会自己拉。
     if (!this.orchestrator.canReportLocalImages) return
 

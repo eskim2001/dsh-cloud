@@ -68,8 +68,8 @@ export class InstanceOrchestrator {
   /**
    * 确保镜像在宿主上，缺了就从注册表拉（D23）。本地优先——已有直接返回。
    *
-   * **兜底**：microsandbox 下 `create` 会按 `if-missing` 自己拉，驱动的 `ensureImage`
-   * 是空操作；留着这一层是为了别的运行时实现可能真的需要。
+   * **兜底 + 去重**：驱动的 `ensureImage` 会真的把镜像准备好；这一层负责准入与并发去重 ——
+   * 同一版同时被两个实例要时只拉一次。
    */
   async ensureImage(ref: string): Promise<void> {
     if (await this.imageExists(ref)) return
@@ -142,8 +142,8 @@ export class InstanceOrchestrator {
   }
 
   /**
-   * 探服务本身。**不能用 `inspectStatus` 代替**：运行时会用空转容器顶替崩溃的工作负载，
-   * 状态照样报 running（smolvm 实测），只有真连端口才分得清死活。
+   * 探服务本身。**不能用 `inspectStatus` 代替**：容器 running 不等于端口有人在听
+   * （启动窗口），只有真连端口才分得清死活。
    */
   probeHealthy(machineName: string, hostPort: number): Promise<boolean> {
     return this.driver.probeHealthy(machineName, hostPort)
