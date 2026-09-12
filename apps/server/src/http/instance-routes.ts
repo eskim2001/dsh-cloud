@@ -2,7 +2,6 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
   ImageRefSchema,
   InstanceSlugSchema,
-  OPEN_PATH,
   isReservedSlug,
 } from '@dsh-cloud/instance-spec'
 import { z } from 'zod'
@@ -26,7 +25,7 @@ const CreateBodySchema = z.object({
   memoryMb: z.number().int().positive().max(16_384).default(2048),
   pidsLimit: z.number().int().positive().max(4096).default(512),
   // 自助上限比管理员宽（D17）：这里 100GB，管理员能到 1TB。
-  // 下限 128MB——再小 ext4 建不出来。
+  // 下限 128MB —— 卷声明容量的下限（命名卷没有硬配额，这个值只记进 label）。
   diskMb: z.number().int().min(128).max(102_400).default(10_240),
   /** 自选版本，留空用平台默认版本。合法性（已发布 / 平台仓库）由 provisioner 判。 */
   image: ImageRefSchema.optional(),
@@ -222,7 +221,7 @@ export async function registerInstanceRoutes(
       return { instance: toPublicInstance(updated, deps.env, await liveStates(req)) }
     })
 
-    // 默认保留数据文件系统；?purge=true&confirmSlug=<slug> 才连它一起删（不可逆）
+    // 默认保留数据卷；?purge=true&confirmSlug=<slug> 才连它一起删（不可逆）
     scope.delete('/api/instances/:id', async (req: AuthedRequest, reply) => {
       const row = await ownedRow(req)
       if (row === undefined) return reply.code(404).send({ error: '实例不存在' })
@@ -363,7 +362,12 @@ function toPublicInstance(row: InstanceRow, env: Env, states: ContainerStates | 
     stoppedAt: row.stoppedAt,
     hasContainer: row.containerId !== null,
     createdAt: row.createdAt,
-    /** 「打开 dsh」入口：桥在这条路径上注入入口 token（D14）。 */
-    url: `${env.PUBLIC_SCHEME}://${row.slug}.${env.BASE_DOMAIN}${OPEN_PATH}`,
+    /**
+     * 「打开 dsh」入口：**裸域名**。
+     *
+     * 桥在「无 cookie 的 `GET /`」上注入入口 token（见 docker/instance-image/Caddyfile），
+     * 所以不需要任何专门的路径 —— 用户拿到哪个 URL，跳完之后浏览器里就停在哪个。
+     */
+    url: `${env.PUBLIC_SCHEME}://${row.slug}.${env.BASE_DOMAIN}/`,
   }
 }
