@@ -261,6 +261,35 @@ export class DockerDriver implements RuntimeDriver {
   }
 
   /**
+   * 这个 key 的数据**实际**有没有硬配额。
+   *
+   * 判断是"宿主有池子 **且** 这个 key 在池子的注册表里"——后者挡的是"有目录但没配额"那种
+   * 半截状态；UI 必须**如实**呈现（显示一个没生效的上限，比不显示更糟）。
+   */
+  async storageEnforced(key: string): Promise<boolean> {
+    if (!this.enforced) return false
+    assertStorageKey(key)
+    return (await this.registry!.get(key)) !== undefined
+  }
+
+  /**
+   * 一次读**所有**数据的用量（key → MiB）。命名卷那条退路读不了（每卷得起一个容器）→ `undefined`。
+   *
+   * 存在的理由：列表页每一行都要显示磁盘，逐行读就是 N 次 `xfs_quota`；池化形态下
+   * 一次 `report` 就有全部答案。
+   */
+  async storageUsageAll(): Promise<Map<string, number> | undefined> {
+    if (!this.enforced) return undefined
+    const byProjid = await reportProjects(this.poolRoot)
+    const out = new Map<string, number>()
+    for (const key of await this.registry!.keys()) {
+      const rec = await this.registry!.get(key)
+      out.set(key, rec === undefined ? 0 : (byProjid.get(rec.projid)?.usedMb ?? 0))
+    }
+    return out
+  }
+
+  /**
    * 整份复制成另一份（升级 / 回退的唯一保险）。
    *
    * 池化形态下就是宿主上两个目录之间的 `cp -a`。**目标必须有自己的 project ID**：
@@ -371,6 +400,9 @@ export class DockerDriver implements RuntimeDriver {
         ),
         Memory: spec.quota.memoryMb * 1024 * 1024,
         NanoCpus: spec.quota.cpus * 1e9,
+        // pids cgroup 上限。**别省**：这是 fork bomb 的唯一护栏，spec 里一直有这个字段，
+        // 但从前没往下带 —— 于是「进程数上限」在界面上可调、在容器里完全不生效。
+        PidsLimit: spec.quota.pidsLimit,
         // 生命周期归平台管：宿主重启后由对账器决定该不该起来，别让 Docker 自己拉。
         RestartPolicy: { Name: 'no' },
       },

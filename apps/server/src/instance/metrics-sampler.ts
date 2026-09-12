@@ -82,6 +82,15 @@ export function startMetricsSampler(deps: SamplerDeps): () => void {
   return () => clearInterval(timer)
 }
 
+/**
+ * 错误 → 一行给人看的文本。
+ *
+ * ⚠️ **必须带上 `cause`**：drizzle 只在自己那层说「Failed query: ...」，而 PG 的真正原因
+ * （约束名、`invalid input syntax ...`）挂在 `cause` 上。不带它，采样失败就只剩一句
+ * 「Failed query」，看不出为什么 —— 实测因此让一个采样失败静默了很久。
+ */
 function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
+  if (!(err instanceof Error)) return String(err)
+  const cause = err.cause instanceof Error ? err.cause.message : undefined
+  return cause === undefined ? err.message : `${err.message} ← ${cause}`
 }

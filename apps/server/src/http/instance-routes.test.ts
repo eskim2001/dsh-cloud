@@ -107,6 +107,7 @@ async function build(
     listLocalImages: async () => [],
     listImageReleases: async () => [],
     readSnapshot: async () => undefined,
+    readDiskAll: async () => undefined,
     streamLogs: async () => {},
     getUserId: async () => session,
     ...rest,
@@ -522,6 +523,7 @@ describe('实例面：版本', () => {
       ],
       listLocalImages: async () => ['dsh-instance:0.1.1', 'alpine:3.20'],
       readSnapshot: async () => 42,
+      readDiskAll: async () => undefined,
     })
 
     const res = await app.inject({ method: 'GET', url: '/api/instances/i-1/image' })

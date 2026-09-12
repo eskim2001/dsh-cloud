@@ -17,7 +17,15 @@ export async function insertMetric(db: Db, input: NewMetric): Promise<void> {
     id: crypto.randomUUID(),
     instanceId: input.instanceId,
     cpuPercent: input.cpuPercent,
-    memMb: input.memMb,
+    /**
+     * ⚠️ **必须取整**：`mem_mb` 是 `integer` 列，而运行时给的是字节换算出来的小数
+     * （如 `268.5859375`）。psql 的**字面量**会隐式转换，但**绑定参数**不会 —— 直接插会报
+     * `invalid input syntax for type integer`。
+     *
+     * 而这个错误只以 `Failed query: insert into instance_metric ...` 的形式冒出来（PG 的原因
+     * 藏在 `cause` 里，被日志吞掉），于是采样**静默地一直失败**、指标表全空。
+     */
+    memMb: Math.round(input.memMb),
     diskUsedMb: input.diskUsedMb,
     ...(input.sampledAt === undefined ? {} : { sampledAt: input.sampledAt }),
   })

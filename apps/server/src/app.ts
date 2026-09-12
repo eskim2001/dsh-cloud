@@ -27,6 +27,7 @@ import { registerAdminRoutes } from './http/admin-routes.js'
 import { registerForwardAuth } from './http/forward-auth-route.js'
 import { registerSessionRoutes } from './http/session-routes.js'
 import { registerInstanceRoutes } from './http/instance-routes.js'
+import type { DiskUsed } from './http/instance-routes.js'
 import { streamContainerLogs } from './http/log-stream.js'
 import type { DataStore } from './instance/data-store.js'
 import { syncImageCatalog } from './instance/image-sync.js'
@@ -151,6 +152,17 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   })
 
   // ③ 管理台 API
+  /**
+   * 列表用：一次读全所有实例的磁盘。**两处注册（实例面 / 管理面）共用同一条实现** ——
+   * 逐行读就是 N 次调用，而这两个列表页每行都要显示磁盘。
+   */
+  const readDiskAll = async (): Promise<Map<string, DiskUsed> | undefined> => {
+    const used = await deps.dataStore.usageAll()
+    if (used === undefined) return undefined
+    // 池子注册表里的 key = 真的建了配额；不在表里的由调用方按「无上限」处理。
+    return new Map([...used].map(([key, usedMb]) => [key, { usedMb, enforced: true }]))
+  }
+
   await registerInstanceRoutes(app, {
     env: deps.env,
     provisioner: deps.provisioner,
@@ -160,8 +172,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     readStats: (containerId) => deps.orchestrator.stats(containerId),
     readDisk: async (storageKey, quotaMb) => {
       const u = await deps.dataStore.usage(storageKey)
-      return u === undefined ? undefined : { usedMb: u.usedMb, quotaMb }
+      if (u === undefined) return undefined
+      // `enforced` 必须一起给：UI 拿它决定显示「用量/配额」还是「无上限」。
+      return { usedMb: u.usedMb, quotaMb, enforced: await deps.dataStore.enforced(storageKey) }
     },
+    readDiskAll,
     listMetrics: (instanceId, limit) => listRecentMetrics(deps.db, instanceId, limit),
     listLocalImages: () => deps.orchestrator.listImageTags(),
     listImageReleases: () => listImageReleases(deps.db),
@@ -182,6 +197,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     listUsers: () => listUsersWithInstanceCount(deps.db),
     listInstances: () => listInstancesWithOwner(deps.db),
     listContainerStates: () => deps.orchestrator.listInstanceStates(),
+    readDiskAll,
     // 封禁 = 打标记 + 踢掉所有会话。少一半都封不住（见 user-repo 注释）。
     ban: async (userId, reason) => {
       if (!(await setUserBanned(deps.db, userId, true, reason))) return false

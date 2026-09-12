@@ -96,6 +96,7 @@ async function build(
     unpublishImage: async () => 'ok' as const,
     setDefaultImage: async () => true,
     readSnapshot: async () => undefined,
+    readDiskAll: async () => undefined,
     setInstanceImage: async () => true,
     rollbackInstanceImage: async () => true,
     streamLogs: async () => {},
@@ -374,6 +375,7 @@ describe('平台管理面：管理员路径', () => {
       }),
       listLocalImages: async () => ['dsh-instance:0.1.1', 'dsh-instance:0.1.0', 'alpine:3.20'],
       readSnapshot: async () => 128,
+      readDiskAll: async () => undefined,
     })
 
     const res = await app.inject({ method: 'GET', url: '/api/admin/instances/i-x/image' })

@@ -103,6 +103,17 @@ export interface RuntimeDriver {
    * 所以实现要允许"当前用量 > 新上限"这个中间状态，**不能**因此拒绝设置。
    */
   resizeStorage(key: string, sizeMb: number): Promise<void>
+  /**
+   * 这个 key 的数据**实际**有没有硬配额。`false` = 只有声明值（开发机，或池化之前建的实例）。
+   *
+   * UI 必须**如实**呈现它 —— 显示一个其实没生效的上限，比不显示更糟。
+   */
+  storageEnforced(key: string): Promise<boolean>
+  /**
+   * 一次读所有数据的用量（key → MiB）。**拿不到就返回 `undefined`**（命名卷退路），
+   * 调用方据此显示"暂无数据"，而不是编一个 0。
+   */
+  storageUsageAll(): Promise<Map<string, number> | undefined>
   /** 已用容量（MiB）。**停机时也必须可读** —— 用量面板在实例没跑的时候也要有数。 */
   storageUsageMb(key: string): Promise<number | undefined>
   /**
