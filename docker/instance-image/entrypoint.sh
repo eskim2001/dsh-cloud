@@ -29,7 +29,7 @@ while [ -z "$DSH_LAUNCH_TOKEN" ] && [ "$i" -lt 240 ]; do
   [ -n "$DSH_LAUNCH_TOKEN" ] || sleep 0.5
   i=$((i + 1))
 done
-[ -n "$DSH_LAUNCH_TOKEN" ] || echo "entrypoint: 没抓到 token，/__open 会 401" >&2
+[ -n "$DSH_LAUNCH_TOKEN" ] || echo "entrypoint: 没抓到 token，首页会 401" >&2
 export DSH_LAUNCH_TOKEN
 
 # 桥：dsh 拒绝绑非回环，必须有东西在 0.0.0.0 上听并转发。

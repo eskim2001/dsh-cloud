@@ -4,20 +4,58 @@
 }
 
 :{$BRIDGE_PORT:8080} {
-	# header 门：入口（Traefik）经 forward-auth 注入 DSH_GATE_TOKEN，直连者没有 → 403。
-	# 实例的 bridge 发布在**宿主回环**上，宿主上任何进程都够得着——这道门就是挡这些
-	# 本地进程的，不是可有可无的纵深防御。
-	@no_gate not header {$DSH_GATE_HEADER} {$DSH_GATE_TOKEN}
-	respond @no_gate "forbidden" 403
+	# route 是必须的：Caddy 默认会按自己的指令顺序重排，而 handle/respond/reverse_proxy
+	# 的相对顺序直接决定「门还在不在」——用 handle 包反代时门会被排到后面，等于门没了。
+	# route 里的顺序就是写下来的顺序。
+	route {
+		# header 门：入口（Traefik）经 forward-auth 注入 DSH_GATE_TOKEN，直连者没有 → 403。
+		# 实例的 bridge 发布在**宿主回环**上，宿主上任何进程都够得着——这道门就是挡这些
+		# 本地进程的，不是可有可无的纵深防御。必须是第一条：反代一旦跑到就先截住了。
+		@no_gate not header {$DSH_GATE_HEADER} {$DSH_GATE_TOKEN}
+		respond @no_gate "forbidden" 403
 
-	# 入口 token 注入：dsh 每次启动随机生成一个入口 token，首次访问要带在
-	# query 上才能换到 cookie（见 docs/DECISIONS.md D14）。平台把「打开 dsh」
-	# 指向 /__open，由这里补上 token 转发——token 因此不进浏览器 URL。
-	@open path /__open
-	rewrite @open /?token={env.DSH_LAUNCH_TOKEN}
+		# 入口 token 注入：dsh 只在 `GET /` 上接受 query 里的 token，核对通过后它自己
+		# 回 303 到 `/`（带 no-store / no-referrer），并把 token 换成绑 Host 的 cookie，
+		# 名字是 dsh-auth-<sha256(authority)>，前缀稳定。已经带 cookie 就不注入，所以
+		# 地址栏始终是裸域名，token 不进浏览器 URL。token 本身不过期（进程级常量），
+		# 会过期的是 cookie（cookieMaxAgeDays，默认 30 天）。
+		#
+		# 必须 header_regexp 而不是 header：后者是**整值**匹配，而 Cookie 是个 `; ` 分隔的
+		# 列表，一旦有别的 cookie 排在前面就不匹配了。正则是在整串里找，不受顺序影响。
+		# 必须排除已带 token 的请求：否则 dsh 303 回 `/` 后会被再重写一次 → 无限跳。
+		@first {
+			method GET
+			path /
+			not query token=*
+			not header_regexp Cookie `(^|;\s*)dsh-auth-`
+		}
+		rewrite @first /?token={env.DSH_LAUNCH_TOKEN}
 
-	reverse_proxy 127.0.0.1:{$DSH_PORT:3080} {
-		# dsh 大量用流式输出（SSE），不要缓冲
-		flush_interval -1
+		# 「有 cookie」不等于「cookie 有效」，而 Caddy 验不了签名。失效的 cookie（换过
+		# 实例/卷，或别的端口留下的同名 cookie——cookie 不区分端口，而名字里的 authority
+		# 含端口）会让请求直接落到 dsh 的 401，用户就卡死在 "reopen the URL printed by
+		# dsh web" 上，没有出口。所以给「没带 token、且不是 /api」的请求接一层 401 自愈：
+		# 换成带 token 的地址，dsh 优先认 token、忽略坏 cookie，于是重新下发有效 cookie。
+		#
+		# 两条排除：带 token 的请求（正是自愈跳过去的那条）不再进这一支 → 防环；
+		# /api 的 401 原样透出 → 不把 XHR 的 401 变成 HTML 跳转。
+		@heal {
+			not query token=*
+			not path /api/*
+		}
+		reverse_proxy @heal 127.0.0.1:{$DSH_PORT:3080} {
+			# dsh 大量用流式输出（SSE），不要缓冲
+			flush_interval -1
+			@unauth status 401
+			handle_response @unauth {
+				header Location /?token={env.DSH_LAUNCH_TOKEN}
+				respond "" 302
+			}
+		}
+
+		# 其余（带 token 的、/api 的）：直通，不做自愈
+		reverse_proxy 127.0.0.1:{$DSH_PORT:3080} {
+			flush_interval -1
+		}
 	}
 }
