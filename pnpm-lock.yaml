@@ -136,6 +136,9 @@ importers:
       vite:
         specifier: ^6.0.5
         version: 6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13)(yaml@2.9.0)
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
 
   packages/instance-spec:
     dependencies:
