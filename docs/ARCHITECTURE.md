@@ -26,7 +26,7 @@
     │  Postgres           │    │            127.0.0.1:3080     │
     │  control_net        │    │   卷 /data（workspace+会话+   │
     └─────────▲──────────┘    │        插件+配置）            │
-              │ dockerode      │   cpu/mem 有上限 · 磁盘无硬限  │
+              │ dockerode      │   cpu/mem 有上限 · 磁盘有硬限  │
               └────────────────┴──────────────────────────────┘
 ```
 
@@ -69,7 +69,7 @@
 | 通道 | 堵法 |
 |---|---|
 | **网络** | 实例的桥端口只发布到**宿主回环** `127.0.0.1`，不对局域网暴露。⚠️ 但**回环不等于隔离**：同 daemon 的容器可以经 `host.docker.internal` 够到宿主的回环端口（macOS / Docker Desktop 实测如此；Linux 宿主待验）。所以**跨实例真正的闸门是每实例的门 token** —— `HMAC(secret, "dsh-cloud:gate:<slug>")`，见 `instance/gate-token.ts`：A 拿自己的 token 打 B 会被 403。拦住的**是门，不是网络不可达** |
-| **文件** | 每实例一块独立的 **Docker 命名卷**（挂 `/data`），按 `storage_key` 定位，不能靠复用 slug 接管。删容器不删卷 → 重建不丢数据 |
+| **文件** | 每实例一份**独立的数据目录** —— 池子里的 `<pool>/<key>`，带自己的 project quota（配额落不了地的宿主上退回命名卷，见下），按 `storage_key` 定位，不能靠复用 slug 接管。删容器不删数据 → 重建不丢数据 |
 | **凭据** | 实例里零跨实例凭据：无 DB 凭据、无平台密钥、无 Docker socket、无全局共享 HMAC |
 | **控制面** | 入口（Traefik）经**宿主回环端口**转发；日志 / 用量等观测全部来自平台侧 |
 
@@ -79,12 +79,14 @@
   macOS 的 Docker Desktop 上无解
 - 健康判定**不能只信容器的自报状态**：容器 `running` 不等于工作负载在服务（启动窗口期，或 entrypoint 里
   dsh / caddy 已经崩了但容器还没退）。真正的死活走 `InstanceOrchestrator.probeHealthy`（**真连入口端口**）
-- **磁盘没有配额**：Docker 命名卷没有硬上限 —— 它只是宿主文件系统上的一个目录，实例能把它写满宿主盘
-  （**把整台机器上所有实例一起拖垮**，而且触发门槛很低）。`diskMb` 目前只是**声明**（记在卷 label 上供展示
-  和复制时重建）。真配额只能靠宿主文件系统的 project quota（XFS / ext4），**仅 Linux**；而**开发机
-  （macOS / Docker Desktop）上连这条路都没有** —— 实测它的 linuxkit 内核把配额整块裁了
-  （`CONFIG_XFS_QUOTA` 未设、`QFMT_V1`/`QFMT_V2` 未设），`mount -o pquota` / `-o usrquota` 一律 EINVAL。
-  见 [RUNTIME-CONTAINER-EVAL](RUNTIME-CONTAINER-EVAL.md)
+- **磁盘配额：Linux 上是硬限，开发机只警告**：实例数据落在一块以 `pquota` 挂载的 XFS 池上，每实例一个
+  project quota（**字节 + inode 双限**）—— 池子灌满时租户拿到 `ENOSPC`，写不穿到宿主盘。
+  **开发机（macOS / Docker Desktop）做不到**：它的 linuxkit 内核把配额整块裁了
+  （`CONFIG_XFS_QUOTA` 未设、`QFMT_V1`/`QFMT_V2` 未设），`mount -o pquota` / `-o usrquota` 一律 EINVAL
+  → 那里退回命名卷、**不强制**，界面上的「配额」一律标成「无上限」。
+  安全代价要说清：**池化把"物理隔离"换成了"逻辑隔离"** —— 全靠配额设对，而设配额是特权操作、失败是静默的，
+  所以启动有一条自检，设不上就**拒绝启动**。见 [storage/README.md](storage/README.md)、D18、
+  [RUNTIME-CONTAINER-EVAL](RUNTIME-CONTAINER-EVAL.md)
 - **宿主回环上的「无门」服务对容器可见**（macOS / Docker Desktop 实测）：控制面 API 与 Postgres 都只听宿主
   回环、且没有门，开发机上一个租户容器能直连它们。生产宿主是 Linux 时这条是否成立**待验** —— Linux 上
   `host-gateway` 指向网桥网关，够不到绑 `127.0.0.1` 的 socket
@@ -105,7 +107,7 @@
 | PID 1 | 镜像里的 **tini**（agent 大量 spawn 子进程，必须收僵尸） |
 | 命名空间 / 内核 | **Docker 默认**：进程 / 挂载 / 网络命名空间独立，但**共享宿主内核**（逃逸即宿主失陷） |
 | capabilities | ⚠️ **没有 drop** —— 用 Docker 默认能力集（含 CHOWN / DAC_OVERRIDE / SETUID 等，不含 SYS_ADMIN） |
-| pids 限制 | ⚠️ **没设** —— schema 里有 `pidsLimit`（默认 512），但渲染器没往下带、驱动也没设 `HostConfig.PidsLimit` |
+| pids 限制 | `HostConfig.PidsLimit = spec.quota.pidsLimit`（默认 512）—— 2026-09-13 才真正接上：此前 schema 里有这个字段、界面上也能调，但驱动没往下带，**改了不生效** |
 | 内存 / CPU | `HostConfig.Memory` / `NanoCpus`（上限而非预留） |
 | `no-new-privileges` / seccomp | ⚠️ **没做**（Docker 默认 seccomp profile 生效，但没有额外收紧） |
 | 网络 | 桥端口**只发布到宿主回环**；Linux 上容器够不到它（[OPEN-QUESTIONS #4](OPEN-QUESTIONS.md) 实测） |
@@ -144,14 +146,19 @@
 | **实例所有者** | 自己的 dsh、workspace、用量指标、日志 | 他人的实例 —— 登录了平台不等于能开别人的实例 |
 | **平台管理员** | 用户 / 配额 / 镜像版本，实例状态与容器日志 | 平台**没有**读取或浏览用户 `/data` 内容的界面，实例入口也**没有**绕过所有者校验的通道 |
 
-- **用量可见性**：实时 CPU / 内存 / 磁盘用量和历史指标只对所有者开放；管理台展示的是**配额**，不是他人的实时用量 —— 两者不能混为一谈。
+- **用量可见性**：实时 CPU / 内存用量和历史指标只对所有者开放。管理台看得到**配额与已用磁盘字节数** ——
+  舰队页的价值就是"一眼看出谁快写满"，看不到字节数就无从告警；但看不到 CPU / 内存的实时值，
+  更看不到 `/data` 里有什么（那是隔离边界，不是权限问题）。
 - **日志不是私有存储**：容器输出可能含用户内容或密钥，管理员能看日志不代表日志干净。
 - **宿主是另一层信任边界**：有宿主或 Docker 权限的人能访问底层存储，应用层限制不等于对宿主运营者加密 —— 这也是平台密钥 / 数据库凭据 / Docker socket 一律不进实例容器的原因（§四）。
 
 **运行限制。** 以下是刻意选的边界，不是待补的漏：
 
-- **磁盘现在没有硬限**：`diskMb` 只是声明值，一个实例能把宿主盘写满（§四 残余风险）—— 在配额落地之前，
-  宿主容量是**共用且无保护**的。容器可写层、日志、升级快照也都要另行规划容量（它们本来就不在 `diskMb` 里）。
+- **磁盘有硬限（Linux 宿主）**：实例数据落在一块以 `pquota` 挂载的 XFS 池上，每实例一个 project quota
+  （**字节 + inode 双限**），`diskMb` 就是那个硬限 —— 写满之后是**写不进去**（`ENOSPC`），不是"把宿主盘写满"。
+  **开发机（macOS / Docker Desktop）没有等价的内核支持**：那里退回命名卷、不强制配额，界面上的「配额」
+  一律标成「无上限」（见 [storage/README.md](storage/README.md) 与 D18）。容器可写层、日志、升级快照
+  仍**不在 `diskMb` 里**（升级快照拿的是独立 project ID，吃宿主真实空间），它们的容量要另行规划。
 - **镜像切换需要停机。** 回滚会同时恢复旧镜像和升级前的数据快照，**丢弃快照之后的数据变化**；每实例只保留一份升级前快照，不能替代独立备份。
 - **删除实例而不清数据**会保留数据及其归属记录；复用子域名创建的是独立文件系统，恢复旧数据要运营人员核验，不会按名称自动接回（§四 文件）。
 - **当前未包含**：计费、独立备份、完整可观测性栈、多节点运行时。状态对账与用量采样不能替代它们，推迟计划见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) §二。
