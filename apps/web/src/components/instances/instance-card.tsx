@@ -31,7 +31,7 @@ import { canOpen, isTransitioning } from '@/lib/instance-status.js'
 
 /**
  * 列表里的一张实例卡片。第一屏要能回答三个问题：**在跑吗、地址是什么、磁盘还剩多少**，
- * 所以主按钮永远是「打开 dsh」（能打开时），其余动作（停止 / 重建 / 删除）收进 `⋯`。
+ * 所以主按钮永远是「打开 dsh」（能打开时），其余动作（停止 / 重启 / 删除）收进 `⋯`。
  */
 export function InstanceCard({
   instance,
@@ -41,7 +41,6 @@ export function InstanceCard({
   onStop,
   onStart,
   onDelete,
-  onPurge,
 }: {
   instance: InstanceSummary
   /** 这个实例上有正在飞的编排动作——按钮全禁掉，别叠加。 */
@@ -51,14 +50,12 @@ export function InstanceCard({
   onRestart: () => void
   onStop: () => void
   onStart: () => void
-  onDelete: () => void
-  /** 连数据文件系统一起删——调用方已经要求输入子域名确认。 */
-  onPurge: (confirmSlug: string) => void
+  /** 删除是**永久**的，调用方已经让用户手打过子域名。 */
+  onDelete: (confirmSlug: string) => void
 }) {
   const { t, i18n } = useTranslation()
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [purgeOpen, setPurgeOpen] = useState(false)
-  const [purgeInput, setPurgeInput] = useState('')
+  const [confirmInput, setConfirmInput] = useState('')
   const { status } = instance
   const openable = canOpen(status)
   // 创建中 / 删除中：编排还在跑，除了等什么都别做
@@ -162,8 +159,20 @@ export function InstanceCard({
         </div>
       </CardContent>
 
-      {/* AlertDialogAction 不是 Close，确认后要自己关——所以 open 受控 */}
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      {/*
+        只有一道删除：**永久删除**（数据一起走）。所以确认必须够重 —— 手打子域名。
+        从前这里是两道对话框（「删除」保留数据 / 「彻底删除」清数据），用户要在两个都叫
+        "删除"的按钮里分辨哪个是哪个，而数据其实留着又没入口 —— 现在收敛成一条（D31）。
+
+        AlertDialogAction 不是 Close，确认后要自己关，所以 open 受控。
+      */}
+      <AlertDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          setConfirmOpen(open)
+          if (!open) setConfirmInput('')
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('instances.deleteTitle')}</AlertDialogTitle>
@@ -171,56 +180,14 @@ export function InstanceCard({
               {t('instances.deleteDescription', { slug: instance.slug })}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="sm:justify-between">
-            <Button
-              variant="ghost"
-              className="text-destructive"
-              onClick={() => {
-                setConfirmOpen(false)
-                setPurgeOpen(true)
-              }}
-            >
-              {t('instances.purge')}
-            </Button>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-              <AlertDialogAction
-                variant="destructive"
-                onClick={() => {
-                  setConfirmOpen(false)
-                  onDelete()
-                }}
-              >
-                {t('instances.delete')}
-              </AlertDialogAction>
-            </div>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* 不可逆：删卷，必须手打子域名 */}
-      <AlertDialog
-        open={purgeOpen}
-        onOpenChange={(open) => {
-          setPurgeOpen(open)
-          if (!open) setPurgeInput('')
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('instances.purgeTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('instances.purgeDescription', { slug: instance.slug })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
           <Field>
-            <FieldLabel htmlFor={`purge-${instance.id}`}>
-              {t('instances.purgeConfirmLabel', { slug: instance.slug })}
+            <FieldLabel htmlFor={`delete-${instance.id}`}>
+              {t('instances.deleteConfirmLabel', { slug: instance.slug })}
             </FieldLabel>
             <Input
-              id={`purge-${instance.id}`}
-              value={purgeInput}
-              onChange={(e) => setPurgeInput(e.target.value)}
+              id={`delete-${instance.id}`}
+              value={confirmInput}
+              onChange={(e) => setConfirmInput(e.target.value)}
               placeholder={instance.slug}
               autoComplete="off"
             />
@@ -229,14 +196,14 @@ export function InstanceCard({
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              disabled={purgeInput !== instance.slug}
+              disabled={confirmInput !== instance.slug}
               onClick={() => {
-                setPurgeOpen(false)
-                setPurgeInput('')
-                onPurge(purgeInput)
+                setConfirmOpen(false)
+                setConfirmInput('')
+                onDelete(confirmInput)
               }}
             >
-              {t('instances.purge')}
+              {t('instances.deleteConfirm')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -75,23 +75,23 @@
     "emptyHint": "Create one and you get an isolated dsh environment.",
     "emptyAction": "New instance",
     "createdAt": "Created",
-    "restart": "Rebuild",
+    "restart": "Restart",
     "stop": "Stop",
     "start": "Start",
     "working": "Working…",
     "more": "More actions",
     "open": "Open dsh",
     "delete": "Delete",
-    "deleteTitle": "Delete this instance?",
-    "deleteDescription": "The container and address for “{{slug}}” will be removed. Data and its ownership record are retained. Recreating the same subdomain creates a separate data filesystem; recovery requires operator verification.",
+    "deleteTitle": "Delete this instance permanently?",
+    "deleteDescription": "The container, the address and all data for “{{slug}}” are deleted for good. Just want it to stop? Use Stop — the instance and its data stay.",
     "deleteFailed": "Could not delete the instance, please retry",
-    "purge": "Delete permanently",
-    "purgeTitle": "Delete permanently?",
-    "purgeDescription": "This also removes the data filesystem for “{{slug}}” — its workspace, config and plugins are gone for good. This cannot be undone.",
-    "purgeConfirmLabel": "Type the subdomain {{slug}} to confirm",
     "pidsLimit": "Process limit",
     "pidsHint": "512 is enough by default; raise it for heavy builds ({{min}}–{{max}}).",
-    "pidsInvalid": "Enter an integer from {{min}} to {{max}}."
+    "pidsInvalid": "Enter an integer from {{min}} to {{max}}.",
+    "deleteConfirmLabel": "Type the subdomain {{slug}} to confirm",
+    "deleteConfirm": "Delete permanently",
+    "quotaUsed": "{{used}} / {{limit}} instances",
+    "quotaFull": "At the limit — delete one first"
   },
   "instanceDetail": {
     "back": "Back to instances",
@@ -109,7 +109,7 @@
     "upgrade": "Upgrade",
     "upgrading": "Upgrading…",
     "upgradeHint": "Upgrading snapshots your data first, then swaps the image — the instance is offline while it runs (longer with more data). If the new version fails to start it rolls back automatically.",
-    "noStable": "Nothing to switch to: the other published versions are not pre-warmed on this host yet.",
+    "noStable": "No other versions to switch to right now.",
     "previousVersion": "Previous version {{image}}",
     "snapshotUsage": "Pre-upgrade snapshot uses {{size}}",
     "rollback": "Roll back",
@@ -237,8 +237,7 @@
       "disk": "Disk",
       "attentionOnly": "Attention only",
       "filterAll": "All",
-      "noneMatch": "No instances match",
-      "openDetail": "Open detail"
+      "noneMatch": "No instances match"
     },
     "versions": {
       "title": "Versions",
@@ -276,7 +275,7 @@
         "failed": "Pre-warm failed"
       },
       "warmWaiting": "Connecting…",
-      "notOnHost": "Not cached on this host; it downloads automatically the first time a user creates this version",
+      "notOnHost": "Not cached on this host. Creating this version downloads it automatically, but it only appears in a user’s upgrade list after it is pre-warmed here",
       "emptyTitle": "No versions published yet",
       "emptyBody": "Users can't create instances right now. Check for updates to read the registry, then publish the version you want.",
       "loadFailed": "Failed to load versions"

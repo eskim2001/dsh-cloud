@@ -48,7 +48,7 @@ export interface InstanceOps {
   restart(id: string): Promise<InstanceRow>
   stop(id: string): Promise<InstanceRow>
   start(id: string): Promise<InstanceRow>
-  remove(id: string, opts?: RemoveInput): Promise<void>
+  remove(id: string, opts: RemoveInput): Promise<void>
   /** 换镜像（升级）。用户只能选已发布的版本——`allowAny` 只有管理员面传。 */
   setImage(id: string, image: string, opts?: { allowAny?: boolean }): Promise<InstanceRow>
   rollbackImage(id: string): Promise<InstanceRow>
@@ -58,6 +58,12 @@ export interface InstanceRouteDeps {
   env: Env
   provisioner: InstanceOps
   listMine(ownerId: string): Promise<InstanceRow[]>
+  /**
+   * 这个用户**最多能开几个实例**（个人配额 ?? 平台默认）。
+   *
+   * 列表页要把它显示成「2 / 3」—— 这是他自己的额度，不是内部数据；不知道额度就只能撞墙才知道。
+   */
+  readInstanceLimit(ownerId: string): Promise<number>
   getById(id: string): Promise<InstanceRow | undefined>
   /**
    * 全部容器的实时状态（一次 `docker ps -a`）。
@@ -174,6 +180,8 @@ export async function registerInstanceRoutes(
       const disks = await reqDiskAll(req)
       return {
         instances: rows.map((r) => toPublicInstance(r, deps.env, states, disks?.get(r.storageKey))),
+        // 连同额度一起给：列表页要显示「2 / 3」，别让用户撞上才知道
+        maxInstances: await deps.readInstanceLimit(req.userId!),
       }
     })
 
@@ -255,17 +263,16 @@ export async function registerInstanceRoutes(
       return { instance: toPublicInstance(updated, deps.env, await liveStates(req)) }
     })
 
-    // 默认保留数据卷；?purge=true&confirmSlug=<slug> 才连它一起删（不可逆）
+    // 删除 = **永久**（数据一起删）。必须回填子域名挡误操作；留下的只有主机名（见 provisioner.remove）
     scope.delete('/api/instances/:id', async (req: AuthedRequest, reply) => {
       const row = await ownedRow(req)
       if (row === undefined) return reply.code(404).send({ error: '实例不存在' })
-      const { purge, confirmSlug } = req.query as { purge?: string; confirmSlug?: string }
+      const { confirmSlug } = req.query as { confirmSlug?: string }
+      if (confirmSlug === undefined || confirmSlug === '') {
+        return reply.code(400).send({ error: '删除不可恢复，需要回填子域名确认' })
+      }
       try {
-        await deps.provisioner.remove(row.id, {
-          purgeVolume: purge === 'true',
-          // exactOptionalPropertyTypes：没传就不带这个键，别显式塞 undefined
-          ...(confirmSlug === undefined ? {} : { confirmSlug }),
-        })
+        await deps.provisioner.remove(row.id, { confirmSlug })
         return reply.code(204).send()
       } catch (err) {
         if (err instanceof SlugConfirmMismatchError) {

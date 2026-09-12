@@ -167,6 +167,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     env: deps.env,
     provisioner: deps.provisioner,
     listMine: (ownerId) => listInstancesByOwner(deps.db, ownerId),
+    // 额度 = 个人覆盖 ?? 平台默认。列表页显示它，用户就不用撞墙才知道。
+    readInstanceLimit: async (ownerId) =>
+      (await findUserById(deps.db, ownerId))?.instanceQuota ?? deps.env.MAX_INSTANCES_PER_USER,
     getById: (id) => findInstanceById(deps.db, id),
     listContainerStates: () => deps.orchestrator.listInstanceStates(),
     readStats: (containerId) => deps.orchestrator.stats(containerId),

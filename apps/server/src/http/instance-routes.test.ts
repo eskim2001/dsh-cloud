@@ -95,6 +95,7 @@ async function build(
       ...ops,
     },
     listMine: async () => [],
+    readInstanceLimit: async () => 3,
     getById: async () => undefined,
     // 单测里没有 Docker：默认让它失败，路由回退到 DB 快照（原断言不受影响）。
     // 实时状态的合并逻辑在 runtime-status.test.ts 里单测，这里只测「接得对不对」。
@@ -215,25 +216,7 @@ describe('实例面：生命周期动作', () => {
     expect(start).toHaveBeenCalledWith('i-1')
   })
 
-  it('删除默认保留卷', async () => {
-    const remove = vi.fn(async () => {})
-    const { app } = await build(ME, {
-      getById: async () => row(),
-      provisioner: {
-        create: async () => row(),
-        restart: async () => row(),
-        stop: async () => row(),
-        start: async () => row(),
-        remove,
-      },
-    })
-
-    const res = await app.inject({ method: 'DELETE', url: '/api/instances/i-1' })
-    expect(res.statusCode).toBe(204)
-    expect(remove).toHaveBeenCalledWith('i-1', { purgeVolume: false })
-  })
-
-  it('彻底删除把 purge 和子域名确认一起透传', async () => {
+  it('删除带上子域名确认，并透传给编排（删除不可逆，必须过一道确认）', async () => {
     const remove = vi.fn(async () => {})
     const { app } = await build(ME, {
       getById: async () => row(),
@@ -248,10 +231,28 @@ describe('实例面：生命周期动作', () => {
 
     const res = await app.inject({
       method: 'DELETE',
-      url: '/api/instances/i-1?purge=true&confirmSlug=alice',
+      url: '/api/instances/i-1?confirmSlug=alice',
     })
     expect(res.statusCode).toBe(204)
-    expect(remove).toHaveBeenCalledWith('i-1', { purgeVolume: true, confirmSlug: 'alice' })
+    expect(remove).toHaveBeenCalledWith('i-1', { confirmSlug: 'alice' })
+  })
+
+  it('不带确认参数 → 400，编排根本不调', async () => {
+    const remove = vi.fn(async () => {})
+    const { app } = await build(ME, {
+      getById: async () => row(),
+      provisioner: {
+        create: async () => row(),
+        restart: async () => row(),
+        stop: async () => row(),
+        start: async () => row(),
+        remove,
+      },
+    })
+
+    const res = await app.inject({ method: 'DELETE', url: '/api/instances/i-1' })
+    expect(res.statusCode).toBe(400)
+    expect(remove).not.toHaveBeenCalled()
   })
 
   it('子域名对不上 → 400（编排拒绝，路由转成可读错误）', async () => {

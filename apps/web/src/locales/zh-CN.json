@@ -74,23 +74,23 @@
     "emptyHint": "创建一个，你会得到一个独立的 dsh 环境。",
     "emptyAction": "新建实例",
     "createdAt": "创建于",
-    "restart": "重建",
+    "restart": "重启",
     "stop": "停止",
     "start": "启动",
     "working": "处理中…",
     "more": "更多操作",
     "open": "打开 dsh",
     "delete": "删除",
-    "deleteTitle": "删除实例？",
-    "deleteDescription": "「{{slug}}」的容器和访问地址会移除，数据及其归属记录会保留。同名重建会创建独立的数据文件系统；恢复旧数据需要运营人员核验。",
+    "deleteTitle": "永久删除实例？",
+    "deleteDescription": "「{{slug}}」的容器、访问地址和全部数据都会被删除，无法恢复。只想让它停下来？用「停止」—— 实例和数据都会留着。",
     "deleteFailed": "删除失败，请重试",
-    "purge": "彻底删除",
-    "purgeTitle": "彻底删除实例？",
-    "purgeDescription": "除了容器和地址，「{{slug}}」的数据文件系统也会一起删掉——里面的工作区、配置、插件全部永久消失，无法恢复。",
-    "purgeConfirmLabel": "输入子域名 {{slug}} 以确认",
     "pidsLimit": "进程数上限",
     "pidsHint": "默认 512 够用；跑重型构建可以调大（{{min}}–{{max}}）。",
-    "pidsInvalid": "请填 {{min}}–{{max}} 之间的整数。"
+    "pidsInvalid": "请填 {{min}}–{{max}} 之间的整数。",
+    "deleteConfirmLabel": "输入子域名 {{slug}} 以确认",
+    "deleteConfirm": "永久删除",
+    "quotaUsed": "{{used}} / {{limit}} 个实例",
+    "quotaFull": "已达上限，先删掉一个实例"
   },
   "instanceDetail": {
     "back": "返回实例列表",
@@ -108,7 +108,7 @@
     "upgrade": "升级",
     "upgrading": "升级中…",
     "upgradeHint": "升级会先给数据打一份快照再换镜像，期间实例会中断（数据越多越久）。新版本起不来会自动回滚。",
-    "noStable": "没有可切换的版本：其它已发布版本还没预热到本机。",
+    "noStable": "暂时没有可切换的版本。",
     "previousVersion": "上一版 {{image}}",
     "snapshotUsage": "升级前快照占用 {{size}}",
     "rollback": "回滚到上一版",
@@ -236,8 +236,7 @@
       "disk": "磁盘",
       "attentionOnly": "只看需要注意的",
       "filterAll": "全部",
-      "noneMatch": "没有符合条件的实例",
-      "openDetail": "查看详情"
+      "noneMatch": "没有符合条件的实例"
     },
     "versions": {
       "title": "版本管理",
@@ -275,7 +274,7 @@
         "failed": "预热失败"
       },
       "warmWaiting": "正在连接…",
-      "notOnHost": "本机还没缓存；用户第一次创建这个版本时会自动下载",
+      "notOnHost": "本机还没缓存。用户创建这一版时会自动下载，但升级只有预热到本机之后，这一版才会出现在用户的可选列表里",
       "emptyTitle": "还没有上架任何版本",
       "emptyBody": "用户现在创建不了实例。先「检查更新」把注册表上的版本读进来，再上架要用的那一版。",
       "loadFailed": "加载版本失败"

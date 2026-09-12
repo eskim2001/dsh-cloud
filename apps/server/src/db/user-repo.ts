@@ -132,13 +132,18 @@ export async function revokeUserSessions(db: Db, userId: string): Promise<void> 
   await db.delete(session).where(eq(session.userId, userId))
 }
 
-/** 按 id / 邮箱取账号——改角色和 seed 引导都要先知道「这个人现在是不是 admin」。 */
+/**
+ * 按 id 取账号——改角色和 seed 引导都要先知道「这个人现在是不是 admin」。
+ *
+ * `instanceQuota` 一并读出来，是为了让实例列表能告诉用户"你还能开几个"：
+ * 额度是运营配的，但**用户该知道自己的额度**，而不是撞上去才被告知。
+ */
 export async function findUserById(
   db: Db,
   userId: string,
-): Promise<{ id: string; role: string } | undefined> {
+): Promise<{ id: string; role: string; instanceQuota: number | null } | undefined> {
   const rows = await db
-    .select({ id: user.id, role: user.role })
+    .select({ id: user.id, role: user.role, instanceQuota: user.instanceQuota })
     .from(user)
     .where(eq(user.id, userId))
     .limit(1)

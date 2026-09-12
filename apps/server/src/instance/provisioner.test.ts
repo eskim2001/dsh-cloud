@@ -8,6 +8,7 @@ import {
   ImageUpgradeFailedError,
   InstanceProvisioner,
   NoRollbackError,
+  SlugConfirmMismatchError,
 } from './provisioner.js'
 
 vi.mock('../db/instance-repo.js', () => ({
@@ -16,7 +17,6 @@ vi.mock('../db/instance-repo.js', () => ({
   updateInstance: vi.fn(),
   countInstancesByOwner: vi.fn(),
   createInstanceRecord: vi.fn(),
-  deleteInstanceRecord: vi.fn(),
   retainInstanceRecord: vi.fn(),
   QuotaExceededError: class QuotaExceededError extends Error {},
 }))
@@ -27,7 +27,7 @@ vi.mock('../db/image-release-repo.js', () => ({
 }))
 vi.mock('../db/image-catalog-repo.js', () => ({ isImageInCatalog: vi.fn() }))
 
-const { findInstanceById, updateInstance, createInstanceRecord, retainInstanceRecord, deleteInstanceRecord } = await import('../db/instance-repo.js')
+const { findInstanceById, updateInstance, createInstanceRecord, retainInstanceRecord } = await import('../db/instance-repo.js')
 const { findDefaultImageRelease, isImageRelease } = await import('../db/image-release-repo.js')
 const { isImageInCatalog } = await import('../db/image-catalog-repo.js')
 const findById = vi.mocked(findInstanceById)
@@ -220,22 +220,23 @@ describe('storage ownership across lifecycle operations', () => {
     expect(fakes.calls.createInstance).toHaveBeenCalledWith(expect.objectContaining({ slug: 'alice' }), expect.objectContaining({ storageKey: 'unique-data-key' }))
   })
 
-  it('keeps the ownership record when deleting without a purge', async () => {
+  it('删除 = 数据真删（含快照），只把行留成主机名占位', async () => {
     findById.mockResolvedValue(row({ storageKey: 'unique-data-key' }))
     const fakes = build()
-    await makeProvisioner(fakes).remove('i-1')
+    await makeProvisioner(fakes).remove('i-1', { confirmSlug: 'alice' })
+    expect(fakes.dataStore.destroy).toHaveBeenCalledWith('unique-data-key')
     expect(retainInstanceRecord).toHaveBeenCalledWith({}, 'i-1')
-    expect(deleteInstanceRecord).not.toHaveBeenCalled()
-    expect(fakes.dataStore.destroy).not.toHaveBeenCalled()
   })
 
-  it('purges only the selected storage key after slug confirmation', async () => {
+  it('子域名对不上 → 拒绝，且什么都不动（容器、数据、路由都在）', async () => {
     findById.mockResolvedValue(row({ storageKey: 'unique-data-key' }))
     const fakes = build()
-    await makeProvisioner(fakes).remove('i-1', { purgeVolume: true, confirmSlug: 'alice' })
-    expect(fakes.dataStore.destroy).toHaveBeenCalledWith('unique-data-key')
-    expect(deleteInstanceRecord).toHaveBeenCalledWith({}, 'i-1')
-    expect(retainInstanceRecord).not.toHaveBeenCalled()
+    await expect(
+      makeProvisioner(fakes).remove('i-1', { confirmSlug: '不是这个名字' }),
+    ).rejects.toThrow(SlugConfirmMismatchError)
+    expect(fakes.dataStore.destroy).not.toHaveBeenCalled()
+    expect(fakes.calls.removeInstance).not.toHaveBeenCalled()
+    expect(fakes.calls.syncRoutes).not.toHaveBeenCalled()
   })
 
   it('uses the same storage key for upgrade snapshots, rollback and rebuild', async () => {
@@ -254,12 +255,12 @@ describe('storage ownership across lifecycle operations', () => {
 describe('存量实例的 slug 落进保留字表之后', () => {
   // 保留字是**创建期命名政策**。对库里已有的行再判一次，会让扩表把存量实例变成
   // 「打不开也删不掉」——所以这里盯住：slug 是保留字，生命周期照样走完。
-  it('purge 删除照常走完，不因为 slug 是保留字而失败', async () => {
+  it('删除照常走完，不因为 slug 是保留字而失败', async () => {
     findById.mockResolvedValue(row({ slug: 'test', storageKey: 'unique-data-key' }))
     const fakes = build()
-    await makeProvisioner(fakes).remove('i-1', { purgeVolume: true, confirmSlug: 'test' })
+    await makeProvisioner(fakes).remove('i-1', { confirmSlug: 'test' })
     expect(fakes.dataStore.destroy).toHaveBeenCalledWith('unique-data-key')
-    expect(deleteInstanceRecord).toHaveBeenCalledWith({}, 'i-1')
+    expect(retainInstanceRecord).toHaveBeenCalledWith({}, 'i-1')
   })
 
   it('start 照常按规格重建容器', async () => {
@@ -468,7 +469,7 @@ describe('换镜像：准入', () => {
 
     await expect(
       makeProvisioner(fakes).setImage('i-1', NEW_IMAGE, { allowAny: true }),
-    ).rejects.toThrow(/宿主上没有镜像/)
+    ).rejects.toThrow(/这一版在平台侧暂时不可用/)
     expect(fakes.calls.snapshot).not.toHaveBeenCalled()
   })
 
@@ -493,7 +494,7 @@ describe('换镜像：准入', () => {
     inCatalog.mockResolvedValue(true)
 
     await expect(makeProvisioner(fakes).setImage('i-1', NEW_IMAGE)).rejects.toThrow(
-      /宿主上没有镜像/,
+      /这一版在平台侧暂时不可用/,
     )
   })
 
@@ -641,7 +642,9 @@ describe('失败收尾：标 error 之后必须重新投影一次路由', () => 
     const fakes = build()
     vi.mocked(fakes.orchestrator.removeInstance).mockRejectedValue(new Error('daemon 超时'))
 
-    await expect(makeProvisioner(fakes).remove('i-1')).rejects.toThrow('daemon 超时')
+    await expect(makeProvisioner(fakes).remove('i-1', { confirmSlug: 'alice' })).rejects.toThrow(
+      'daemon 超时',
+    )
 
     expect(db.current().status).toBe('error')
     expect(db.current().lastError).toBe('daemon 超时')

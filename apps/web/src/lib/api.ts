@@ -178,9 +178,14 @@ export async function changePassword(input: {
 
 // ─── 实例（平台 API）─────────────────────────────────────────────────────
 
-export async function listInstances(): Promise<InstanceSummary[]> {
-  const res = await request<{ instances: InstanceSummary[] }>('/api/instances')
-  return res.instances
+/** 我的实例 + **我能开几个**（额度一起返回：页面要显示「2 / 3」，别让用户撞墙才知道）。 */
+export interface MyInstances {
+  instances: InstanceSummary[]
+  maxInstances: number
+}
+
+export async function listInstances(): Promise<MyInstances> {
+  return request<MyInstances>('/api/instances')
 }
 
 export async function createInstance(input: {
@@ -236,17 +241,15 @@ export async function startInstance(id: string): Promise<InstanceSummary> {
 }
 
 /** 默认保留数据文件系统；`purge` + 子域名确认才连它一起删。 */
-export async function removeInstance(
-  id: string,
-  opts: { purge?: boolean; confirmSlug?: string } = {},
-): Promise<void> {
-  const params = new URLSearchParams()
-  if (opts.purge === true) params.set('purge', 'true')
-  if (opts.confirmSlug !== undefined) params.set('confirmSlug', opts.confirmSlug)
-  const query = params.toString()
-  await request<void>(`/api/instances/${id}${query === '' ? '' : `?${query}`}`, {
-    method: 'DELETE',
-  })
+/**
+ * 永久删除实例（数据一起删，不可恢复）。
+ *
+ * `confirmSlug` 是必填的：服务端要求回填子域名才肯删，前端也必须让用户真打一遍 ——
+ * 这是这条路上唯一一道确认。
+ */
+export async function removeInstance(id: string, confirmSlug: string): Promise<void> {
+  const params = new URLSearchParams({ confirmSlug })
+  await request<void>(`/api/instances/${id}?${params.toString()}`, { method: 'DELETE' })
 }
 
 export async function getInstance(id: string): Promise<InstanceSummary> {

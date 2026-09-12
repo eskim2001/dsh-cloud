@@ -129,7 +129,7 @@ export class DataStore {
     await this.driver.removeStorage(this.snapshotKey(storageKey))
   }
 
-  /** 彻底删除数据。**不可逆**，只有 `purgeVolume` 路径会调。 */
+  /** 彻底删除数据（含升级快照）。**不可逆** —— 删实例时调，没有第二条路（D31）。 */
   async destroy(storageKey: string): Promise<void> {
     await this.driver.removeStorage(storageKey)
     await this.driver.removeStorage(this.snapshotKey(storageKey))

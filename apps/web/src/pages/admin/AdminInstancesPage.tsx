@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MoreHorizontalIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
 import { InstanceImageForm } from '@/components/admin/instance-image-form.js'
 import { InstanceQuotaForm } from '@/components/admin/instance-quota-form.js'
 import { LogsSheet, type LogsTarget } from '@/components/logs-sheet.js'
@@ -55,7 +54,6 @@ import { invalidateInstances, keys } from '@/lib/query-keys.js'
 export default function AdminInstancesPage() {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
 
   // 实例状态由服务端从 Docker 现算，会漂（crash-loop / 外部停掉 / 宿主重启）→ 低频兜底
   const instances = useQuery({
@@ -217,9 +215,6 @@ export default function AdminInstancesPage() {
                             }
                           >
                             {t('admin.instances.logs')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => navigate(`/instances/${item.id}`)}>
-                            {t('admin.instances.openDetail')}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
