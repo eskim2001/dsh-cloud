@@ -316,6 +316,15 @@ export interface ProjectRecord {
   projid: number
   sizeMb: number
   inodeLimit: number
+  /**
+   * 墓碑：这条 key 的数据已经删了，但 **id 永久占位**。
+   *
+   * 为什么不直接删掉记录：`xfs_quota` 的账是**按 project ID** 记的，不是按目录 ——
+   * 只要还有任何文件带着这个 projid，用量就还算在它头上。一旦把 id 发给下一个租户，
+   * 上一个租户的残留就会静默算进新租户的账（可能一上来就"已用超限"）。今天的调用方
+   * 都是先删目录再 release，所以暂时打不到；但那是**调用方的自觉**，不该是注册表的契约。
+   */
+  released?: boolean
 }
 
 /**
@@ -325,7 +334,7 @@ export interface ProjectRecord {
  * **静默合并**（正是 D18 要防的那种数据保护事故）。
  *
  * 为什么存在池子根而不是库里：`createStorage(key, sizeMb)` 拿不到实例行，DataStore 又只做策略 ——
- * 分配这件事留在驱动这一层最自然。**已释放的 id 不再复用**（复用会把旧账算到新租户头上）。
+ * 分配这件事留在驱动这一层最自然。**已释放的 id 不再复用**（见 `released`，复用会把旧账算到新租户头上）。
  *
  * 限额也记在这里：`copyStorage` 要把源的限额原样搬到目标上，而目录形态下没有"卷 label"
  * 这种侧信道可读（对比：命名卷那版是从 label 读的）。
@@ -339,48 +348,61 @@ export class ProjectRegistry {
   }
 
   async get(key: string): Promise<ProjectRecord | undefined> {
-    return (await this.load()).get(key)
+    const record = (await this.load()).get(key)
+    // 墓碑不算"这条 key 有存储" —— 调用方拿它判断要不要设限额 / 对外报用量
+    return record === undefined || record.released === true ? undefined : record
   }
 
   async keys(): Promise<Set<string>> {
-    return new Set((await this.load()).keys())
+    const map = await this.load()
+    return new Set([...map].filter(([, r]) => r.released !== true).map(([key]) => key))
   }
 
-  /** 分配一个没被用过的 id、连同限额一起落盘。 */
+  /** 分配一个**从没用过**的 id、连同限额一起落盘。 */
   async allocate(key: string, sizeMb: number, inodeLimit: number): Promise<ProjectRecord> {
     const map = await this.load()
+    // 墓碑也要算进来：它们的 id 不许再发出去
     const taken = new Set([...map.values()].map((r) => r.projid))
     // 从低位往上找第一个空闲的；`1` 留给可能的系统用途。
     let projid = 2
     while (taken.has(projid)) projid++
-    const record = { projid, sizeMb, inodeLimit }
+    const record: ProjectRecord = { projid, sizeMb, inodeLimit }
     map.set(key, record)
     await this.save(map)
     return record
   }
 
-  /** 改限额（扩容 / 缩容）。没有这条 key 就什么都不做。 */
+  /** 改限额（扩容 / 缩容）。没有这条 key、或它已是墓碑，就什么都不做。 */
   async update(key: string, sizeMb: number, inodeLimit: number): Promise<void> {
     const map = await this.load()
     const record = map.get(key)
-    if (record === undefined) return
+    if (record === undefined || record.released === true) return
     map.set(key, { ...record, sizeMb, inodeLimit })
     await this.save(map)
   }
 
+  /** 释放：**留墓碑**，id 不再复用（见 `ProjectRecord.released`）。 */
   async release(key: string): Promise<void> {
     const map = await this.load()
-    if (!map.delete(key)) return
+    const record = map.get(key)
+    if (record === undefined || record.released === true) return
+    map.set(key, { ...record, released: true })
     await this.save(map)
   }
 
-  /** 与实际的目录对账：注册表里有、盘上已经没有的条目清掉（回收泄漏的 id）。 */
+  /**
+   * 与实际的目录对账：注册表里有、盘上已经没有的条目标记成墓碑（id 仍然占位，不回收）。
+   *
+   * 不回收是有意的：回收一个 id 就等于把它发给下一个租户，而盘上可能还有带着这个 projid 的
+   * 文件（对账的判据是"目录还在不在"，不是"账还记不记得"）。代价是注册表会随删实例单调增长 ——
+   * 一条墓碑约 60 字节，相对于它挡掉的那类数据事故可以忽略。
+   */
   async reconcile(liveKeys: Set<string>): Promise<void> {
     const map = await this.load()
     let changed = false
-    for (const key of [...map.keys()]) {
-      if (!liveKeys.has(key)) {
-        map.delete(key)
+    for (const [key, record] of [...map]) {
+      if (!liveKeys.has(key) && record.released !== true) {
+        map.set(key, { ...record, released: true })
         changed = true
       }
     }
