@@ -122,8 +122,8 @@ export const InstanceSlugSchema = z
   .refine((s) => !s.startsWith('xn--'), '禁止 punycode 前缀（同形字风险）')
 
 /**
- * 配额。磁盘（`diskMb`）不是 Docker 参数——它决定数据文件系统的大小，
- * 由 `apps/server/src/instance/host-storage.ts` 落地（D18）。
+ * 配额。磁盘（`diskMb`）不是 Docker 参数——它只是数据卷**声明的容量**（记进卷的 label），
+ * 命名卷没有硬配额，见 `DockerDriver.createStorage`。
  */
 export const QuotaSchema = z.object({
   cpus: z.number().positive().max(64),

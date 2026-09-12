@@ -74,7 +74,7 @@ describe('对账：DB 状态 ↔ Docker 事实', () => {
   })
 
   it('restarting 算活着，不误判成停止', async () => {
-    // microVM 没有 pause，所以只剩 restarting 这一档（crash-loop 会自己回来）。
+    // crash-loop 的容器会停在 restarting，这一档要算活着。
     const { run, update } = build([row({ slug: 'alice' })], 'restarting')
     await run()
     expect(update).not.toHaveBeenCalled()

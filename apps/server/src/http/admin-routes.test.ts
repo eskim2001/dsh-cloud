@@ -351,7 +351,7 @@ describe('平台管理面：管理员路径', () => {
       payload: { cpus: 1, memoryMb: 2048, pidsLimit: 512, diskMb: 1_024 },
     })
     expect(res.statusCode).toBe(400)
-    // 新语义：不是「已用 > 目标」，而是 microVM 的盘**根本不能缩**，文案要说清这一点
+    // 新语义：不是「已用 > 目标」，而是卷的容量**根本不能原地缩**，文案要说清这一点
     expect(res.json().error).toContain('只能扩大，不能缩小')
   })
 

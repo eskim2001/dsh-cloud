@@ -61,26 +61,31 @@
 
 **前提假设：实例 = 不可信代码执行环境。** dsh 的 agent 会 spawn 进程、跑 shell、写文件——这是它的本职工作。所有设计从"一个被攻陷或被滥用的实例"出发。
 
-**内核缺口已闭合**（D31）：实例跑在 **microVM** 里（每实例一台，独立内核），不再是共享宿主内核的容器。所以「逃逸即跨实例」那条不再成立——逃逸要先破 hypervisor。
+**⚠️ 内核是共享的**：实例跑在 **Docker 容器**里，与宿主共享内核。所以「逃逸即跨实例」这条**重新成立**，
+而且比 microVM 时代更重 —— 容器逃逸直接就是**宿主失陷**，不只是串到别的实例。这是选 Docker 时接受的代价
+（DECISIONS 里那条 microVM 决策已作废）。
 
 跨实例只有四条通道，逐条堵：
 
 | 通道 | 堵法 |
 |---|---|
-| **网络** | 每台 VM 自带独立 NAT，guest IP 彼此相同（互指自己）；实例只把端口发布到**宿主回环** `127.0.0.1`。实测跨实例的网关转发 / 对端 IP / 机器名 / 宿主回环**全部不通**（对照：自己的端口通）。⚠️ 这条**依附于运行时**，换运行时必须重验，不能继承（D31） |
-| **文件** | 每实例独立数据目录，按 `storage_key` 定位，不能靠复用 slug 接管。`:staged` 复制进 VM，回传靠周期 sync / 优雅停机。删除时保留归属，详见[安全迁移](SECURITY-HARDENING.md) |
-| **凭据** | 实例里零跨实例凭据：无 DB 凭据、无平台密钥、无运行时 socket、无全局共享 HMAC |
-| **控制面** | 跨实例够不到。入口（Traefik）经**宿主回环端口**转发；日志 / 用量等观测全部来自平台侧 |
+| **网络** | 实例的桥端口只发布到**宿主回环** `127.0.0.1`，不对局域网暴露。⚠️ 但**回环不等于隔离**：同 daemon 的容器可以经 `host.docker.internal` 够到宿主的回环端口（macOS / Docker Desktop 实测如此；Linux 宿主待验）。所以**跨实例真正的闸门是每实例的门 token** —— `HMAC(secret, "dsh-cloud:gate:<slug>")`，见 `instance/gate-token.ts`：A 拿自己的 token 打 B 会被 403。拦住的**是门，不是网络不可达** |
+| **文件** | 每实例一块独立的 **Docker 命名卷**（挂 `/data`），按 `storage_key` 定位，不能靠复用 slug 接管。删容器不删卷 → 重建不丢数据 |
+| **凭据** | 实例里零跨实例凭据：无 DB 凭据、无平台密钥、无 Docker socket、无全局共享 HMAC |
+| **控制面** | 入口（Traefik）经**宿主回环端口**转发；日志 / 用量等观测全部来自平台侧 |
 
 **残余风险**（换了运行时也继续认）：
 
-- 实例**能出网**，且 **macOS 上拿不到 egress 限制**（smolvm 源码级拒绝，只有 Linux + firecracker 才有）
-  ——「限制实例能访问什么」这条在 macOS 上无解
-- `:staged` 的写入有**不落盘窗口**：异常掉电会丢最近一段（四层兜底见 D31）
-- 健康判定**不能只信运行时的自报状态**：实测运行时会用空转容器顶替崩溃的工作负载，而状态照样报
-  running。真正的死活走 `InstanceOrchestrator.probeHealthy`（真连入口端口）
-- 宿主上的数据目录**没有磁盘配额**——配额由 VM 的可写数据盘（`--storage`）承载；
-  宿主目录本身只受宿主盘限制
+- 实例**能出网**，且**没有 egress 限制**：Docker 不提供出网过滤，要做只能靠宿主侧（Linux 的 iptables / nftables）；
+  macOS 的 Docker Desktop 上无解
+- 健康判定**不能只信容器的自报状态**：容器 `running` 不等于工作负载在服务（启动窗口期，或 entrypoint 里
+  dsh / caddy 已经崩了但容器还没退）。真正的死活走 `InstanceOrchestrator.probeHealthy`（**真连入口端口**）
+- **磁盘没有配额**：Docker 命名卷没有硬上限 —— 它只是宿主文件系统上的一个目录，实例能把它写满宿主盘。
+  `diskMb` 目前只是**声明**（记在卷 label 上供展示和复制时重建），真配额要靠宿主文件系统
+  （XFS project quota），**仅 Linux**。见 [RUNTIME-CONTAINER-EVAL](RUNTIME-CONTAINER-EVAL.md)
+- **宿主回环上的「无门」服务对容器可见**（macOS / Docker Desktop 实测）：控制面 API 与 Postgres 都只听宿主
+  回环、且没有门，开发机上一个租户容器能直连它们。生产宿主是 Linux 时这条是否成立**待验** —— Linux 上
+  `host-gateway` 指向网桥网关，够不到绑 `127.0.0.1` 的 socket
 
 **运行时接缝**：[`apps/server/src/runtime/driver.ts`](../apps/server/src/runtime/driver.ts) 是**唯一**
 接触具体运行时的接口；业务层（`provisioner` / `boot` / `reconciler` / `routes-sync`）不认识任何具体运行时。

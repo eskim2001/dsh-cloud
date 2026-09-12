@@ -22,8 +22,8 @@ export interface RuntimeStatus {
  * `states` 为 `undefined` 表示这次取不到实时状态（运行时抖了）——退回 DB 快照，
  * 宁可显示旧值也不要谎报「全部已停止」。
  *
- * ⚠️ 但运行时的自报状态**也不可信**：smolvm 实测会在工作负载崩溃时换一个空转容器顶上，
- * 状态照样报 running。真正的死活要看 `InstanceOrchestrator.probeHealthy`。
+ * ⚠️ 但运行时的自报状态**不等于服务健康**：容器 running 也可能端口还没人听。
+ * 真正的死活要看 `InstanceOrchestrator.probeHealthy`。
  *
  * 注：`row.containerId` 现在装的是**机器名**（运行时侧标识）。列名等 DB 迁移时再改，
  * 现在先保持最小改动。

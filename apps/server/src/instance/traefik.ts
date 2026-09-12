@@ -14,8 +14,8 @@ export const TraefikRouteSchema = z.object({
   /**
    * 该实例在**宿主回环**上发布的端口。入口转发到这里。
    *
-   * microVM 下实例只能把端口发布到 `127.0.0.1`（运行时不给别的选择），
-   * 所以入口不能再按容器名解析——直接打回环端口。
+   * 实例只把桥端口发布到 `127.0.0.1:<hostPort>`（不让局域网够到），所以入口不按容器名
+   * 解析——直接打回环端口；容器里的 Traefik 走 `host.docker.internal`（见 compose/local.yml）。
    */
   hostPort: z.number().int().positive().max(65535),
 })
@@ -70,14 +70,14 @@ export interface TraefikConfig {
  * 每个实例一个 router + service，全部挂同一个 forward-auth 中间件——
  * **新增路由必须走这里**，否则会漏挂认证（见 docs/ARCHITECTURE.md §四）。
  *
- * 后端是**宿主回环上的端口**：microVM 下实例只能把端口发布到 `127.0.0.1`，
- * 入口直接转发到那里。
+ * 后端是**宿主回环上的端口**：实例只把端口发布到 `127.0.0.1`，入口直接转发到那里
+ * （容器里的 Traefik 走 `host.docker.internal`）。
  *
- * **回归红线**：D3 时代「不发布宿主端口」的理由是 Docker Desktop 的 VM 网关会让
- * 发布端口对**所有**容器可见。换成 smolvm 后实测该暴露面**不存在**——每台 VM 独立 NAT、
- * guest IP 都是 `192.168.127.2`（互指自己）、宿主的回环发布端口不经网关转发，
- * 因此跨实例的所有路径（网关/对端 IP/机器名/回环）全部不通。
- * ⚠️ 这条结论**依附于运行时**，换运行时必须重验，别继承（见 docs/DECISIONS.md）。
+ * **回归红线**：D3 时代「不发布宿主端口」的理由是 Docker Desktop 的 VM 网关会让发布端口
+ * 对**所有**容器可见。microVM 时代实测该暴露面**不存在**（每台 VM 独立 NAT、guest IP 互指
+ * 自己），但那是 microVM 的结论。**换回 Docker 后它不成立**：任何容器都能经
+ * `host.docker.internal` 打到宿主的回环发布端口 —— 同宿主的实例容器之间因此可以互访。
+ * 所以这条结论**依附于运行时**，换运行时必须重验，别继承（见 docs/DECISIONS.md）。
  *
  * 返回结构化对象（测试直接断言它，不经过序列化）；落盘用 `renderTraefikConfig`。
  */

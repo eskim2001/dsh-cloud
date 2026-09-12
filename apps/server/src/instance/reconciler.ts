@@ -32,9 +32,8 @@ export interface ReconcileDeps {
  * - `provisioning` / `removing` 不动——见 TRANSIENT；
  * - 孤儿机器**只告警不删**：删有竞态，可能误伤正在创建的实例。
  *
- * ⚠️ **这里同步的是运行时的自报状态，不等于服务健康**。smolvm 实测会在工作负载崩溃时
- * 换一个空转容器顶上、状态照样报 running —— 真正的死活要看 `probeHealthy`，
- * 那条路径挂在 `probe` 依赖上（见 `InstanceOrchestrator.probeHealthy`）。
+ * ⚠️ **这里同步的是运行时的自报状态，不等于服务健康**。容器 running 不等于端口有人在听 ——
+ * 真正的死活要看 `probeHealthy`，那条路径挂在 `probe` 依赖上（见 `InstanceOrchestrator.probeHealthy`）。
  */
 export async function reconcileInstances(deps: ReconcileDeps): Promise<{ changed: number }> {
   const rows = await deps.listInstances()

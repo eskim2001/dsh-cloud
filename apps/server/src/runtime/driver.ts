@@ -46,7 +46,8 @@ export interface RuntimeDriver {
    * 这个运行时能不能报告「宿主上本地有哪些镜像」。
    *
    * 为 `false` 时，准入逻辑**必须跳过**「本地是否有」这一关——否则会把「运行时不给这个信息」
-   * 误判成「本地没有」，导致升级永远被拒。smolvm 1.14.6 的 CLI 就是这种情况。
+   * 误判成「本地没有」，导致升级永远被拒。Docker 报得出来（恒为 `true`），这个开关留给
+   * 未来可能报不了的运行时实现。
    */
   readonly canReportLocalImages: boolean
   ensureImage(ref: string): Promise<void>
@@ -58,7 +59,7 @@ export interface RuntimeDriver {
   /** 幂等：同名已存在时先清掉再建。 */
   create(spec: InstanceSpec, ctx: RenderContext): Promise<RenderedInstance>
   start(machineName: string): Promise<void>
-  /** **必须优雅**：运行时靠这一步把 `:staged` 的写入回传宿主。禁止用删除/强杀代替。 */
+  /** **必须优雅**（如 Docker 的 SIGTERM 宽限）：给工作负载时间把会话落盘。禁止用删除/强杀代替。 */
   stop(machineName: string): Promise<void>
   /** 幂等：不存在时不报错，并清理该机器残留（孤儿进程、端口）。 */
   remove(machineName: string): Promise<void>
@@ -71,7 +72,7 @@ export interface RuntimeDriver {
   /**
    * 探**服务本身**，不是探运行时状态。
    *
-   * 运行时可能把崩溃的工作负载换成空转容器而状态仍报 running（smolvm 实测如此），
+   * 容器 running 不等于服务在听（启动窗口里容器 running 而端口还没人接），
    * 所以必须真的去连入口端口。`hostPort` 由平台分配并落库，调用方传进来。
    */
   probeHealthy(machineName: string, hostPort: number): Promise<boolean>

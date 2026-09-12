@@ -74,7 +74,7 @@ export async function syncRoutesFromInstances(
   const routes: TraefikRoute[] = routable.map((row) => ({
     instance: row.slug,
     hostname: instanceHostname(row.slug, opts.baseDomain),
-    // 后端地址：microVM 只能把实例发布到宿主回环，所以按端口转发（见 traefik.ts 的注释）。
+    // 后端地址：实例只把端口发布到宿主回环，所以按端口转发（见 traefik.ts 的注释）。
     hostPort: row.hostPort as number,
   }))
 

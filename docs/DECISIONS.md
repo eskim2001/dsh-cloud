@@ -91,10 +91,12 @@
 
 ## D14 · 入口 token 由桥注入，不进浏览器 URL
 
-- **决策**：平台把「打开 dsh」指向 `https://<slug>.<base>/__open`；容器内桥在这条路径上补 dsh 的入口 token 再转发。entrypoint 从 dsh 启动输出里抓 token，`export DSH_LAUNCH_TOKEN` 后起 Caddy（Caddyfile 用 `{env.DSH_LAUNCH_TOKEN}`）。
-- **理由**：dsh 每次启动随机生成入口 token，首次访问必须带在 query 上才能换 cookie，且没有 flag / 配置能固定或关闭（`ConnectionConfig` 只有 `recovery` / `cookieMaxAgeDays`）。桥注入让 token **不进浏览器 URL / 历史 / Referer**，判据是精确路径而非猜 cookie。
+- **决策**：平台把「打开 dsh」指向**裸实例域名**（`https://<slug>.<base>/`，没有专门路径）；容器内桥在 **「无 cookie 的 `GET /`」** 上补 dsh 的入口 token 再转发。entrypoint 从 dsh 启动输出里抓 token，`export DSH_LAUNCH_TOKEN` 后起 Caddy（Caddyfile 用 `{env.DSH_LAUNCH_TOKEN}`）。
+- **理由**：dsh 每次启动随机生成入口 token，首次访问必须带在 query 上才能换 cookie，且没有 flag / 配置能固定或关闭（`ConnectionConfig` 只有 `recovery` / `cookieMaxAgeDays`）。桥注入让 token **不进浏览器 URL / 历史 / Referer**。触发条件从「精确路径 `/__open`」改成「没有 cookie」之后，用户**直接输域名就能进**——换完 cookie dsh 自己 303 回 `/`，地址栏始终是裸域名。
 - **备选**：平台直接给带 token 的链接（token 进浏览器历史）；forward-auth 按"有没有 Cookie"302（启发式）；关掉 dsh 的 browser-auth（动 dsh 安全功能，且 `connection` 插件兼做 RPC 传输，多半关不掉）。
-- **代价**：entrypoint 解析 dsh 的启动输出 —— 格式耦合，靠 D11 的版本 pin + 升级前回归兜住；抓不到时 `/__open` 会 401，entrypoint 打警告。
+- **代价**：
+  1. entrypoint 解析 dsh 的启动输出 —— 格式耦合，靠 D11 的版本 pin + 升级前回归兜住；抓不到时首页会 401，entrypoint 打警告。
+  2. **新触发条件多依赖两个 cookie 事实**：名字前缀是 `dsh-auth-`、且「cookie 失效时还能被重新引导」。Caddy 验不了签名，所以「cookie 在但无效」（换过实例/卷、别的端口留下的同名 cookie）由 **401 自愈**兜底——把非 `/api` 的 401 换成带 token 的地址。**dsh 一旦改 cookie 名字、或不再下发 cookie，症状会变成首页 303 死循环**（不再是 401）——已用伪造改名 cookie 的后端实测确认。
 - **重审**：dsh 提供固定或可配置的入口 token 时。
 
 ## D15 · 用平台插件解锁客户端 `isLoopback`，不补丁官方 bundle
@@ -668,6 +670,23 @@
   Docker Desktop 上验过。
 
 ## D31 · 运行时改用 smolvm microVM，`/data` 走 `:staged`
+
+> **⚠️ 已作废：运行时已改回 Docker。** 下面这条记录描述的是 microVM 时代的形态，保留作历史与实测依据，
+> **不是当前实现**。当前实现：实例是 **Docker 容器**（镜像由 [`docker/instance-image`](../docker/instance-image) 构建），
+> `/data` 是 **Docker 命名卷**，入口按**宿主回环端口** `127.0.0.1:<hostPort>` 转发。见
+> [ARCHITECTURE §四](ARCHITECTURE.md) 与 [RUNTIME-CONTAINER-EVAL](RUNTIME-CONTAINER-EVAL.md)。
+>
+> 作废的原因：本 ADR 的**核心理由**是「隔离模型唯一剩下的缺口是共享内核」，改回 Docker 等于**重新认下这个缺口**
+> —— 容器逃逸即宿主失陷。随之失效/改变的具体条目：
+> - ① 「每台 VM 独立 NAT」与实测的「跨实例网关/对端/机器名/宿主回环**全部不通**」**不复成立**：Docker 下
+>   容器可经 `host.docker.internal` 够到宿主回环端口（macOS / Docker Desktop 实测）。跨实例现在靠**每实例门
+>   token** 兜（`HMAC(secret, "dsh-cloud:gate:<slug>")`），不是网络不可达
+> - ② `:staged` 整套退场 —— 不落盘窗口、周期 sync、优雅停机回传都不再存在
+> - ③ 属主映射不适用（Docker 下工作负载就是 root）；⑤ 「VM 内必须留一个转发器」**仍然成立**
+>   （dsh 依旧只肯绑回环，桥还是要）
+> - ④ 磁盘配额：Docker 命名卷**没有硬配额**，`diskMb` 目前只是声明（记在卷 label 上）
+> - ⑥ 「`stats` 降级」**撤销** —— Docker 原生提供 stats，CPU/内存都能采到
+> - ⑦ `pidsLimit` 在 Docker 下有对应参数（`HostConfig.PidsLimit`），不再是「无处落地」
 
 - **决策**：实例运行时从 Podman/Docker 换成 **smolvm 1.14.6**（microVM / libkrun）。五条具体形态：
   1. **不再有 per-实例网络，也不再有入口接入** —— 每台 VM 自带独立 NAT，宿主只看到

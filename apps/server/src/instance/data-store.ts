@@ -22,16 +22,17 @@ export interface DiskUsage {
 /**
  * 实例数据的生命周期与策略。
  *
- * **与 Docker 时代的 `HostStorage`、以及「宿主目录直挂」那一版 `DataStore` 的根本差别**：
- * 这里没有宿主目录、没有 loop 设备、没有 `mkfs.ext4`、也没有 `nsenter`。数据是一块
- * **运行时管理的卷**（microsandbox 下是 ext4 磁盘卷），`storageKey` 就是它的名字；
- * 宿主上长什么样完全不是这个类该知道的事。
+ * **与「宿主目录直挂」那一版 `DataStore` 的根本差别**：这里没有宿主目录、没有 loop 设备、
+ * 没有 `mkfs.ext4`、也没有 `nsenter`。数据是一块 **Docker 命名卷**，`storageKey` 就是它的
+ * 名字；宿主上长什么样完全不是这个类该知道的事。
  *
- * 为什么换成卷：宿主目录直挂走的是 virtiofs passthrough，而那个后端有个硬链接 bug
- * （上游 #1559）—— unlink 掉两个名字中的一个，剩下的那个会**永久只读**，而 dsh 的会话
- * 日志每次落盘正是 `tmp → link → rm(tmp)`。见驱动的类注释。
+ * 为什么用命名卷而不是宿主目录直挂：直挂要走 Docker Desktop 的 VM 共享文件系统那一层，
+ * 而它有硬链接语义问题（上游 #1559）——unlink 掉两个名字中的一个，剩下的那个会**永久只读**，
+ * 而 dsh 的会话日志每次落盘正是 `tmp → link → rm(tmp)`。命名卷是 VM 里的真文件系统，
+ * 没有这个问题。见驱动的类注释。
  *
- * 代价：容量是**硬限制**，而且**不能原地扩容**，所以这里没有任何 `resize` / `shrink`。
+ * 代价：Docker 命名卷**没有硬容量配额**，声明值只记进卷的 label，所以这里没有任何
+ * `resize` / `shrink`。
  */
 export class DataStore {
   private readonly driver: RuntimeDriver
@@ -62,8 +63,9 @@ export class DataStore {
   }
 
   /**
-   * 用量。只用于**展示**；真正的写上限由卷的容量兜底（灌满 guest 拿 ENOSPC，
-   * 永远沾不满宿主的盘）。**停机时也读得到** —— 运行时自己的记账，不需要进 guest。
+   * 用量。只用于**展示**。命名卷**没有硬配额**，真正的写上限要宿主侧文件系统配额
+   * （XFS project quota，见 `DockerDriver.createStorage`）来兜。**停机时也读得到** ——
+   * 卷不依赖容器在跑。
    */
   async usage(storageKey: string): Promise<DataUsage | undefined> {
     const usedMb = await this.driver.storageUsageMb(storageKey)
@@ -86,8 +88,8 @@ export class DataStore {
    * 先删掉可能存在的旧快照再复制：`copyStorage` 对已存在的目标是**拒绝**的，
    * 正好逼着我们把这个决定写出来，而不是让它悄悄覆盖。
    *
-   * 代价注意：从前 `.prev` 与活数据同目录，`cp` 只复制改动的文件；现在是一整块镜像，
-   * 复制的是整卷（底层用写时复制，支持的文件系统上不真拷数据）。
+   * 代价注意：从前 `.prev` 与活数据同目录，改名/硬链接就能当快照；现在两卷之间是
+   * 整卷 `cp -a`（辅助容器里做），复制的是全量数据。
    */
   async snapshot(storageKey: string): Promise<void> {
     await this.driver.removeStorage(this.snapshotKey(storageKey))
@@ -97,7 +99,7 @@ export class DataStore {
   /** 用 `.prev` 覆盖当前数据。回滚路径专用。 */
   async restoreSnapshot(storageKey: string): Promise<void> {
     // `copyStorage` 要求目标不存在，所以先把活卷删掉再复制回去。
-    // 调用方（`rollbackTo`）已经停过沙箱，此时没有东西在用这块卷。
+    // 调用方（`rollbackTo`）已经停过容器，此时没有东西在用这块卷。
     await this.driver.removeStorage(storageKey)
     await this.driver.copyStorage(this.snapshotKey(storageKey), storageKey)
   }

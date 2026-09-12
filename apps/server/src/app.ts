@@ -95,8 +95,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       containerId,
       opts,
       (machineName, o) => deps.orchestrator.logs(machineName, o),
-      // microVM 的输出没有 Docker 那种「8 字节头 + 负载」的复用帧，所以不需要 demux，
-      // 原样转发给调用方即可。
+      // 驱动已经把 Docker 的「8 字节头 + 负载」复用帧拆干净了（见 `DockerDriver.logs`），
+      // 到这里就是纯文本，原样转发即可。
       (raw, out) => {
         raw.pipe(out)
       },

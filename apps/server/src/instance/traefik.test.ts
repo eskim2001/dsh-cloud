@@ -33,7 +33,7 @@ describe('renderTraefikConfig', () => {
     ])
   })
 
-  it('后端是宿主回环端口（microVM 只能发布到 127.0.0.1，入口按端口转发）', () => {
+  it('后端是宿主回环端口（实例发布到 127.0.0.1，入口按端口转发）', () => {
     const cfg = render()
     expect(cfg.http.services!['instance-alice']?.loadBalancer.servers[0]?.url).toBe(
       'http://127.0.0.1:20001',

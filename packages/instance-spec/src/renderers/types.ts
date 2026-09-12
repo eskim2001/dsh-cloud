@@ -12,9 +12,9 @@ export interface RenderContext {
    * 该实例的数据卷标识。**不透明** —— 宿主路径、卷名、镜像落在哪，全由运行时决定；
    * 平台只负责「在这个 key 下建卷、用它挂载、删它」。
    *
-   * 从前这里是一份**宿主目录**。换成卷是因为宿主目录直挂走的是 virtiofs passthrough，
-   * 而那个后端有个硬链接 bug（上游 #1559）：unlink 掉两个名字中的一个，剩下的那个
-   * 名字会永久只读 —— dsh 的会话日志每次落盘都会踩到。见驱动的类注释。
+   * 从前这里是一份**宿主目录**。改用命名卷是因为宿主目录直挂要走 Docker Desktop 的
+   * VM 共享文件系统，而那个后端有硬链接语义问题（上游 #1559）：unlink 掉两个名字中的一个，
+   * 剩下的那个名字会永久只读 —— dsh 的会话日志每次落盘都会踩到。见驱动的类注释。
    */
   storageKey: string
   /** 宿主上发布的回环端口（平台分配，唯一）。入口转发到这里。 */
@@ -29,8 +29,9 @@ export interface RenderedMount {
   /** `rw` = 可写；`ro` = 只读。 */
   mode: 'ro' | 'rw'
   /**
-   * 这块卷的**容量上限**（MiB）。在磁盘卷上是**硬限制** —— 灌满就是 ENOSPC，
-   * 不是「预算」。容量在创建时定死，**不能原地扩容**（改了要么迁移要么拒绝）。
+   * 这块卷**声明的容量**（MiB）。Docker 命名卷**没有硬配额** —— 它只记进卷的 label，
+   * 用于展示和按同容量重建；真正的上限要宿主侧文件系统配额（见 `DockerDriver.createStorage`）。
+   * 容量在创建时定死，**不能原地扩容**（改了要么迁移要么拒绝）。
    */
   sizeMb: number
 }
@@ -44,15 +45,15 @@ export interface RenderedInstance {
   image: string
   /**
    * 工作负载的运行用户。**固定 `'0'`（root）** —— 数据卷的根目录归 root，而
-   * `.owner()` 这类声明式属主映射对磁盘卷无效，所以工作负载只能是 root。
+   * `.owner()` 这类声明式属主映射对命名卷无效，所以工作负载只能是 root。
    *
-   * 这不是「懒得降权」：guest 里能写的只有 `/data`，而它归 root。安全边界是 microVM
-   * 本身，不是 guest 内的 uid。
+   * 这不是「懒得降权」：guest 里能写的只有 `/data`，而它归 root。安全边界是容器本身
+   * （内核命名空间），不是 guest 内的 uid。
    */
   user: string
   /**
-   * 运行时的 **WORKDIR**。运行时会**在建配置时**校验它在 guest 里存在，所以只能是
-   * 挂载点本身（`/data`）—— 空卷里还没有 `/data/home/workspace` 那层骨架。
+   * 运行时的 **WORKDIR**。只能是挂载点本身（`/data`）—— 空卷里还没有
+   * `/data/home/workspace` 那层骨架，而 `/data` 作为挂载点在容器起来时一定存在。
    *
    * dsh 真正的工作目录由镜像的 entrypoint 建出来再 `cd` 进去，保证它的 cwd 仍是
    * `/data/home/workspace`（会话目录名的前缀编码的就是 cwd，变了会让已有会话看着像丢了）。

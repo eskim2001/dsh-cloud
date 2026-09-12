@@ -36,7 +36,7 @@ const PullQuerySchema = z.object({ ref: z.string().min(1).max(255) })
  * 一条版本记录：catalog（上游有）∪ releases（我们上架了）∪ 宿主（本机缓存）三条来源取并集。
  *
  * **没有 `state` 三态**——「未下载 / 已下载 / 已发布」是把内部来源当成了产品状态，
- * 而且 microsandbox 下「下载」根本不是必经步骤（运行时按需拉取，见 runtime/driver.ts）。
+ * 而且「下载」根本不是必经步骤（运行时在建实例时按需拉取，见 runtime/driver.ts）。
  * 页面只关心两件事：这一版**上架了没有**（用户能不能选到），本机**缓存了没有**
  * （用户第一次创建要不要等下载）。
  */
@@ -428,9 +428,8 @@ export async function registerAdminRoutes(
           .code(400)
           .send({ error: `镜像 tag 不符合发布序列（<dsh版本>_<修订号>）：${ref}` })
       }
-      // **不要求宿主上已经有**：运行时按需拉取（`create` 的 pullPolicy 默认 `if-missing`，
-      // 见 runtime/microsandbox/driver.ts），「先下载」并不是建实例的前提 —— microVM
-      // 下镜像是在建沙箱那一刻才真的落到宿主上的。
+      // **不要求宿主上已经有**：运行时按需拉取（`DockerDriver.ensureImage`），
+      // 「先下载」并不是建实例的前提 —— 镜像是在建容器那一刻才真的落到宿主上的。
       // 判据改成「上游有没有」：同步见过的 tag 才算数，挡住手输的、上游不存在的 ref。
       // 宿主已缓存的当然也算（离线预热过的情况）。
       const [catalog, onHost] = await Promise.all([

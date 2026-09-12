@@ -13,7 +13,7 @@
 
 核心闭环：**建实例 → 起带配额 / 卷 / 路由的隔离 dsh → 只有平台认证过的人能打开 → 升级不丢内容**。
 
-**安全前提**：实例容器 = **不可信代码执行环境**（agent 会 spawn 进程、跑 shell、写文件）。跨实例隔离靠网络 / 文件 / 凭据三条硬边界；剩下的唯一缺口是内核（→ microVM 是后路）。见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §四。
+**安全前提**：实例容器 = **不可信代码执行环境**（agent 会 spawn 进程、跑 shell、写文件）。跨实例靠**每实例门 token + 独立数据卷 + 零跨实例凭据**三条边界；**内核是共享的** —— 容器逃逸即宿主失陷，这是选 Docker 时认下的缺口（microVM 是那条后路，未被采用）。见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §四。
 
 ## 二、不能踩的线（铁律）
 
