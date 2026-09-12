@@ -22,7 +22,7 @@
   <a href="#contributing">Contributing</a>
 </p>
 
-**dshcloud** adds account management, instance provisioning and access control to [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`). Each instance runs in its own microVM, with a dedicated network, persistent data volume and resource limits. Users access their instances through an authenticated subdomain; operators manage accounts, capacity and instance versions from a web console.
+**dshcloud** adds account management, instance provisioning and access control to [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`). Each instance runs in its own Docker container, with a dedicated network, persistent data volume and resource limits. Users access their instances through an authenticated subdomain; operators manage accounts, capacity and instance versions from a web console.
 
 > **Early development.** Use this project for evaluation and development. It is not production-ready; deployment validation and security work remain open. See the permission boundaries and operational limits in the [architecture and security model](docs/ARCHITECTURE.md) before exposing it to the internet.
 
@@ -30,7 +30,7 @@
 
 - **Instance management:** Create, start, stop, rebuild and delete instances. Per-user instance-count limits allow multiple instances within an assigned quota.
 - **Resource controls:** CPU, memory and process limits, plus a hard capacity limit on each instance's `/data` filesystem. Administrators can adjust resource quotas after creation.
-- **Authenticated access:** Per-instance subdomains behind Traefik, owner authorization and an instance-specific HMAC-derived gate token. Instances publish no host ports.
+- **Authenticated access:** Per-instance subdomains behind Traefik, owner authorization and an instance-specific HMAC-derived gate token. Instances publish ports on the host loopback only, never on a public interface.
 - **Persistent workspaces:** Workspace, configuration and installed user packages are directed to `/data` (a dedicated ext4 volume), which survives instance rebuilds and image changes. Image changes take a pre-upgrade snapshot for rollback.
 - **Operations:** Account bans, quota management, version publishing, runtime-backed status, usage sampling and instance log streaming. See the role boundaries below.
 - **Bilingual console:** English and Simplified Chinese, light and dark themes, email/password sign-in and session management.
@@ -74,7 +74,7 @@ The Compose stacks in this repository target local development, not a production
 - Node.js 22 or later and pnpm 10.10.0, as specified in [package.json](package.json).
 - Docker Desktop that can run Linux containers and ships Compose v2. The control plane connects to its daemon **at startup**, not only when creating instances.
 - Host ports `80` / `443` / `3000` / `5173` / `55432` free.
-- Instances run in microVMs (microsandbox; Apple Silicon only on macOS) and their data lives in a runtime-managed ext4 volume. **Local development needs no KVM, code signing or entitlements**; Docker Desktop is only used for the Postgres and ingress containers above.
+- Instances run as Docker containers, with their data on a persistent volume that survives rebuilds.
 
 ### Run it
 
