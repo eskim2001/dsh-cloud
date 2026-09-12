@@ -1,0 +1,2 @@
+ALTER TABLE "instance" DROP CONSTRAINT "instance_host_port_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "instance_host_port_unique" ON "instance" USING btree ("host_port") WHERE "instance"."deleted_at" IS NULL;

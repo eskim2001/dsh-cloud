@@ -114,10 +114,11 @@ export const instance = pgTable(
      * 为什么必须有：实例只把桥端口发布到**宿主回环**，入口不按容器名解析、只认这个端口。
      * 所以它是实例在宿主上的**地址**，不是可选配置。
      *
-     * 唯一约束由数据库兜底；跨实例冲突会让启动直接失败，所以分配前必须真探端口。
+     * 唯一约束由数据库兜底，但**只在活着的行之间**成立（部分唯一索引，见文件末尾）——
+     * 跨实例冲突会让启动直接失败，所以分配前必须真探端口。
      * 可为空 —— 存量行没有这个值，重建时才会分配。
      */
-    hostPort: integer('host_port').unique(),
+    hostPort: integer('host_port'),
     cpus: real('cpus').notNull(),
     memoryMb: integer('memory_mb').notNull(),
     pidsLimit: integer('pids_limit').notNull().default(512),
@@ -141,7 +142,14 @@ export const instance = pgTable(
   },
   (t) => [
     index('instance_owner_id_idx').on(t.ownerId),
+    // 这两个唯一性**只约束活着的行**：软删除留的是墓碑，墓碑不该继续占着 slug 或端口。
+    //
+    // 踩过的坑：`host_port` 原本是全表 `.unique()`，而分配器（`listAllInstances`）只看活着的行 ——
+    // 于是它会把墓碑占着的端口分给新实例，落库时违反唯一约束，症状是那条
+    // `Failed query: update "instance" set ... "host_port" ...`。分配器看不见的东西，
+    // 数据库也不该拿它卡人。
     uniqueIndex('instance_slug_unique').on(t.slug).where(sql`${t.deletedAt} IS NULL`),
+    uniqueIndex('instance_host_port_unique').on(t.hostPort).where(sql`${t.deletedAt} IS NULL`),
   ],
 )
 
