@@ -46,6 +46,8 @@ export async function listUsersWithInstanceCount(db: Db): Promise<AdminUserRow[]
 export interface AdminInstanceRow {
   id: string
   slug: string
+  /** 数据卷标识。舰队页按它查磁盘用量（宿主路径不进 API，只认这个不透明的 key）。 */
+  storageKey: string
   status: string
   /** 判实时状态要用（见 instance/runtime-status.ts）。 */
   containerId: string | null
@@ -64,6 +66,7 @@ export async function listInstancesWithOwner(db: Db): Promise<AdminInstanceRow[]
     .select({
       id: instance.id,
       slug: instance.slug,
+      storageKey: instance.storageKey,
       status: instance.status,
       containerId: instance.containerId,
       image: instance.image,

@@ -4,6 +4,7 @@ import { ImageRefSchema } from '@dsh-cloud/instance-spec'
 import { z } from 'zod'
 import type { ImageCatalogRow, ImageReleaseRow } from '../db/schema.js'
 import type { AdminInstanceRow, AdminUserRow } from '../db/user-repo.js'
+import type { DiskUsed } from './instance-routes.js'
 import type { Env } from '../env.js'
 import type { QuotaInput } from '../instance/provisioner.js'
 import {
@@ -134,6 +135,8 @@ export interface AdminRouteDeps {
   setDefaultImage(ref: string): Promise<boolean>
   /** 升级前快照的实占（MB）。没有快照 / 读不到都返回 undefined。 */
   readSnapshot(slug: string): Promise<number | undefined>
+  /** 列表用：一次拿到所有实例的磁盘（key → 用量 + 是否真配额）。读不到返回 undefined。 */
+  readDiskAll(): Promise<Map<string, DiskUsed> | undefined>
   /** 换镜像 / 回滚。实例不存在 → false。失败会抛（见 isImageFailure）。 */
   setInstanceImage(id: string, image: string): Promise<boolean>
   rollbackInstanceImage(id: string): Promise<boolean>
@@ -196,10 +199,21 @@ export async function registerAdminRoutes(
       } catch (err) {
         req.log.warn({ err }, '读容器实时状态失败，本次回退到 DB 快照')
       }
+      // 磁盘一次读全：舰队页每行都要显示它，逐行读就是 N 次调用。
+      const disks = await deps.readDiskAll().catch((): undefined => undefined)
       return {
         instances: rows.map((row) => {
           const { status, statusText } = resolveRuntimeStatus(row, states)
-          return { ...row, status, statusText }
+          const disk = disks?.get(row.storageKey)
+          return {
+            ...row,
+            status,
+            statusText,
+            /** 缺省 = 读不到，**不是 0**。 */
+            diskUsedMb: disk?.usedMb,
+            /** `false` 时 UI 必须显示「无上限」，别显示那个没生效的 diskMb。 */
+            diskEnforced: disk?.enforced ?? false,
+          }
         }),
       }
     })

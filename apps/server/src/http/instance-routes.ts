@@ -66,8 +66,17 @@ export interface InstanceRouteDeps {
   listContainerStates(): Promise<ContainerStates>
   /** 实时用量。容器不在 / 首帧没差值时返回 undefined。 */
   readStats(containerId: string): Promise<ContainerUsage | undefined>
-  /** 已用磁盘（读文件系统超级块，不是估算）。未挂载返回 undefined。 */
-  readDisk(slug: string, quotaMb: number): Promise<DiskUsage | undefined>
+  /**
+   * 单个实例的磁盘：用量 + 声明容量 + **这份配额到底管不管用**。取不到返回 `undefined`。
+   */
+  readDisk(storageKey: string, quotaMb: number): Promise<DiskUsage | undefined>
+  /**
+   * 列表用：一次拿到**所有**实例的磁盘（key → 用量 + 是否真配额）。
+   *
+   * 每行都要显示磁盘，逐行读就是 N 次调用；宿主上根本不支持硬配额时整体返回 `undefined`
+   * （调用方据此显示"暂无数据/无上限"，**别编一个 0**）。
+   */
+  readDiskAll(): Promise<Map<string, DiskUsed> | undefined>
   /** 历史采样，按时间升序。 */
   listMetrics(instanceId: string, limit: number): Promise<InstanceMetricRow[]>
   /** 宿主上已有的镜像 tag——用户可选列表要拿它过滤（本地没有的不摆出来）。 */
@@ -85,6 +94,17 @@ export interface InstanceRouteDeps {
   ): Promise<void>
   /** 从请求解析登录用户；未登录返回 undefined。 */
   getUserId(req: FastifyRequest): Promise<string | undefined>
+}
+
+/**
+ * 列表一行需要的磁盘信息。
+ *
+ * `usedMb` **缺省 = 读不到**（不是 0）；`enforced` 说的是**这份配额真的在生效吗** ——
+ * 开发机（内核不支持）和池化之前建的命名卷实例都是 `false`，UI 必须显示"无上限"而不是那个声明值。
+ */
+export interface DiskUsed {
+  usedMb?: number
+  enforced: boolean
 }
 
 interface AuthedRequest extends FastifyRequest {
@@ -137,10 +157,24 @@ export async function registerInstanceRoutes(
       }
     }
 
+    /** 本次请求的全量磁盘。读不到返回 `undefined`——页面显示「暂无数据」，不 500。 */
+    const reqDiskAll = async (req: FastifyRequest): Promise<Map<string, DiskUsed> | undefined> => {
+      try {
+        return await deps.readDiskAll()
+      } catch (err) {
+        req.log.warn({ err }, '读磁盘用量失败，本次不展示')
+        return undefined
+      }
+    }
+
     scope.get('/api/instances', async (req: AuthedRequest) => {
       const rows = await deps.listMine(req.userId!)
       const states = await liveStates(req)
-      return { instances: rows.map((r) => toPublicInstance(r, deps.env, states)) }
+      // 磁盘**一次读全**（逐行读是 N 次调用）；读不到就整体缺席，由前端显示"暂无数据"。
+      const disks = await reqDiskAll(req)
+      return {
+        instances: rows.map((r) => toPublicInstance(r, deps.env, states, disks?.get(r.storageKey))),
+      }
     })
 
     /**
@@ -345,7 +379,12 @@ export async function registerInstanceRoutes(
   })
 }
 
-function toPublicInstance(row: InstanceRow, env: Env, states: ContainerStates | undefined) {
+function toPublicInstance(
+  row: InstanceRow,
+  env: Env,
+  states: ContainerStates | undefined,
+  disk?: DiskUsed,
+) {
   const { status, statusText } = resolveRuntimeStatus(row, states)
   return {
     id: row.id,
@@ -358,6 +397,14 @@ function toPublicInstance(row: InstanceRow, env: Env, states: ContainerStates | 
     cpus: row.cpus,
     memoryMb: row.memoryMb,
     diskMb: row.diskMb,
+    /** 已用磁盘（MiB）。**缺省 = 读不到**，不是 0。 */
+    diskUsedMb: disk?.usedMb,
+    /**
+     * 这份配额**真的在生效**吗。
+     *
+     * `false` 时 UI 必须显示「无上限」而不是 `diskMb` —— 显示一个没生效的上限比不显示更糟。
+     */
+    diskEnforced: disk?.enforced ?? false,
     lastError: row.lastError,
     stoppedAt: row.stoppedAt,
     hasContainer: row.containerId !== null,

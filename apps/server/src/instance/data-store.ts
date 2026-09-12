@@ -13,10 +13,17 @@ export interface DataUsage {
   usedMb: number
 }
 
-/** 用量 + 容量，给管理台/详情页展示用。 */
+/** 用量 + 容量 + **这个容量到底管不管用**，给管理台/详情页展示用。 */
 export interface DiskUsage {
   usedMb: number
   quotaMb: number
+  /**
+   * 这份配额**真的在生效**吗。
+   *
+   * `false` = 只有声明值（开发机内核不支持，或是池化之前建的命名卷实例）。
+   * **UI 必须如实呈现** —— 显示一个其实没生效的上限比不显示更糟。
+   */
+  enforced: boolean
 }
 
 /**
@@ -70,6 +77,19 @@ export class DataStore {
   async usage(storageKey: string): Promise<DataUsage | undefined> {
     const usedMb = await this.driver.storageUsageMb(storageKey)
     return usedMb === undefined ? undefined : { usedMb }
+  }
+
+  /** 这个 key 的数据**实际**有没有硬配额（`false` = 命名卷：开发机，或池化之前建的实例）。 */
+  async enforced(storageKey: string): Promise<boolean> {
+    return await this.driver.storageEnforced(storageKey)
+  }
+
+  /**
+   * 一次读所有实例的用量（key → MiB）。列表页每行都要显示磁盘，逐行读就是 N 次调用。
+   * **拿不到返回 `undefined`**（命名卷退路）—— 调用方据此显示"暂无数据"，别编一个 0。
+   */
+  async usageAll(): Promise<Map<string, number> | undefined> {
+    return await this.driver.storageUsageAll()
   }
 
   /**
