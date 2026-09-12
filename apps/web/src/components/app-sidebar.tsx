@@ -1,8 +1,9 @@
-import { BoxesIcon, MonitorSmartphoneIcon, ShieldCheckIcon, TagIcon, UserIcon, UsersIcon } from 'lucide-react'
+import { BoxesIcon, TagIcon, UserIcon, UsersIcon } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation } from 'react-router-dom'
 import { BrandMark } from '@/components/brand-mark.js'
+import { ServerHealth } from '@/components/server-health.js'
 import { SidebarUser } from '@/components/sidebar-user.js'
 import {
   Sidebar,
@@ -23,8 +24,6 @@ interface NavItem {
   title: string
   url: string
   icon: LucideIcon
-  /** 只在路径完全相等时高亮——有子页面的入口（如 /admin）要置位，否则子页会把父项也点亮。 */
-  end?: boolean
 }
 
 export function AppSidebar() {
@@ -32,20 +31,16 @@ export function AppSidebar() {
   const { pathname } = useLocation()
   const { data: user } = useSession()
 
-  const platformNav: NavItem[] = [
-    { title: t('nav.instances'), url: '/instances', icon: BoxesIcon },
-    // 平台管理只给管理员看。藏起来不是安全边界——服务端每条管理面路由都自己查 role。
-    ...(user?.role === 'admin'
-      ? [
-          { title: t('nav.admin'), url: '/admin', icon: ShieldCheckIcon, end: true },
-          { title: t('nav.adminVersions'), url: '/admin/versions', icon: TagIcon },
-        ]
-      : []),
+  const platformNav: NavItem[] = [{ title: t('nav.instances'), url: '/instances', icon: BoxesIcon }]
+  /** 管理面单独成组：这三项都是管理员专属的作业面，混进「平台」里会让人看不清边界。
+   *  藏起来不是安全边界——服务端每条管理面路由都自己查 role。 */
+  const adminNav: NavItem[] = [
+    { title: t('nav.adminInstances'), url: '/admin/instances', icon: BoxesIcon },
+    { title: t('nav.adminUsers'), url: '/admin/users', icon: UsersIcon },
+    { title: t('nav.adminVersions'), url: '/admin/versions', icon: TagIcon },
   ]
   const settingsNav: NavItem[] = [
-    { title: t('nav.profile'), url: '/settings/profile', icon: UserIcon },
-    { title: t('nav.sessions'), url: '/settings/sessions', icon: MonitorSmartphoneIcon },
-    { title: t('nav.members'), url: '/settings/members', icon: UsersIcon },
+    { title: t('nav.account'), url: '/settings/account', icon: UserIcon },
   ]
 
   const group = (label: string, items: NavItem[]) => (
@@ -57,9 +52,8 @@ export function AppSidebar() {
             <SidebarMenuItem key={item.url}>
               <SidebarMenuButton
                 tooltip={item.title}
-                isActive={
-                  pathname === item.url || (item.end !== true && pathname.startsWith(`${item.url}/`))
-                }
+                // 子页面（如 /instances/:id）也要把这一项点亮
+                isActive={pathname === item.url || pathname.startsWith(`${item.url}/`)}
                 render={<NavLink to={item.url} />}
               >
                 <item.icon />
@@ -89,10 +83,12 @@ export function AppSidebar() {
 
       <SidebarContent>
         {group(t('nav.platform'), platformNav)}
+        {user?.role === 'admin' && group(t('nav.admin'), adminNav)}
         {group(t('nav.settings'), settingsNav)}
       </SidebarContent>
 
       <SidebarFooter>
+        <ServerHealth />
         <SidebarUser />
       </SidebarFooter>
 

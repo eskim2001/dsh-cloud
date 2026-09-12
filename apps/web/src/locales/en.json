@@ -5,20 +5,23 @@
   "common": {
     "loading": "Loading…",
     "requestFailed": "Request failed, please retry",
-    "comingSoon": "Coming soon.",
     "signOut": "Sign out",
     "cancel": "Cancel",
-    "close": "Close"
+    "close": "Close",
+    "copy": "Copy",
+    "checking": "Checking…",
+    "save": "Save",
+    "saving": "Saving…"
   },
   "nav": {
     "platform": "Platform",
     "settings": "Settings",
     "instances": "Instances",
-    "profile": "Profile",
-    "sessions": "Sessions",
-    "members": "Members",
     "admin": "Platform admin",
-    "adminVersions": "Versions"
+    "adminVersions": "Versions",
+    "adminInstances": "All instances",
+    "adminUsers": "Users",
+    "account": "Account"
   },
   "language": {
     "label": "Language",
@@ -71,11 +74,8 @@
     "emptyTitle": "No instances yet",
     "emptyHint": "Create one and you get an isolated dsh environment.",
     "emptyAction": "New instance",
-    "copy": "Copy",
-    "copied": "Copied",
     "createdAt": "Created",
     "restart": "Rebuild",
-    "restarting": "Rebuilding…",
     "stop": "Stop",
     "start": "Start",
     "working": "Working…",
@@ -88,7 +88,10 @@
     "purge": "Delete permanently",
     "purgeTitle": "Delete permanently?",
     "purgeDescription": "This also removes the data filesystem for “{{slug}}” — its workspace, config and plugins are gone for good. This cannot be undone.",
-    "purgeConfirmLabel": "Type the subdomain {{slug}} to confirm"
+    "purgeConfirmLabel": "Type the subdomain {{slug}} to confirm",
+    "pidsLimit": "Process limit",
+    "pidsHint": "512 is enough by default; raise it for heavy builds ({{min}}–{{max}}).",
+    "pidsInvalid": "Enter an integer from {{min}} to {{max}}."
   },
   "instanceDetail": {
     "back": "Back to instances",
@@ -106,7 +109,7 @@
     "upgrade": "Upgrade",
     "upgrading": "Upgrading…",
     "upgradeHint": "Upgrading snapshots your data first, then swaps the image — the instance is offline while it runs (longer with more data). If the new version fails to start it rolls back automatically.",
-    "noStable": "No other versions are available right now.",
+    "noStable": "Nothing to switch to: the other published versions are not pre-warmed on this host yet.",
     "previousVersion": "Previous version {{image}}",
     "snapshotUsage": "Pre-upgrade snapshot uses {{size}}",
     "rollback": "Roll back",
@@ -133,12 +136,14 @@
       "live": "Live",
       "ended": "Ended",
       "failed": "Connection failed"
-    }
+    },
+    "range2h": "2 hours",
+    "range6h": "6 hours",
+    "range16h": "16 hours"
   },
   "settings": {
     "profile": {
-      "title": "Profile",
-      "description": "Your account details"
+      "title": "Profile"
     },
     "sessions": {
       "title": "Sessions",
@@ -155,17 +160,29 @@
       "revokeFailed": "Could not revoke the session, please retry",
       "loadFailed": "Failed to load sessions"
     },
-    "members": {
-      "title": "Members",
-      "description": "People with access to your instances"
+    "account": {
+      "title": "Account",
+      "description": "Your profile, password and signed-in devices",
+      "emailHint": "Changing your email means verifying the new address by mail, and this platform has no mailer configured — ask an operator.",
+      "currentPassword": "Current password",
+      "newPassword": "New password",
+      "confirmPassword": "Confirm new password",
+      "revokeOthers": "Sign out other devices",
+      "saved": "Saved",
+      "saveFailed": "Could not save, please retry",
+      "passwordTooShort": "New password must be at least {{min}} characters.",
+      "passwordMismatch": "The two new passwords do not match.",
+      "passwordChanged": "Password updated.",
+      "passwordFailed": "Could not change password, please retry",
+      "wrongPassword": "Current password is incorrect.",
+      "noPassword": "This account has no password (it may have been created by an admin)."
     }
   },
   "admin": {
-    "title": "Platform admin",
-    "description": "All users and instances. Admins can ban, set quotas, inspect status and read container logs — but cannot browse the /data filesystem inside a user's instance.",
     "actionFailed": "Action failed, please retry",
     "users": {
       "title": "Users",
+      "description": "Ban or unban accounts, change how many instances someone can create, grant or revoke admin.",
       "user": "User",
       "instances": "Instances",
       "quota": "Limit",
@@ -188,11 +205,11 @@
       "loadFailed": "Failed to load users"
     },
     "instances": {
-      "title": "Instances",
+      "title": "All instances",
+      "description": "Status, disk and container logs for every instance. Logs are readable for troubleshooting; an instance’s /data filesystem is not.",
       "slug": "Identifier",
       "owner": "Owner",
       "status": "Status",
-      "spec": "Spec",
       "createdAt": "Created",
       "actions": "Actions",
       "logs": "Logs",
@@ -216,7 +233,12 @@
       "memoryMb": "Memory (MB)",
       "diskMb": "Disk (MB)",
       "pidsLimit": "Process limit",
-      "loadFailed": "Failed to load instances"
+      "loadFailed": "Failed to load instances",
+      "disk": "Disk",
+      "attentionOnly": "Attention only",
+      "filterAll": "All",
+      "noneMatch": "No instances match",
+      "openDetail": "Open detail"
     },
     "versions": {
       "title": "Versions",
@@ -268,5 +290,16 @@
     "stopped": "Stopped",
     "removing": "Removing",
     "error": "Error"
+  },
+  "logs": {
+    "title": "Logs"
+  },
+  "quota": {
+    "unknown": "No data",
+    "usedNoLimit": "{{used}} used (no limit)"
+  },
+  "health": {
+    "ok": "Platform OK",
+    "down": "Platform unreachable"
   }
 }

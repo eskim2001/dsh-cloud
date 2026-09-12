@@ -5,20 +5,23 @@
   "common": {
     "loading": "加载中…",
     "requestFailed": "请求失败，请重试",
-    "comingSoon": "即将上线。",
     "signOut": "退出",
     "cancel": "取消",
-    "close": "关闭"
+    "close": "关闭",
+    "copy": "复制",
+    "checking": "检查中…",
+    "save": "保存",
+    "saving": "保存中…"
   },
   "nav": {
     "platform": "平台",
     "settings": "设置",
     "instances": "实例",
-    "profile": "个人资料",
-    "sessions": "会话",
-    "members": "成员",
     "admin": "平台管理",
-    "adminVersions": "版本管理"
+    "adminVersions": "版本管理",
+    "adminInstances": "全部实例",
+    "adminUsers": "用户",
+    "account": "账号"
   },
   "language": {
     "label": "语言",
@@ -70,11 +73,8 @@
     "emptyTitle": "还没有实例",
     "emptyHint": "创建一个，你会得到一个独立的 dsh 环境。",
     "emptyAction": "新建实例",
-    "copy": "复制",
-    "copied": "已复制",
     "createdAt": "创建于",
     "restart": "重建",
-    "restarting": "重建中…",
     "stop": "停止",
     "start": "启动",
     "working": "处理中…",
@@ -87,7 +87,10 @@
     "purge": "彻底删除",
     "purgeTitle": "彻底删除实例？",
     "purgeDescription": "除了容器和地址，「{{slug}}」的数据文件系统也会一起删掉——里面的工作区、配置、插件全部永久消失，无法恢复。",
-    "purgeConfirmLabel": "输入子域名 {{slug}} 以确认"
+    "purgeConfirmLabel": "输入子域名 {{slug}} 以确认",
+    "pidsLimit": "进程数上限",
+    "pidsHint": "默认 512 够用；跑重型构建可以调大（{{min}}–{{max}}）。",
+    "pidsInvalid": "请填 {{min}}–{{max}} 之间的整数。"
   },
   "instanceDetail": {
     "back": "返回实例列表",
@@ -105,7 +108,7 @@
     "upgrade": "升级",
     "upgrading": "升级中…",
     "upgradeHint": "升级会先给数据打一份快照再换镜像，期间实例会中断（数据越多越久）。新版本起不来会自动回滚。",
-    "noStable": "平台暂时没有开放其它版本。",
+    "noStable": "没有可切换的版本：其它已发布版本还没预热到本机。",
     "previousVersion": "上一版 {{image}}",
     "snapshotUsage": "升级前快照占用 {{size}}",
     "rollback": "回滚到上一版",
@@ -132,12 +135,14 @@
       "live": "实时",
       "ended": "已结束",
       "failed": "连接失败"
-    }
+    },
+    "range2h": "2 小时",
+    "range6h": "6 小时",
+    "range16h": "16 小时"
   },
   "settings": {
     "profile": {
-      "title": "个人资料",
-      "description": "你的账号信息"
+      "title": "个人资料"
     },
     "sessions": {
       "title": "会话",
@@ -154,17 +159,29 @@
       "revokeFailed": "撤销失败，请重试",
       "loadFailed": "加载会话列表失败"
     },
-    "members": {
-      "title": "成员",
-      "description": "有权访问你实例的人"
+    "account": {
+      "title": "账号",
+      "description": "你的账号信息、密码与登录设备",
+      "emailHint": "换邮箱要先给新地址发验证信，平台还没配邮件通道——需要改的话找运营。",
+      "currentPassword": "当前密码",
+      "newPassword": "新密码",
+      "confirmPassword": "确认新密码",
+      "revokeOthers": "同时让其他设备下线",
+      "saved": "已保存",
+      "saveFailed": "保存失败，请重试",
+      "passwordTooShort": "新密码至少 {{min}} 位。",
+      "passwordMismatch": "两次输入的新密码不一致。",
+      "passwordChanged": "密码已更新。",
+      "passwordFailed": "改密码失败，请重试",
+      "wrongPassword": "当前密码不对。",
+      "noPassword": "这个账号没有密码（可能由管理员创建），改不了。"
     }
   },
   "admin": {
-    "title": "平台管理",
-    "description": "所有用户与实例。管理员能封号、改配额、看状态和容器日志，但不能直接浏览用户实例里的 /data 数据文件系统。",
     "actionFailed": "操作失败，请重试",
     "users": {
       "title": "用户",
+      "description": "封禁 / 解封账号、改实例数上限、授予或撤销管理员。",
       "user": "用户",
       "instances": "实例数",
       "quota": "上限",
@@ -187,11 +204,11 @@
       "loadFailed": "加载用户列表失败"
     },
     "instances": {
-      "title": "实例",
+      "title": "全部实例",
+      "description": "全站实例的状态、磁盘与容器日志。能读日志排障，但不能浏览实例里的 /data 文件系统。",
       "slug": "标识",
       "owner": "归属",
       "status": "状态",
-      "spec": "规格",
       "createdAt": "创建时间",
       "actions": "操作",
       "logs": "日志",
@@ -215,7 +232,12 @@
       "memoryMb": "内存（MB）",
       "diskMb": "磁盘（MB）",
       "pidsLimit": "进程数上限",
-      "loadFailed": "加载实例列表失败"
+      "loadFailed": "加载实例列表失败",
+      "disk": "磁盘",
+      "attentionOnly": "只看需要注意的",
+      "filterAll": "全部",
+      "noneMatch": "没有符合条件的实例",
+      "openDetail": "查看详情"
     },
     "versions": {
       "title": "版本管理",
@@ -267,5 +289,16 @@
     "stopped": "已停止",
     "removing": "删除中",
     "error": "错误"
+  },
+  "logs": {
+    "title": "日志"
+  },
+  "quota": {
+    "unknown": "暂无数据",
+    "usedNoLimit": "已用 {{used}}（无上限）"
+  },
+  "health": {
+    "ok": "平台正常",
+    "down": "平台不可达"
   }
 }

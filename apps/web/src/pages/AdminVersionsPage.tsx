@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MoreHorizontalIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { CopyableText } from '@/components/copyable-text.js'
 import { PageHeader } from '@/components/page-header.js'
 import { PullDialog } from '@/components/pull-dialog.js'
 import {
@@ -61,6 +62,11 @@ function splitRef(ref: string): { tag: string; dsh: string | null; revision: str
   const at = tag.lastIndexOf('_')
   if (at <= 0) return { tag, dsh: null, revision: null }
   return { tag, dsh: tag.slice(0, at), revision: tag.slice(at + 1) }
+}
+
+/** 表格里只摆 digest 的前 12 位十六进制——够认，又不会把列撑爆；复制走的是完整值。 */
+function shortDigest(digest: string): string {
+  return digest.replace(/^sha256:/, '').slice(0, 12)
 }
 
 /**
@@ -178,6 +184,9 @@ export default function AdminVersionsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>{t('admin.versions.ref')}</TableHead>
+                      <TableHead className="hidden lg:table-cell">
+                        {t('admin.versions.digest')}
+                      </TableHead>
                       <TableHead>{t('admin.versions.state')}</TableHead>
                       <TableHead className="hidden sm:table-cell">
                         {t('admin.versions.publishedAt')}
@@ -275,17 +284,23 @@ function VersionRow({
   return (
     <TableRow>
       <TableCell>
-        {/* 认版本靠 tag；完整 ref 和 digest 挂 title，不占列 */}
-        <div
-          className="font-mono text-sm"
-          title={version.digest === null ? version.ref : `${version.ref}\n${version.digest}`}
-        >
+        {/* 认版本靠 tag；完整 ref 挂 title，不占列 */}
+        <div className="font-mono text-sm" title={version.ref}>
           {tag}
         </div>
         {dsh !== null && revision !== null && (
           <div className="text-xs text-muted-foreground">
             {t('admin.versions.dshLine', { dsh, revision })}
           </div>
+        )}
+      </TableCell>
+
+      {/* Digest 单列可复制：核对部署、给工单钉版本时要用的是它，不是下面那个 tag */}
+      <TableCell className="hidden lg:table-cell">
+        {version.digest === null ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <CopyableText value={version.digest}>{shortDigest(version.digest)}</CopyableText>
         )}
       </TableCell>
 
@@ -297,12 +312,17 @@ function VersionRow({
                 ? t('admin.versions.stateLabel.default')
                 : t('admin.versions.stateLabel.published')}
             </Badge>
-            {version.onHost && (
+            {version.onHost ? (
               <span
                 className="text-xs text-muted-foreground"
                 title={t('admin.versions.warmedHint')}
               >
                 {t('admin.versions.warmed')}
+              </span>
+            ) : (
+              // 没预热不是「状态」，但运维要判断「要不要现在拉」就得知道
+              <span className="text-xs text-muted-foreground" title={t('admin.versions.notOnHost')}>
+                —
               </span>
             )}
           </div>

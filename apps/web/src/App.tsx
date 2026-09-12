@@ -3,14 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AppLayout } from './layouts/app-layout.js'
 import { useSession } from './lib/use-session.js'
+import AdminInstancesPage from './pages/admin/AdminInstancesPage.js'
+import AdminUsersPage from './pages/admin/AdminUsersPage.js'
 import AdminVersionsPage from './pages/AdminVersionsPage.js'
-import AdminPage from './pages/AdminPage.js'
 import LoginPage from './pages/LoginPage.js'
 import InstanceDetailPage from './pages/InstanceDetailPage.js'
 import InstancesPage from './pages/InstancesPage.js'
-import MembersPage from './pages/settings/MembersPage.js'
-import ProfilePage from './pages/settings/ProfilePage.js'
-import SessionsPage from './pages/settings/SessionsPage.js'
+import AccountPage from './pages/settings/AccountPage.js'
 
 export default function App() {
   return (
@@ -28,14 +27,27 @@ export default function App() {
         <Route path="/" element={<Navigate to="/instances" replace />} />
         <Route path="/instances" element={<InstancesPage />} />
         <Route path="/instances/:id" element={<InstanceDetailPage />} />
-        <Route path="/settings/profile" element={<ProfilePage />} />
-        <Route path="/settings/sessions" element={<SessionsPage />} />
-        <Route path="/settings/members" element={<MembersPage />} />
+        <Route path="/settings/account" element={<AccountPage />} />
+        {/* 旧的设置页已经并进「账号」，收藏夹里的老链接接过去 */}
+        <Route path="/settings/profile" element={<Navigate to="/settings/account" replace />} />
+        <Route path="/settings/sessions" element={<Navigate to="/settings/account" replace />} />
+        <Route path="/settings/members" element={<Navigate to="/settings/account" replace />} />
+
+        {/* `/admin` 本身不再是一个页面：舰队视图才是默认落点，旧链接自动接上 */}
+        <Route path="/admin" element={<Navigate to="/admin/instances" replace />} />
         <Route
-          path="/admin"
+          path="/admin/instances"
           element={
             <RequireAdmin>
-              <AdminPage />
+              <AdminInstancesPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/users"
+          element={
+            <RequireAdmin>
+              <AdminUsersPage />
             </RequireAdmin>
           }
         />
