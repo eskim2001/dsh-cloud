@@ -22,7 +22,7 @@ docker run --rm --entrypoint sh dsh-check -c 'ls /usr/local/lib/node_modules/@de
 
 | # | 假设 | 依赖位置 | 失效症状 |
 |---|---|---|---|
-| 1 | 入口 token 的生成方式与寿命 | `entrypoint.sh` 抓取、`Caddyfile` 的 `@open` | `/__open` 401，用户进不去 |
+| 1 | 入口 token 的生成方式与寿命 + cookie 名字前缀 | `entrypoint.sh` 抓取、`Caddyfile` 的 `@first` / `@heal` | 首页 401；cookie 契约一变则**重定向死循环** |
 | 2 | 启动输出里 `token=` 那行的格式 | `entrypoint.sh` 的 sed | 同上（抓不到 token） |
 | 3 | CLI 顺序：`dsh web --patch X --host Y` | `entrypoint.sh` 的命令行 | `error: unknown option`，实例 crash-loop |
 | 4 | `owns-host.mjs` 依赖的事件名 `webserver/index-inject` | 平台插件 | **设置面静默失效**（无报错） |
@@ -74,8 +74,12 @@ function processLaunchToken(owner) {
 
 **三条影响**：
 
-1. **token 每次启动换新** → `/__open` 每次重启后都要重新引导。现在 Caddy 每次读
-   `DSH_LAUNCH_TOKEN`，是对的——**别改成缓存的**。
+1. **token 每次启动换新** → 每次重启后都要重新引导一次。现在 Caddy 在「无 cookie 的
+   `GET /`」上注入 `DSH_LAUNCH_TOKEN`（entrypoint 每次启动重新抓），是对的——**别改成缓存的**。
+   ⚠️ 这条依赖**两个** cookie 事实：名字前缀是 `dsh-auth-`、且「cookie 失效时还能被重新
+   引导」。Caddy 验不了签名，「cookie 在但无效」由 401 自愈（`@heal`）兜底。
+   **dsh 一旦改 cookie 名字、或不再下发 cookie，症状会变成首页 303 死循环**（不再出现在
+   401 断点上）——看 `docker logs` 里 Caddy 的 303 洪水确认。
 2. **cookie 活 30 天且跨升级有效** → 用户升级实例后不会被登出。是否预期，需产品确认。
 3. **cookie 按 authority 命名** → 换公开域名 = 所有人重新登录。
 
@@ -124,7 +128,7 @@ npm 的 bin 是指向 JS 的符号链接（满足），pnpm 的是 shell 脚本�
 docker run --rm --entrypoint sh <镜像> -c '<逐条查>'
 # 4. 真跑一个实例，浏览器里交互一遍
 docker run -d -p 18080:8080 -e DSH_TRUSTED_HOSTS=localhost:18080 <镜像>
-#    打开 http://localhost:18080/__open
+#    打开 http://localhost:18080/
 ```
 
 **第 4 步不能省。** 构建自检只证明「dsh 装上了、node-pty 能加载」，
