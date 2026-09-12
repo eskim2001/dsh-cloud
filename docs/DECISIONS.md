@@ -4,7 +4,7 @@
 
 ## D1 · 每实例一个容器，不是子进程
 
-- **决策**：一实例一容器，独立网络 + 独立卷。
+- **决策**：一实例一容器，独立数据卷；网络层靠**桥端口只发布到宿主回环**（不是"独立网络"—— 见 §四）。
 - **理由**：子进程 + setuid/iptables 是软隔离（社区项目 [dsh-server-login](https://github.com/pointer-a/dsh-server-login) 模式 A 的做法），跨实例边界不硬。容器能给出网络、文件、凭据三条硬边界。
 - **备选**：同机子进程（否）；每实例一 VM（M4 再说）。
 - **重审**：客户要求内核级隔离时 → D2。
@@ -12,18 +12,10 @@
 ## D2 · MVP 用 Docker，不上 microVM
 
 - **决策**：runtime 用 Docker；`instance-spec` 的 renderer 保持可插拔。
-- **理由**：跨实例的威胁已被网络隔离堵死；microVM 的三笔代价（密度、小文件 I/O、`/dev/kvm` 可用性）现在付，是为一个还没有客户的问题付账。dsh 的 `npm install` / 编译负载正好打中 microVM 的 virtiofs 弱项。
+- **理由**：跨实例的威胁已由「桥端口只发布到宿主回环 + 每实例门 token」堵住（Linux 上实测：容器够不到宿主回环）；microVM 的三笔代价（密度、小文件 I/O、`/dev/kvm` 可用性）现在付，是为一个还没有客户的问题付账。dsh 的 `npm install` / 编译负载正好打中 microVM 的 virtiofs 弱项。
 - **备选**：Kata Containers / Firecracker（要 `/dev/kvm`，多数云主机不支持嵌套虚拟化）；gVisor（一行切换，但 pty / syscall 兼容性风险不对称）。
 - **升级路径**：K8s + Kata（containerd runtimeClass），**不要**裸 Firecracker。
 - **重审**：客户合规要求内核隔离 / 允许装不可信第三方插件 / 规模上去了要密度。
-
-## D3 · 每实例独立 bridge 网络 + 入口接入，不发布宿主端口
-
-- **决策**：每实例一个独立 bridge 网络（可出网、互不可达）；容器**不发布任何宿主端口**；控制面把入口（Traefik）接进每个实例网络，入口按容器名直连桥 `http://dsh-instance-<slug>:8080`。
-- **理由**：跨实例网络层**完全不通**，且在 Docker Desktop 上也成立——发布到宿主回环的端口会经它注入的魔法网关对**所有**容器可见（OPEN-QUESTIONS #4 实测）。不发布就没有这个面。
-- **备选**：发布到宿主回环、Traefik 走 `host.docker.internal`（原方案，否——macOS/Windows 上跨实例可互达）；共享 `edge_net` + header 门（否——实例能扫到彼此的端口）。
-- **代价**：入口要动态接进 N 个实例网络（`docker network connect`，幂等）；入口容器被重建后要重接（放在启动对账里）。原方案的宿主端口分配/冲突重试逻辑整体消失。
-- **重审**：单容器可接入网络数有上限，规模上去了考虑每实例一个入口实例或 K8s。
 
 ## D4 · 子域，不是子路径
 
@@ -52,8 +44,8 @@
 
 ## D8 · 访问控制三道门
 
-- **决策**：① 私有网络（跨实例不可达）② Traefik 前置认证覆盖页面/API/WS，且做**授权**（登录者 == owner）③ 桥的 header 门（HMAC，每实例独立密钥）。
-- **理由**：③ 是**纵深防御**，不是唯一拦阻——跨实例已由 ① 的「不发布宿主端口 + 入口接入」守住（OPEN-QUESTIONS #4 改后实测：容器名 / 容器 IP / 网关旧端口全部阻断）。但实例仍能经 Docker Desktop 的魔法网关摸到**平台自己**发布的端口（控制面 / Traefik / Postgres），那一层 ③ 是最后一道；且 Linux 上的表现未实测 → ③ 必须保留，不能被当成"可省的冗余"。
+- **决策**：① 桥端口**只发布到宿主回环**（Linux 上跨实例不可达；另有每实例门 token 兜底）② Traefik 前置认证覆盖页面/API/WS，且做**授权**（登录者 == owner）③ 桥的 header 门（HMAC，每实例独立密钥）。
+- **理由**：③ 是**纵深防御**，不是唯一拦阻——跨实例已由 ① 的「只发布到宿主回环」守住（Linux 上实测：容器够不到宿主回环、也够不到别的容器发布的回环端口）。但**Docker Desktop 上不是**：任何容器都能经它的魔法网关摸到宿主回环上发布的端口（包括**平台自己**的控制面 / Traefik / Postgres），那一层 ③ 就是最后一道 → ③ 必须保留，不能被当成"可省的冗余"。
 - **注意：漏挂认证不会报错，只有洞**。门② 的认证是**逐条 router 显式挂上去**的（`buildTraefikConfig` 里的 `middlewares: [authName]`，见 `apps/server/src/instance/traefik.ts`），**不是"默认拒绝"**。漏挂的 router 在 Traefik 里是**合法配置**：照常路由、照常 200，没有告警、没有日志、没有测试会失败。
   - **对实例路由，门③ 把它兜成了 fail-closed**：gate token 只在认证 + 授权通过后才由 forward-auth 返回（`apps/server/src/http/forward-auth.ts`），经 `authResponseHeaders` 注入上游，容器内 Caddy 缺 header 即 403（`docker/instance-image/Caddyfile`）。所以漏挂表现为 **403，不是裸奔**。
   - **代价是这个错误变得不可见**：未认证用户拿到 403，和门② 正常工作时长得一模一样——你不会知道门② 其实没生效。门③ 只把它从"洞"变成了"沉默的配置错误"。
@@ -79,7 +71,7 @@
 ## D12 · rootfs 可写，不做只读根
 
 - **决策**：容器 rootfs **可写**；npm / pnpm 的全局前缀指向 `/data`，agent 装的东西随升级保留。只读 rootfs 降级为**可选加固**。
-- **理由**：dsh 是**编码 agent**，装依赖 / 装 CLI 工具是日常。只读 rootfs 会把它捆住，而**跨实例安全并不依赖它**——边界是网络 / 文件 / 凭据（D3/D4）。收益也小：攻击者已有代码执行，二进制从 `/data` 照样能跑，而 `/data` 本来就要持久化。
+- **理由**：dsh 是**编码 agent**，装依赖 / 装 CLI 工具是日常。只读 rootfs 会把它捆住，而**跨实例安全并不依赖它**——边界是网络 / 文件 / 凭据（见 §四）。收益也小：攻击者已有代码执行，二进制从 `/data` 照样能跑，而 `/data` 本来就要持久化。
 - **备选**：只读 rootfs + 全部可写路径指到 `/data`（否——agent 装不了系统包）。
 - **附带**：tini 装在镜像里作 PID 1（agent 会大量 spawn 子进程，必须有东西回收僵尸），不依赖 Docker 的 `Init`。
 - **重审**：客户合规要求只读根时。
@@ -169,76 +161,39 @@
 - **待补**：磁盘配额的可改性见 D18（扩容在线、缩容停机，已实现）。
 - **重审**：要开放用户自助扩容（配计费）时。
 
-## D18 · 磁盘配额：每实例一个 loop 文件 + ext4，文件系统大小即配额
+## D18 · 磁盘配额：一个 XFS 池 + 每实例一个 project ID
 
-- **决策**：`/data` 不再挂 Docker named volume，改成宿主上一个稀疏文件
-  `<HOST_STORAGE_ROOT>/<slug>.img`（大小 = 配额），`mkfs.ext4 -m 0` 后经 loop 设备挂到
-  `<HOST_STORAGE_ROOT>/<slug>`，容器 `Binds` 这个宿主目录。**配额 = 文件系统大小**，
-  是内核级硬限。宿主级操作全部走一个**特权助手容器**：
-  `docker run --rm --privileged --pid=host <image> nsenter -t 1 -m -u -n -i sh -c <脚本>`，
-  开发机与生产同一条代码路径（见 [`apps/server/src/instance/host-storage.ts`](../apps/server/src/instance/host-storage.ts)）。
-- **理由**：① 磁盘配额不是 Docker 能给的——实测 `--storage-opt size=10m` 在本机 Docker Desktop
-  **被静默忽略**（写 30MB 不拦），而且它本来就只限容器可写层，管不到 `/data`；
-  ② 池化 + XFS project quota 更优雅，但设限额要 `xfsprogs`，Docker Desktop 的宿主根是
-  LinuxKit（只有 busybox + e2fsprogs），且 `nsenter -t 1 -m` 之后容器里的工具**不可见**
-  → 开发机根本验不了，用户明确不接受；③ loop + ext4 只依赖宿主自带工具
-  （`truncate / losetup / mkfs.ext4 / mount / chown / resize2fs / e2fsck`），开发机实测全通。
-- **开发机实测（2026-09-09，macOS + Docker Desktop，LinuxKit 6.10.14）**：
+- **决策**：实例数据落在**一个池子**里 —— `HOST_STORAGE_ROOT` 必须是一块 **XFS 且以 `pquota` 挂载**的文件系统；
+  池子里每个实例一个目录，按 **project quota** 设硬上限：`limit -p bhard=<diskMb> ihard=<n>`。
+  **字节和 inode 两个都要设** —— 只限字节不限文件数，一个实例能用几百万个零字节文件把宿主 inode 耗尽。
+  宿主不是 XFS（Debian/Ubuntu 默认 ext4）时，在它上面放**一块大的 loopback XFS 镜像**当池子；
+  **整机只有一个 loop**，不是每实例一个。
+- **理由**：
+  1. 硬限由文件系统在**分配块的路径上**强制，容器里有多少 capability 都改不了；
+  2. 池化之后**没有每实例的 loop / mount** —— 也就没有"宿主 / daemon 重启后挂载全消失、要按序恢复"那一整套
+     内核态状态要管（早期形态的 `on-failure:5`、先恢复挂载再拉实例、fail-loud 检查全都因此退场）；
+  3. 扩缩容就是**改一个数字**（`limit -p bhard=…`）：扩容直接改；**缩容也能做** —— 已用超了新限额时表现为
+     "拒绝再写"、数据不丢（对比：每实例一个 loop+ext4 时 ext4 **缩不了**，只能重建 + 迁移）；
+  4. 实例里 `df` 报的是**配额**、不是宿主盘，所以"实例看不到宿主真实容量"这条仍然成立。
+- **实测（2026-09-12，Debian 12 / 内核 6.1 / Docker 29）**：
+  - `mount -o pquota` + `limit -p bhard=10m` → 灌 50 MiB **只写进 10 MiB**，是硬限；
+  - 项目目录的 `statfs` 报**配额**：池子 960 MiB / 项目目录 256.0 MiB
+    （前提：目录要带 `PROJINHERIT` —— `xfs_quota project -s` 会设；只打 project ID 不设继承标志则不报）；
+  - 建实例 ~7 ms；I/O 吞吐与"每实例一个 loop 镜像"**无差别**（74 vs 78 MB/s）。
+- **代价（要说清的）**：
+  1. **隔离从"物理"变成"逻辑"** —— 每实例一个镜像时，盘就那么大，配额逻辑错了也写不出去；池化之后**全靠配额设对了**。
+     而设配额要 `CAP_SYS_ADMIN`，缺权限时是**静默失败**（`xfs_quota report` 读不要权限，只有 `limit` 要）。
+     → **必须有一条启动自检**：验证限额真的能设上，不成**拒绝启动**。这是本决策的硬前提，不是可选项。
+  2. 池子是一块文件系统：它满了 / 坏了是**全局**影响（这正是配额存在的理由）。
+  3. 复制（升级前快照）必须给新目录**一个新的 project ID**，否则用量会算进原实例的账、甚至撞它的限额。
+  4. 宿主侧要特权来建池 / 设限额；控制面手里的 docker socket 已等价于宿主 root，所以这不是新增特权面。
+- **开发机（macOS / Docker Desktop）：不做硬限。** `createStorage` 照常建卷，但**打一行警告**说"本机不强制磁盘配额"。
+  理由：它的 linuxkit 内核把配额整块裁了（`CONFIG_XFS_QUOTA` 未设、`QFMT_V1/V2` 未设，`mount -o pquota` 一律 EINVAL）。
+  行业惯例也是如此 —— 开发机不强制、生产机硬限（K8s 那套用 XFS project quota 代替驱逐）。
+- **被取代的形态**：「每实例一个 loop 文件 + ext4，文件系统大小即配额」+ 特权 `nsenter` 助手容器。
+  它两边都能跑、当年也实测通过，代价是每实例一个 loop/mount、重启恢复顺序、以及一个特权容器面。**已弃用。**
+- **重审**：Docker / containerd 给出原生的每卷配额时；或宿主侧的配额能力（`CAP_SYS_ADMIN`）拿不到时。
 
-  | 项 | 结果 |
-  |---|---|
-  | 配额硬限 | ✓ 64MB 卷，容器内非 root 写到 53.4MB 即 ENOSPC |
-  | 数据安全 | ✓ 卸载 + 重新挂载后内容完好（模拟宿主重启） |
-  | 用量读数 | ✓ 普通非特权容器 `df -B1` 读挂载点（56040448 / 57381888） |
-  | 在线扩容 | ✓ 55M→115M，`truncate` + `losetup -c` + `resize2fs`，不停机 |
-  | 缩容保护 | ✓ 满盘时被正确拒绝（`New size smaller than minimum`） |
-  | loop 数量 | ✓ 不受 `max_loop=8` 限制，loop-control 动态分配到 loop13 |
-
-- **重启策略改 `on-failure:5`**（原 `unless-stopped`）：挂载是内核态，宿主 / Docker daemon
-  重启后**全部消失**。`unless-stopped` 会让容器在 daemon 起来时**自动拉起**，而那时挂载还没
-  恢复 → bind 到一个空目录 → 用户看到「数据没了」，且容器照常运行、UI 照常绿。
-  `on-failure` 在 daemon 重启时**不拉起**（官方文档明说 "It doesn't restart the container if
-  the daemon restarts"），崩溃时照常重试 5 次。实测确认：手动 `docker stop` 后
-  `exited / restarting=false / restarts=0`；`exit 1` 后自动重启到 `restarts=3`。
-  于是「挂载就绪」天然先于「容器启动」，竞态消失，且「停止」按钮不被自动拉起抵消。
-- **启动顺序**：① 恢复所有实例的挂载 → ② 把 DB 里 `status=running` 的实例按序拉起 →
-  ③ 常规对账。② 是必须的：`on-failure` 不会在宿主重启后自己回来，缺了它 DB 的 running 意图
-  会被对账器抹成 stopped（「重启后实例全停」）。
-- **对账 fail-loud**：`applyRuntime`（所有建容器的唯一收口点）第一步就是存储就位检查，
-  失败直接抛错、实例标 `error`、**不启动容器**。判定用 `mountpoint -q` 而不是「目录存在」——
-  `docker create -v <宿主目录>:/data` 在目录不存在时会**自动建一个空目录**，容器正常跑、
-  用户看到空 `/data`，这比报错更糟：它看起来一切正常。
-  更进一步，**`ensure` 永远不新建**：数据文件不见了、或文件系统认不出来，一律报错；
-  新建只走单独的 `create`，且只有建实例那条路会调它。否则「文件被删」会静默变成
-  「一个空实例」——用户以为数据丢了，我们却当成功。
-- **代价**：① 每实例一个 loop + 一个 ext4（创建成本、元数据、挂载数），上百实例时换成
-  「一块盘 + XFS pquota」——那时生产宿主装 xfsprogs 即可，**本模块的接口不变**；
-  ② 特权助手容器是新的强特权面（镜像固定、脚本白名单、零用户输入拼接、只在控制面可达）；
-  ③ 数据落在 `<HOST_STORAGE_ROOT>/` 而非 Docker 卷 → 备份 / 清理 / 监控要自写，
-  `docker volume` 那套不适用；④ loop 层有 I/O 开销（顺序写实测 ~300MB/s），生产建议直接挂盘 / LV；
-  ⑤ **超额承诺**：稀疏文件只吃实际写入量，所以「各实例配额之和」可以远超宿主容量。
-  MVP 不做总容量闸门，但要在宿主剩余空间告急时告警（否则写满宿主会连累所有实例）。
-- **宿主容量的坑（2026-09-09 实测）**：容器内 `df` 报 `/dev/vda1` 1007G / 可用 895G，
-  那是 Docker Desktop 虚拟盘的**名义上限**——`Docker.raw` 是稀疏文件（标称 1.0T，实占 62G），
-  真实地板是 macOS 数据卷的 **187Gi 可用**。**宿主 `df` 在稀疏盘上会高估可用空间**，
-  容量规划要按物理盘算，别信宿主 `df`。
-- **改配额（磁盘，2026-09-09 已实现）**：`setQuota` 里磁盘走单独一条路。扩容**在线**——
-  `truncate` + `losetup -c` + `resize2fs`，**不重建容器**（实测 `StartedAt` 不变、容器内 `df`
-  立刻变大）；缩容**必须停机**——删容器 → `shrink` 自己 `umount` → `resize2fs` → `truncate` →
-  按新规格重建。缩容前**先预检**：`ensure` + `usage`，已用 > 目标直接抛 `ShrinkBelowUsageError`
-  （HTTP 400，文案「该实例已用 X MB，不能缩到 Y MB」），此时**什么都还没动**；`resize2fs`
-  真失败时**回滚**配额到原值并按原规格重启（`ShrinkFailedError`），不留「容器已删、库记小配额、
-  文件系统还是大的」半截状态。回滚是必要的：删容器与改库都发生在缩容之前，不回滚就没有退路。
-- **`resize2fs -P` 在挂载态不可信（2026-09-09 实测）**：往文件系统写 100MB 后，挂载态下
-  `resize2fs -P` 仍报最小 6366 blocks（26MB，脏页没落盘），卸载后才报 32041 blocks（128MB）。
-  所以**不能靠它精确预判**缩容下限——预检用 `df` 的实际用量，真撞到下限就靠回滚兜底。
-  缩到低于最小值时 `resize2fs` 报 `New size smaller than minimum (32041)` 并以非零码退出，
-  **文件系统不被破坏**（实测随后重挂、数据完好），这也是「回滚」能安全收尾的前提。
-- **存量迁移**：早期实例用一次性脚本
-  [`apps/server/scripts/migrate-to-img.ts`](../apps/server/scripts/migrate-to-img.ts) 从 named volume 搬进 img
-  文件系统（停容器 → `create` → `cp -a` + `chown 1000:1000` → 条目数校验 → 删旧容器，
-  **旧卷保留**）。脚本完成使命后应删除，不是长期资产。
-- **重审**：实例上百 / 宿主换 XFS / Docker 给出原生的每卷配额时。
 
 ## D19 · 升级 / 回滚：换镜像前给 `/data` 打快照
 
@@ -603,7 +558,7 @@
 - **代价**：① 镜像多一个包（构建期 apt 装 + 剥 setuid）；② 默认仍是 `workspace-write`，
   所以「装依赖 / 装 CLI」（写工作区之外）需要用户自己在会话里切到 `danger-full-access`；
   ③ 这层沙箱是「同世界」的进程级隔离，与容器**共享内核**，**不构成跨实例边界**——
-  那条边界仍是容器（D1 / D3）。
+  那条边界仍是容器（D1）。
 - **重审**：宿主内核开始带 Landlock 时（可以去掉 bwrap 这档，留着也无害）；或 dsh 改了
   候选链语义时。
 - **补充**：装 bwrap 只是**必要条件**。光装它，探测仍会失败——Docker 默认的
@@ -663,73 +618,8 @@
   `/proc/latency_stats`、`/proc/timer_stats`、`/proc/acpi`、`/proc/asound`、`/proc/scsi`
   等）都是 root-only `0400`，而实例以 uid 1000 跑且 `CapDrop: ALL`，够不到；`/proc/sys`、
   `/proc/bus`、`/proc/fs`、`/proc/irq` 那几条只读保护同样因非 root 而不可写。这层是
-  纵深防御，不是跨实例边界——边界仍是容器（D1 / D3），内核残余风险本就已接受（§四）。
+  纵深防御，不是跨实例边界——边界仍是容器（D1），内核残余风险本就已接受（§四）。
 - **重审**：宿主内核开始带 Landlock 时（bwrap 那档可以退场，屏蔽可以加回来）；或 dsh 改了
   bwrap profile args（不再要求新 PID namespace 时）。**另需在原生 Linux Docker 上复验一次**
   ——默认 masked/readonly 列表是 Docker 通用行为，预期生产同样需要这处改动，但本机只在
   Docker Desktop 上验过。
-
-## D31 · 运行时改用 smolvm microVM，`/data` 走 `:staged`
-
-> **⚠️ 已作废：运行时已改回 Docker。** 下面这条记录描述的是 microVM 时代的形态，保留作历史与实测依据，
-> **不是当前实现**。当前实现：实例是 **Docker 容器**（镜像由 [`docker/instance-image`](../docker/instance-image) 构建），
-> `/data` 是 **Docker 命名卷**，入口按**宿主回环端口** `127.0.0.1:<hostPort>` 转发。见
-> [ARCHITECTURE §四](ARCHITECTURE.md) 与 [RUNTIME-CONTAINER-EVAL](RUNTIME-CONTAINER-EVAL.md)。
->
-> 作废的原因：本 ADR 的**核心理由**是「隔离模型唯一剩下的缺口是共享内核」，改回 Docker 等于**重新认下这个缺口**
-> —— 容器逃逸即宿主失陷。随之失效/改变的具体条目：
-> - ① 「每台 VM 独立 NAT」与实测的「跨实例网关/对端/机器名/宿主回环**全部不通**」**不复成立**：Docker 下
->   容器可经 `host.docker.internal` 够到宿主回环端口（macOS / Docker Desktop 实测）。跨实例现在靠**每实例门
->   token** 兜（`HMAC(secret, "dsh-cloud:gate:<slug>")`），不是网络不可达
-> - ② `:staged` 整套退场 —— 不落盘窗口、周期 sync、优雅停机回传都不再存在
-> - ③ 属主映射不适用（Docker 下工作负载就是 root）；⑤ 「VM 内必须留一个转发器」**仍然成立**
->   （dsh 依旧只肯绑回环，桥还是要）
-> - ④ 磁盘配额：Docker 命名卷**没有硬配额**，`diskMb` 目前只是声明（记在卷 label 上）
-> - ⑥ 「`stats` 降级」**撤销** —— Docker 原生提供 stats，CPU/内存都能采到
-> - ⑦ `pidsLimit` 在 Docker 下有对应参数（`HostConfig.PidsLimit`），不再是「无处落地」
-
-- **决策**：实例运行时从 Podman/Docker 换成 **smolvm 1.14.6**（microVM / libkrun）。五条具体形态：
-  1. **不再有 per-实例网络，也不再有入口接入** —— 每台 VM 自带独立 NAT，宿主只看到
-     `127.0.0.1:<hostPort>`。入口按**宿主回环端口**转发（D3 的「不发布宿主端口」被放宽为
-     「只发到回环」，依据见下面的 ④ 实测）。
-  2. **`/data` 用 `:staged`** —— 平台在宿主维护数据目录（`HOST_STORAGE_ROOT/<storage_key>`），
-     启动时整份复制进 VM，靠周期 `machine sync` 与**优雅停机**回传。
-  3. **工作负载以数据目录的属主运行**（`-u <uid>`），**不用**镜像声明的 `USER`
-     —— 两者不一致时 entrypoint 对 `/data` 的第一句 `mkdir` 就 EACCES，而 smolvm 会**静默**
-     降级成一个空转容器、状态仍报 running。
-  4. **磁盘配额改由运行时的 `--storage` 承载**（GiB，**只能扩不能缩**）。旧的 loop+ext4
-     与 `nsenter` 特权助手容器整套退场（D18 的实现形态被取代，其「固定大小 = 配额」的思路保留）。
-  5. **运行时接缝**收进 [`apps/server/src/runtime/driver.ts`](../apps/server/src/runtime/driver.ts)，
-     业务层不认任何具体运行时。
-- **理由**：§四 自己写明的「剩下的唯一缺口：内核」——容器与宿主共享内核，实例逃逸即宿主沦陷。
-  microVM 用 hypervisor 补上这一层。实测另有两个甜头：**热启动 1–3 秒**（实例可按需休眠、
-  秒级唤醒）与**闲置成本趋近于零**（每台 VM 进程 RSS 25–42 MB，`--cpus`/`--mem` 是上限非预留）。
-- **代价**（必须显式认下，不埋在代码里）：
-  1. **macOS 上拿不到 egress 限制** —— smolvm 源码显式拒绝非「Linux + firecracker」的 egress
-     策略。「限制实例能访问什么」这条在 macOS 上没有实现路径（Linux 上有）。
-  2. **`:staged` 的写入有丢失窗口** —— 数据先在 VM 内，靠 sync/优雅停机回传，**异常掉电会丢
-     最近一段**。兜底：45s 周期 sync、高风险动作前（升级/改配额/删除）显式 sync+停机、
-     DB 记 `lastSyncedAt` 供 UI 显示、宿主目录为空但 DB 记有数据时**拒绝启动**。
-  3. **磁盘只能扩不能缩** —— 需要更小的盘只能重建实例并迁移数据。UI 不给缩容入口，
-     后端遇到缩容请求直接 400。
-  4. **入口从「按容器名」变成「按宿主端口」** —— 每实例占一个宿主回环端口，要落库（`host_port`
-     唯一索引）、要分配前真探、要回收。**Traefik 必须从容器搬到宿主**：容器里的 Traefik 在
-     macOS 上够不到宿主的 `127.0.0.1`。
-  5. **`pidsLimit` 无处落地** —— smolvm 没有对应参数。
-  6. **`stats` 降级** —— smolvm 没有用量采样接口，指标表暂时只有磁盘用量。
-  7. **VM 内必须保留一个转发器**（现为 Caddy）—— dsh 拒绝绑非回环（flag 的字面量比较 +
-     config schema 的字面量联合类型两道），而 `-p` 转发是连 guest 的 NIC 地址，绑回环的端口
-     够不到（实测 `HTTP 000`）。Caddy 另外还承担门校验与 `/__open` 的 token 注入（D14），
-     那两件与转发无关，删不掉。
-- **实测关键数据（2026-09-11，macOS 14.5 / M1 / smolvm 1.14.6）**：
-  - 直接拉公开 GHCR 镜像可用（14 层，1.34GB 拉取 ~86s）；`ENTRYPOINT`/`WORKDIR`/`USER` 都尊重，
-    **`VOLUME` 声明被忽略**（我们的镜像本来就不靠它）
-  - `--storage` 是**硬上限**：灌 4 GiB 只写进 2990 MiB 就 ENOSPC，**宿主不受影响**
-    （需宿主装 `e2fsprogs` 才能取小于模板的值，否则只打 WARN 并保持模板大小）
-  - **④ 跨实例隔离成立**：网关转发、对端 IP、机器名、宿主回环**全部不通**（对照：自己的端口通）。
-    注意这条**依附于运行时**，换运行时必须重验
-  - 删除干净、失败路径不留孤儿（上游 #582「失败留孤儿 `_boot-vm` 永久占端口」已在 1.14.6 修）
-- **备选**：Kata / Firecracker（要 Linux + KVM，macOS 上不可用）；gVisor（用户态内核，隔离弱于
-  hypervisor）；继续用容器 + 内核加固（就是被换掉的那条路）。
-- **重审**：smolvm 在 macOS 支持 egress 策略时；dsh 允许绑非回环（可去掉 Caddy 的转发职责）；
-  需要磁盘缩容时；`stats` 有采样接口时。

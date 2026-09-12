@@ -73,11 +73,11 @@ export interface TraefikConfig {
  * 后端是**宿主回环上的端口**：实例只把端口发布到 `127.0.0.1`，入口直接转发到那里
  * （容器里的 Traefik 走 `host.docker.internal`）。
  *
- * **回归红线**：D3 时代「不发布宿主端口」的理由是 Docker Desktop 的 VM 网关会让发布端口
- * 对**所有**容器可见。microVM 时代实测该暴露面**不存在**（每台 VM 独立 NAT、guest IP 互指
- * 自己），但那是 microVM 的结论。**换回 Docker 后它不成立**：任何容器都能经
- * `host.docker.internal` 打到宿主的回环发布端口 —— 同宿主的实例容器之间因此可以互访。
- * 所以这条结论**依附于运行时**，换运行时必须重验，别继承（见 docs/DECISIONS.md）。
+ * **回归红线**：发布到宿主回环**不是**普遍的隔离边界 —— 它在 **Docker Desktop** 上不成立
+ * （`host.docker.internal` 是代理到宿主 localhost 的别名，任何容器都能打到宿主回环上的发布端口，
+ * 于是同宿主的实例容器之间可以互访）。**Linux 宿主上成立**（容器够不到宿主回环，2026-09-12 实测：
+ * 宿主回环监听与别的容器发布的回环端口，经 `host.docker.internal` / 网桥网关全部 ECONNREFUSED）。
+ * 所以这条结论**依附于宿主平台**，换环境必须重验，别继承。
  *
  * 返回结构化对象（测试直接断言它，不经过序列化）；落盘用 `renderTraefikConfig`。
  */

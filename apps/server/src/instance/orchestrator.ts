@@ -136,6 +136,14 @@ export class InstanceOrchestrator {
     return this.driver.remove(machineName)
   }
 
+  /**
+   * 改一个实例数据的容量上限（扩容 / 缩容）。**不用重建容器** —— 池化之后它只是
+   * 文件系统上的一个数字（XFS project quota）。缩到比当前用量还小时表现为"拒绝再写"。
+   */
+  resizeStorage(storageKey: string, sizeMb: number): Promise<void> {
+    return this.driver.resizeStorage(storageKey, sizeMb)
+  }
+
   async inspectStatus(machineName: string): Promise<string> {
     const state = await this.driver.status(machineName)
     return state?.state ?? 'unknown'

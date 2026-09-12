@@ -86,13 +86,23 @@ export interface RuntimeDriver {
   // 都由运行时决定；业务层只认那个不透明的 `storageKey`。
   /**
    * 建数据卷。**同名已存在就抛 `StorageExistsError`**，绝不静默复用（见该类注释）。
-   * `sizeMb` 是硬容量：卷灌满就是 ENOSPC，不是「预算」。
+   *
+   * `sizeMb` 是**契约上的硬容量**（卷灌满就是 ENOSPC，不是「预算」）。⚠️ 但**当前实现给不了**：
+   * Docker 命名卷没有配额，`diskMb` 现在只是声明值 —— 见 `DockerDriver.createStorage` 那段说明，
+   * 以及 docs/RUNTIME-CONTAINER-EVAL.md 的落地状态。
    */
   createStorage(key: string, sizeMb: number): Promise<void>
   /** 确认数据卷在。不在就抛 `StorageNotFoundError`，**绝不新建**。 */
   ensureStorage(key: string): Promise<void>
   /** 删掉这一块卷。幂等。**只删这一个 key** —— 快照卷是上层的事（见 `DataStore`）。 */
   removeStorage(key: string): Promise<void>
+  /**
+   * 改一个数据卷的容量上限（**扩容 / 缩容都走这里**）。
+   *
+   * 缩容是真实需求（用户把 quota 调小）。已用超了新上限时表现为"拒绝再写"、数据不丢 ——
+   * 所以实现要允许"当前用量 > 新上限"这个中间状态，**不能**因此拒绝设置。
+   */
+  resizeStorage(key: string, sizeMb: number): Promise<void>
   /** 已用容量（MiB）。**停机时也必须可读** —— 用量面板在实例没跑的时候也要有数。 */
   storageUsageMb(key: string): Promise<number | undefined>
   /**

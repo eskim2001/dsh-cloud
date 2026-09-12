@@ -17,7 +17,7 @@ The interesting failures for this project are the ones that break a boundary:
 - **Cross-instance reachability** — reaching another instance's container, network, files or credentials from inside one instance (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §四).
 - **Authentication or authorization bypass** — reaching an instance's `dsh` without going through platform auth, or reaching someone else's instance while logged in as yourself.
 - **Gate token forgery or leak** — making an instance container accept a request that did not come through the platform ingress, or obtaining the per-instance gate token.
-- **Host escape through the storage helper** — the privileged helper container (`nsenter` into the host, see D18) is the one intentionally privileged component; anything that lets an instance influence it, or makes it touch a path outside `<HOST_STORAGE_ROOT>/<slug>`, is a serious bug.
+- **Host escape through the storage helper** — once disk quota lands (see [D18](docs/DECISIONS.md)), the privileged helper container (`nsenter` into the host) will be the one intentionally privileged component; anything that lets an instance influence it, or makes it touch a path outside `<HOST_STORAGE_ROOT>/<slug>`, is a serious bug. ⚠️ **It does not exist yet** — D18's implementation was deleted and not restored.
 - **Platform credential exposure** — leaking `PLATFORM_SECRET` / `BETTER_AUTH_SECRET`, or getting a shared credential into a tenant container.
 
 ## What is *not* a vulnerability

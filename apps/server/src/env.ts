@@ -63,11 +63,21 @@ const EnvSchema = z.object({
   MAX_INSTANCES_PER_USER: z.coerce.number().int().positive().default(3),
 
   /**
-   * 宿主上存放实例数据的地方。**运行时已经不用它了** —— 数据是 Docker 命名卷，
-   * 落在 Docker 自己的存储里，宿主路径由运行时决定，控制面只认不透明的 `storageKey`。
-   * 留在这里是历史遗留，等确认无引用后可删。
+   * **实例数据池的根**。池化之后实例数据不再是一块块 Docker 命名卷，而是这个目录下
+   * **每个实例一个子目录 + 一个 XFS project ID**（硬配额）。
+   *
+   * 要求它落在一块 **XFS 且以 `pquota` 挂载**的文件系统上；不是的话平台会**自己建一块
+   * loopback XFS 镜像**（`<root>.img`）并挂上来当池子 —— 那一步要宿主的 `CAP_SYS_ADMIN`。
+   * 两条都做不到时：Linux 上**拒绝启动**（池化的隔离是逻辑隔离，没有真配额就不该跑），
+   * macOS 上退化为"不强制 + 一行警告"（它的内核没编配额）。
    */
   HOST_STORAGE_ROOT: z.string().min(1).default('/var/lib/dsh'),
+
+  /**
+   * 池子大小（MiB）—— **只在平台自动建 loopback 镜像时用**，且**只在首次建池生效**
+   * （之后绝不自动改大小）。省略则取宿主该文件系统的 80%。
+   */
+  HOST_POOL_SIZE_MB: z.coerce.number().int().positive().optional(),
 
   /**
    * 实例后端的**上游主机名** —— Traefik 用它去连实例发布的宿主回环端口。

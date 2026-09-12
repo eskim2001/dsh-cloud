@@ -53,41 +53,6 @@ export class SlugConfirmMismatchError extends Error {
   }
 }
 
-/**
- * 要求缩小磁盘配额。
- *
- * **卷的容量在创建时就定死了**，没有原地缩容的 API。所以这里**明确拒绝**，而不是靠
- * 「改库 + 重启」假装成功 —— 那会让管理台显示新配额、用户灌满才发现没变，等于把谎言
- * 写进数据库。见 `DiskGrowUnsupportedError`。
- */
-export class DiskShrinkUnsupportedError extends Error {
-  constructor(fromMb: number, toMb: number) {
-    super(
-      `磁盘配额只能扩大，不能缩小（当前 ${fromMb} MB，目标 ${toMb} MB）。` +
-        `需要更小的盘，请重建实例并迁移数据。`,
-    )
-    this.name = 'DiskShrinkUnsupportedError'
-  }
-}
-
-/**
- * 磁盘**扩容**也做不了：数据卷的容量在创建时定死。
- *
- * 命名卷没有原地扩容的 API，所以只能「建一块更大的卷 → 迁移 → 换过去」，还没做。
- *
- * **必须响亮拒绝，不能像从前那样假装成功**：旧实现改了库、重启了实例，但卷的容量
- * 一个字节没变 —— 管理台显示新配额，用户灌满才发现还是老尺寸。那是把谎言写进数据库。
- */
-export class DiskGrowUnsupportedError extends Error {
-  constructor(fromMb: number, toMb: number) {
-    super(
-      `磁盘配额不能在原地扩大（当前 ${fromMb} MB，目标 ${toMb} MB）。` +
-        `数据卷的容量在创建时定死；需要更大的盘请重建实例并迁移数据。`,
-    )
-    this.name = 'DiskGrowUnsupportedError'
-  }
-}
-
 /** 目标镜像被拒：引用非法 / 不是平台自己的镜像仓库 / 不在可选范围 / 宿主上没有。 */
 export class ImageRejectedError extends Error {
   constructor(message: string) {
@@ -279,8 +244,8 @@ export class InstanceProvisioner {
    * 改资源配额（D17：创建后只有管理员能改）。
    *
    * **CPU / 内存 / pids** 只在建容器时生效 → 改了必须重建（中断几秒，数据不动）。
-   * **磁盘不在其列**：容量在建数据卷时就定死了，`setQuota` 两个方向都直接拒绝 ——
-   * 见 `DiskGrowUnsupportedError` / `DiskShrinkUnsupportedError`。
+   * **磁盘不用重建**：池化之后它只是文件系统上的一个数字（XFS project quota），扩容和缩容
+   * 都在线改；缩到比当前用量还小时表现为"拒绝再写"、数据不丢。
    *
    * 原本在跑的实例重建后照旧运行；原本停着的**保持停止** —— 只把旧容器删掉
    * （否则 `start` 会复用旧容器、带着旧配额起来），等用户自己 `start`。
@@ -289,11 +254,12 @@ export class InstanceProvisioner {
     const row = await findInstanceById(this.db, id)
     if (row === undefined) throw new Error(`实例不存在：${id}`)
 
-    // **盘的容量定死在创建时**，两个方向都改不了 —— 放在动任何东西之前。
-    // 「落库 + 重启」的假装成功比报错糟得多：那是把谎言写进数据库，
-    // 管理台显示新配额，用户灌满才发现还是老尺寸。
-    if (quota.diskMb < row.diskMb) throw new DiskShrinkUnsupportedError(row.diskMb, quota.diskMb)
-    if (quota.diskMb > row.diskMb) throw new DiskGrowUnsupportedError(row.diskMb, quota.diskMb)
+    // 盘**先改、再落库**。反过来的话，运行时改失败就把"新容量"写进库里了 ——
+    // 管理台显示新配额、用户灌满才发现还是老尺寸，正是这条要防的。
+    // 缩到比当前用量还小是允许的：那时表现为"拒绝再写"，数据不丢。
+    if (quota.diskMb !== row.diskMb) {
+      await this.orchestrator.resizeStorage(row.storageKey, quota.diskMb)
+    }
 
     const computeChanged =
       row.cpus !== quota.cpus ||
