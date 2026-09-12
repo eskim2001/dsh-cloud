@@ -10,7 +10,7 @@
 
 ```
 浏览器 ── :443 ──> Traefik ──┬── Host(`console.lvh.me`)     → host.docker.internal:5173 (Vite 管理台)
-                             └── Host(`<slug>.lvh.me`)      → forward-auth → http://dsh-instance-<slug>:8080 (实例桥)
+                             └── Host(`<slug>.lvh.me`)      → forward-auth → host.docker.internal:<hostPort> (实例桥)
 ```
 
 入口走生产那套：`websecure`（:443）终结 TLS，`PUBLIC_SCHEME=https`、会话 cookie 带 `Secure`——和线上同构。
@@ -19,10 +19,9 @@
 SAN 覆盖 `DNS:lvh.me,DNS:*.lvh.me` 的证书装进系统信任库；仓库默认不含这一步，因为不装信任库时自签证书
 和默认证书一样是红锁，签它只是多一道工序。
 
-控制面在**宿主**上，实例容器在 Docker 里。Traefik 跑在容器里，所以摸宿主回环要经
-`host.docker.internal`——**只有 forward-auth 那一跳**用得到它。实例后端走 Docker 网络：
-控制面把 Traefik 接进每个实例网络（`TRAEFIK_CONTAINER=dsh-ingress`），按容器名直连，
-实例容器因此**不发布任何宿主端口**（D3）。
+控制面在**宿主**上，Traefik 和实例都跑在 **Docker** 里。实例把它的 bridge 发布到**宿主回环**
+（`127.0.0.1:<hostPort>`，端口由控制面从 20000-31999 分配），所以容器里的 Traefik 摸实例
+要经 `host.docker.internal`——和 forward-auth 那一跳同路。
 
 ## 为什么是 `lvh.me`
 
@@ -51,9 +50,9 @@ CONSOLE_DOMAIN=console.lvh.me                      # 控制台自己的主机名
 PUBLIC_SCHEME=https
 TRAEFIK_ENTRYPOINT=websecure
 TRAEFIK_CERT_RESOLVER=                              # 空——没有静态证书，落到 Traefik 默认证书
-TRAEFIK_CONTAINER=dsh-ingress
 FORWARD_AUTH_ADDRESS=http://host.docker.internal:3000/auth/verify
 TRAEFIK_ROUTES_PATH=./traefik-dynamic/routes.yml    # 仓库内，compose 挂到 /etc/traefik/dynamic
+INSTANCE_UPSTREAM_HOST=host.docker.internal         # Traefik 在容器里，实例后端必须经宿主
 ```
 
 Postgres 的宿主端口是 `127.0.0.1:55432`（只绑回环），数据在 named volume `dsh-pgdata` 里——
