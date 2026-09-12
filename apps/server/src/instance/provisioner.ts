@@ -110,7 +110,7 @@ export class InstanceProvisioner {
     // 没自选就用库里的默认版本（D21）——没有就响亮失败，别拿一个过期 env 顶上
     const image = input.image ?? (await findDefaultImageRelease(this.db))?.ref
     if (image === undefined) {
-      throw new ImageRejectedError('平台还没有默认镜像版本：在「镜像管理」里发布一版并设为默认')
+      throw new ImageRejectedError('平台还没有默认镜像版本：在「版本管理」里上架一版并设为默认')
     }
     // 自选版本走和升级一样的准入（平台仓库 + 发布序列 + 已发布），但**不要求宿主已有**：
     // 创建本来就会 ensureImage 自动拉（D23）。
