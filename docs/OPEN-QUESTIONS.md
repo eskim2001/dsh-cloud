@@ -34,19 +34,18 @@ cookie，而是由控制台签一枚**短时、单实例、绑定 owner** 的 to
 
 ## 三、已解决（存档）
 
-### #8 部署环境：microVM → **已改回 Docker**（D31 作废）
+### #8 部署环境：容器 → microVM → **容器**（已回退）
 
-运行时一度从 Podman/Docker 换成 smolvm microVM（D31），后来又**改回 Docker** —— 见 D31 顶部的作废说明与
-[ARCHITECTURE §四](ARCHITECTURE.md)。
+运行时一度从 Docker 换成 microVM（那条 ADR 已删除），后来**又改回 Docker** —— 理由与代价见
+[ARCHITECTURE §四](ARCHITECTURE.md)。现状：实例就是 **Docker 容器**（镜像由 `docker/instance-image` 构建），
+`/data` 是 **Docker 命名卷**，桥端口**发布到宿主回环**。
 
-D31 里那条「这条结论**依附于运行时**，换运行时必须重验」因此**再次生效，且尚未重跑**：
+当时立的规矩是「**换运行时必须重验隔离结论，不能继承**」。这条**已经重验**了（见 #4）：
 
-- microVM 时代实测的「跨实例网关 / 对端 IP / 机器名 / 宿主回环**全部不通**」**不能继承**到 Docker
-- **macOS / Docker Desktop 上已实测到相反结果**：容器可经 `host.docker.internal` 够到宿主回环上的**任何**监听 ——
-  别人的实例桥端口、控制面 API、Postgres 都在其中。跨实例现在靠**每实例门 token** 拦住（拿自己的 token 打别人 → 403）
-- **待办**：在生产宿主形态（Linux）上重跑同一组探针，看这条暴露面是否成立
+- **Linux 宿主上隔离成立** —— 容器够不到宿主回环、也够不到别的容器发布的回环端口；
+- **Docker Desktop 上不成立** —— `host.docker.internal` 代理到宿主 localhost，宿主回环上的服务全开。
 
-代价与残余风险（egress 无解、卷无配额等）写在 [ARCHITECTURE §四](ARCHITECTURE.md)。
+代价与残余风险（egress 无解、卷**没有硬容量**等）写在 [ARCHITECTURE §四](ARCHITECTURE.md)。
 
 ### #3 / #12 WebSocket 握手与跨源写操作
 
@@ -58,13 +57,18 @@ D31 里那条「这条结论**依附于运行时**，换运行时必须重验」
 
 社区做法是「服务端 + 客户端两处一起解锁」（改 bundle 或打补丁）。我们的做法见 [D15](DECISIONS.md)：走官方 `--patch` 扩展点注入 `__DSH_TRANSPORT__ = { ownsHost: true }`，**不改官方文件**。服务端侧实测只需 `--trusted-host`（2026-09-09，0.1.2-rc.1：`settings/describe`、`settings/mutate`、`credentials/set → describe → unset` 全部到达 handler 并成功）。
 
-### #4 宿主回环对容器可见 → **D3**
+### #4 宿主回环 / 别的容器的发布端口，容器够得到吗 → **已实测（2026-09-12）**
 
-Docker Desktop（macOS/Windows）会把宿主回环上发布的端口经魔法网关暴露给**所有**容器（`host.docker.internal` 直连 IP，改 hosts 挡不住）。本机实测：**不成立**。
+**Linux 宿主：够不到。** 实测（Debian 12 / Docker 29，从容器内发起）：宿主回环上的监听、以及
+**别的容器发布到 `127.0.0.1` 的端口**，经 `host.docker.internal` 和网桥网关 **全部 `ECONNREFUSED`**。
+所以"桥端口只发布到宿主回环"在 Linux 上是**有效的隔离**，"跨实例不可达"这条成立。
 
-改法 A1：实例容器**不发布任何宿主端口**，入口被接进每个实例网络、按容器名直连。改后实测（从实例容器内发起）跨实例全部路径——容器名 / 容器 IP / 网关旧端口 / `192.168.65.x`——**全部阻断**。
+**Docker Desktop（macOS / Windows）：够得到。** 它的 `host.docker.internal` 是**代理到宿主 localhost** 的
+魔法别名，于是宿主回环上的**任何**监听（实例端口、控制面 API、Postgres）对所有容器开放。这是**开发机特有**，
+不是 Docker 的通例。
 
-A1 不解决、但也不是跨实例问题的：经 `host.docker.internal` 仍能摸到宿主回环上**平台自己**的服务（控制面、Traefik、Postgres）。Linux 上绑 `127.0.0.1` 的发布 socket 只接受回环接口连接 → 预期摸不到，**部署到 Linux 后第一件事实测**（#8）。
+→ 结论：这个模型在**生产 Linux 上安全**；开发机上要接受"控制面 / DB 对实例容器可见"这个风险
+（或让它们改听 unix socket）。**跨实例那条最后仍有门兜底**（每实例 token），但拦住它的是门，不是网络。
 
 ### #5 workspace 根 → **铁律 1**
 
@@ -85,7 +89,14 @@ Linux 上做磁盘配额只有四条路：文件系统级三条 + 块设备级�
 
 被排除的思路：Docker `--storage-opt size=`（只限容器可写层，管不到 volume，且本机被静默忽略）；`--ulimit fsize=`（只限单文件）；JuiceFS / CephFS 目录配额（最终一致，要引元数据服务）；软配额（会超，是计费手段不是隔离）。
 
-**最终选第五种形态**：每实例一个宿主稀疏文件 + loop + ext4，**文件系统大小即配额**，宿主级操作走特权助手容器。只依赖宿主自带工具，开发机端到端可验。见 [D18](DECISIONS.md)。
+**选定的形态**：每实例一个宿主稀疏文件 + loop + ext4，**文件系统大小即配额**，宿主级操作走特权助手容器。只依赖宿主自带工具，开发机端到端可验。见 [D18](DECISIONS.md)。
+
+⚠️ **但 D18 的实现目前不存在** —— `host-storage.ts` 在切 microVM 那轮被删，改回 Docker 时没恢复；现在是 Docker 命名卷 + 把容量记进 label，**没有硬限**。
+
+**后续实测（2026-09-12）**，给上面那张表补一格、并收窄一条：
+
+- **Linux 宿主上 XFS project quota 成立且是硬限**（Debian 12 / 内核 6.1）：`mount -o pquota` + `bhard=10m` → 灌 50 MiB **只写进 10 MiB**。
+- "开发机可测"那列：**XFS / ext4 都做不到** —— Docker Desktop 的 linuxkit 内核把配额裁了（`CONFIG_XFS_QUOTA` 未设、`QFMT_V1/V2` 未设，`mount -o pquota` / `-o usrquota` 一律 EINVAL）；**btrfs 可以**（表里那条 ✓ 复现无误）。
 
 ### #9 / #10 / #11 数据模型 / 实例标识 / runtime 抽象 → **已实现**
 

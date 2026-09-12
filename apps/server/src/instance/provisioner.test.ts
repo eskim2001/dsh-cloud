@@ -8,8 +8,6 @@ import {
   ImageUpgradeFailedError,
   InstanceProvisioner,
   NoRollbackError,
-  DiskGrowUnsupportedError,
-  DiskShrinkUnsupportedError,
 } from './provisioner.js'
 
 vi.mock('../db/instance-repo.js', () => ({
@@ -354,64 +352,38 @@ describe('新建：镜像取自库里的默认版本（D21）', () => {
   })
 })
 
-describe('改配额：扩容（数据卷的容量建时定死，改不了）', () => {
-  it('目标大于当前 → 直接拒绝，运行时和配额都不动', async () => {
+describe('改配额：磁盘（池化之后扩和缩都在线改，不用重建容器）', () => {
+  it('扩容 → 只改限额，不重建容器', async () => {
+    findById.mockResolvedValue(row({ storageKey: 'unique-data-key' }))
+    const fakes = build()
+
+    await makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 20_480 })
+
+    // 配额是文件系统上的一个数字（XFS project quota），改它不需要碰容器/数据
+    expect(fakes.calls.resizeStorage).toHaveBeenCalledWith('unique-data-key', 20_480)
+    expect(fakes.calls.removeInstance).not.toHaveBeenCalled()
+    expect(fakes.calls.createInstance).not.toHaveBeenCalled()
+    expect(update).toHaveBeenCalled()
+  })
+
+  it('缩容也允许 —— 已用超了新上限时表现为「拒绝再写」，数据不丢', async () => {
+    findById.mockResolvedValue(row({ storageKey: 'unique-data-key' }))
+    const fakes = build()
+
+    await makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 1_024 })
+
+    expect(fakes.calls.resizeStorage).toHaveBeenCalledWith('unique-data-key', 1_024)
+    expect(update).toHaveBeenCalled()
+  })
+
+  it('改盘失败 → **不落库**（别把新容量写进库里、而盘上还是老的）', async () => {
     findById.mockResolvedValue(row())
     const fakes = build()
+    fakes.calls.resizeStorage.mockRejectedValueOnce(new Error('xfs_quota: not permitted'))
 
     await expect(
       makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 20_480 }),
-    ).rejects.toThrow(DiskGrowUnsupportedError)
-
-    // 从前这里走的是「改库 + 重启，假装成功」：库里的 diskMb 变了、实例也重建了，
-    // 但数据卷的容量一个字节没变 —— 管理台显示新配额，用户灌满才发现还是老尺寸。
-    // 把谎言写进数据库比报错糟得多，所以现在动任何东西之前就拒绝。
-    expect(fakes.calls.usage).not.toHaveBeenCalled()
-    expect(fakes.calls.snapshot).not.toHaveBeenCalled()
-    expect(fakes.calls.stopInstance).not.toHaveBeenCalled()
-    expect(fakes.calls.removeInstance).not.toHaveBeenCalled()
-    expect(fakes.calls.createInstance).not.toHaveBeenCalled()
-    expect(update).not.toHaveBeenCalled()
-  })
-
-  it('停着的实例也一样拒绝（不因为「反正没在跑」就放行）', async () => {
-    findById.mockResolvedValue(row({ status: 'stopped' }))
-    const fakes = build()
-
-    await expect(
-      makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 20_480 }),
-    ).rejects.toThrow(DiskGrowUnsupportedError)
-    expect(update).not.toHaveBeenCalled()
-  })
-})
-
-describe('改配额：缩容（数据卷不能原地缩容）', () => {
-  it('目标小于当前 → 直接拒绝，运行时和配额都不动', async () => {
-    findById.mockResolvedValue(row())
-    const fakes = build()
-
-    await expect(
-      makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 1_024 }),
-    ).rejects.toThrow(DiskShrinkUnsupportedError)
-
-    // 关键：**动任何东西之前就拒绝** —— 不探用量、不停机、不删机器、不落库。
-    // 卷的容量创建时定死、没有原地缩容 API，所以一条运行时调用都不该发生。
-    expect(fakes.calls.usage).not.toHaveBeenCalled()
-    expect(fakes.calls.snapshot).not.toHaveBeenCalled()
-    expect(fakes.calls.stopInstance).not.toHaveBeenCalled()
-    expect(fakes.calls.removeInstance).not.toHaveBeenCalled()
-    expect(fakes.calls.resizeStorage).not.toHaveBeenCalled()
-    expect(fakes.calls.createInstance).not.toHaveBeenCalled()
-    expect(update).not.toHaveBeenCalled()
-  })
-
-  it('停着的实例也一样拒绝（不因为「反正没在跑」就放行）', async () => {
-    findById.mockResolvedValue(row({ status: 'stopped' }))
-    const fakes = build()
-
-    await expect(
-      makeProvisioner(fakes).setQuota('i-1', { ...quota, diskMb: 1_024 }),
-    ).rejects.toThrow(DiskShrinkUnsupportedError)
+    ).rejects.toThrow('not permitted')
     expect(update).not.toHaveBeenCalled()
   })
 })

@@ -12,6 +12,7 @@ import { InstanceOrchestrator } from './instance/orchestrator.js'
 import { InstanceProvisioner } from './instance/provisioner.js'
 import { reconcileInstances } from './instance/reconciler.js'
 import { syncRoutesFromInstances } from './instance/routes-sync.js'
+import { ensureStoragePool } from './instance/pool.js'
 import { DockerDriver } from './runtime/docker/driver.js'
 
 const env = loadEnv()
@@ -19,8 +20,23 @@ const { db } = createDb(env.DATABASE_URL)
 
 const auth = createAuth(env, db)
 
+// 数据池：实例数据是池子里的目录 + XFS project quota（硬限）。
+//
+// **起不来就别起** —— 池化的隔离是**逻辑隔离**（全靠配额真设上了），而 `xfs_quota limit`
+// 在缺 CAP_SYS_ADMIN 时是**静默失败**。带着"看起来有配额"跑着，比直接报错糟得多。
+const pool = await ensureStoragePool({
+  root: env.HOST_STORAGE_ROOT,
+  ...(env.HOST_POOL_SIZE_MB === undefined ? {} : { sizeMb: env.HOST_POOL_SIZE_MB }),
+})
+if (!pool.enforced) {
+  console.warn(
+    `⚠️ ${pool.detail}\n` +
+      `   实例数据退回 Docker 命名卷：diskMb 只是**声明值**，不会被强制 —— 界面上的"配额"要标成"无上限"。`,
+  )
+}
+
 // 运行时驱动是**唯一**接触具体运行时的接口（见 runtime/driver.ts）。
-const driver = new DockerDriver()
+const driver = new DockerDriver({ pool })
 const orchestrator = new InstanceOrchestrator(driver, env.INSTANCE_IMAGE_REPO)
 // 数据卷是运行时的概念，原语在驱动上；DataStore 只留策略（见 instance/data-store.ts）。
 const dataStore = new DataStore({ driver })

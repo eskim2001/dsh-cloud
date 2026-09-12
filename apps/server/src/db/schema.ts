@@ -124,8 +124,12 @@ export const instance = pgTable(
     pidsLimit: integer('pids_limit').notNull().default(512),
     /**
      * 磁盘配额。**语义已变**：现在它只是数据卷**声明的容量**，记进卷的 label，用于展示和
-     * 按同容量重建 —— Docker 命名卷没有硬配额，真正的上限要宿主侧文件系统配额
-     * （XFS project quota）来实现，见 `DockerDriver.createStorage`。
+     * 按同容量重建 —— Docker 命名卷**没有硬配额**。
+     *
+     * ⚠️ 真要上限得靠宿主文件系统的 project quota（XFS / ext4），**仅 Linux**；开发机
+     * （macOS / Docker Desktop）上**连这条路都没有** —— 实测它的 linuxkit 内核把配额整块裁了
+     * （`CONFIG_XFS_QUOTA`、`QFMT_V1/V2` 均未设，`mount -o pquota` 一律 EINVAL）。
+     * 见 `DockerDriver.createStorage` 与 docs/RUNTIME-CONTAINER-EVAL.md。
      *
      * 仍是 MB 粒度（对外接口不变）。
      */

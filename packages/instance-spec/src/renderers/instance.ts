@@ -49,7 +49,7 @@ function renderEnv(spec: InstanceSpec, ctx: RenderContext): string[] {
  * 中立到什么程度：这里不认识具体运行时 —— 挂载、端口、用户、容量都是通用概念，
  * 由 driver 翻成自己的参数。数据卷在驱动那边是 Docker 命名卷，在这里只是一个不透明的 key。
  *
- * 关键设计（见 docs/ARCHITECTURE.md §四 / D31）：
+ * 关键设计（见 docs/ARCHITECTURE.md §四）：
  * - **`/data` 必须活得过升级**：升级走「删掉重建」，容器一定重造，只有平台侧的数据卷
  *   才活得过去。这份约束换运行时也不变。
  * - **不能用宿主目录直挂**：直挂走 Docker Desktop 的 VM 共享文件系统，那个后端有硬链接

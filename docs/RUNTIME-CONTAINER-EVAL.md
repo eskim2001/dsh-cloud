@@ -1,8 +1,15 @@
 # 容器模式评估：Docker + gVisor + XFS 配额
 
 > 2026-09-11。评估「不需要 KVM 的容器方案」能否满足平台的目标、代价是什么。
-> **落地情况**：这份评估的结论**已经被采纳** —— 运行时改回了 Docker（见 [ARCHITECTURE §四](ARCHITECTURE.md)
-> 与 DECISIONS 里 D31 的作废说明）。所以下面「尚未成为决策」那句话读作历史。
+> **落地情况**：这份评估的结论**已经被采纳** —— 运行时改回了 Docker（见 [ARCHITECTURE §四](ARCHITECTURE.md)）。
+> 所以下面「尚未成为决策」那句话读作历史。
+>
+> ⚠️ **配额这一条没落地，而且只在 Linux 上成立**：本文推的 XFS project quota，2026-09-12 在真宿主上实测
+> （Debian 12 / 内核 6.1 / Docker 29）：`mount -o pquota` + `limit -p bhard=10m` → 灌 50 MiB **只写进 10 MiB**，
+> **硬限成立**。但 **Docker Desktop（macOS 开发机）的内核把配额整块裁了** —— `CONFIG_XFS_QUOTA` 未设、
+> `CONFIG_QFMT_V1/V2` 未设，`mount -o pquota` / `-o usrquota` 一律 **EINVAL**（XFS 本身能挂）。
+> 开发机上得走别的路：[OPEN-QUESTIONS #7](OPEN-QUESTIONS.md) 那四种形态里，**btrfs squota 实测可用**
+> （`mkfs.btrfs -O squota` + `qgroup limit`）。而**当前实现里配额根本没做** —— 见 [D18](DECISIONS.md) 的落地状态。
 
 ## 背景
 
@@ -38,7 +45,7 @@ Error creating the Kvm object: Error(2)
 - **一切用户内容落 `/data`**，包括 workspace；`WORKDIR` 必须在 `/data` 下，否则重建就丢工作区。
 - **每实例磁盘硬限**。灌满就 ENOSPC，不是软配额。
 - **每实例 CPU / 内存 / pids 限制**。
-- **实例之间网络层互不可达**，且实例不发布任何宿主端口。
+- **实例之间网络层互不可达**（实现形态见 [ARCHITECTURE §一](ARCHITECTURE.md)）。
 - **实例里看不到宿主的真实内容**。
 - **假设实例一定会逃逸、一定会沾满资源**。所有设计从一个被攻陷的实例出发。
 - **兼容 CI 构建的 OCI 镜像**（多架构）。
@@ -112,6 +119,15 @@ df -h /data  →  100.0M  100%         ← df 报的是配额，不是宿主盘
 
 最后，重启后要对已有的实例目录重新施加配额（回填），否则限额会静默消失。
 
+**落地状态（2026-09-12）**：上面这套**还没实现**。当前是 Docker 命名卷 + 把容量记进卷 label ——
+**没有硬限**。所以：
+
+- 在 Linux 宿主上接上 project quota 之前，「每实例磁盘硬限」这条需求是**未满足**的；
+- macOS 开发机上无解（见开头的 ⚠️），只能退到**软控制**（监控用量、超了告警/停机）——那是"发现后处理"，
+  不是"灌不进去"，安全语义差很远；
+- ⚠️ 别让 `diskMb` 看起来像生效了：现在它只是一个声明值（记在卷 label 上供展示）。这一点参考了同类项目
+  的处理 —— 他们有 PR 专门把「macOS 上磁盘限额被静默忽略」从"什么都不说"改成"警告"。
+
 ### CPU / 内存 / pids
 
 Docker 原生支持（`--cpus`、`--memory`、`--pids-limit`，走 cgroup v2）。这比 microVM 那条路更标准——microVM 是给整台 VM 分配，这里是大家熟悉的 cgroup 语义。
@@ -120,7 +136,7 @@ Docker 原生支持（`--cpus`、`--memory`、`--pids-limit`，走 cgroup v2）�
 
 能做到，已实测。
 
-现在平台用的就是这套设计：每实例一个独立 bridge 网络，不发布任何宿主端口，入口（Traefik）被接进每个实例网络、按容器名直连。它当初就是为容器设计的。
+**注意：平台后来没有采用这套设计。** 现在的形态是「桥端口只发布到宿主回环 + 入口经 `host.docker.internal` 转发」（见 [ARCHITECTURE §一](ARCHITECTURE.md)）。下面这段测的是"独立 bridge 网络"那条路，保留作对照。
 
 实测两个容器分别挂在独立 bridge 上：
 
@@ -152,7 +168,8 @@ Docker 原生支持（`--cpus`、`--memory`、`--pids-limit`，走 cgroup v2）�
 
 ### 假设一定会逃逸、一定会沾满资源
 
-资源那两条能做到：磁盘是文件系统级的硬限，CPU 和内存是 cgroup 硬限。
+资源那两条**在 Linux 宿主上**能做到：磁盘是文件系统级的硬限（project quota），CPU 和内存是 cgroup 硬限。
+⚠️ 但磁盘那条**还没实现**（见开头的 ⚠️ 与「磁盘硬限」一节的落地状态），macOS 上则做不到。
 
 逃逸那条只做到一半。gVisor 把「逃逸直达宿主内核」变成「逃逸要先攻破 Sentry」，这比共享内核强得多，但它终究是**用软件模拟内核**，不是 CPU 提供的硬件边界。这一点是它和 microVM 之间唯一的、也是本质的差距。
 

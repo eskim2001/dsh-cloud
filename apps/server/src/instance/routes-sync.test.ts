@@ -72,7 +72,7 @@ describe('syncRoutesFromInstances', () => {
       }
     }
     expect(Object.keys(cfg.http.routers)).toEqual(['instance-alice'])
-    // 后端是实例网络里的容器名——不发布宿主端口
+    // 后端是宿主回环端口（`upstreamHost` 默认 127.0.0.1；容器里的 Traefik 走 host.docker.internal）
     expect(cfg.http.services['instance-alice']?.loadBalancer.servers[0]?.url).toBe(
       'http://127.0.0.1:20000',
     )

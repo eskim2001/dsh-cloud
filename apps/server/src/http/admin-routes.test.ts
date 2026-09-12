@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { describe, expect, it, vi } from 'vitest'
 import type { Env } from '../env.js'
 import { RegistryError } from '../instance/image-sync.js'
-import { ImageRejectedError, NoRollbackError, DiskShrinkUnsupportedError } from '../instance/provisioner.js'
+import { ImageRejectedError, NoRollbackError } from '../instance/provisioner.js'
 import { registerAdminRoutes, type AdminRouteDeps } from './admin-routes.js'
 
 const env = { MAX_INSTANCES_PER_USER: 3, INSTANCE_IMAGE_REPO: 'dsh-instance' } as Env
@@ -339,10 +339,10 @@ describe('平台管理面：管理员路径', () => {
     })
   })
 
-  it('要求缩容 → 400 + 说清「只能扩不能缩」（不是 500，也不是笼统的「操作失败」）', async () => {
+  it('改盘失败（配额设不上）→ 交给默认错误处理，不再当请求侧错误', async () => {
     const { app } = await build(ADMIN, {
       setInstanceQuota: async () => {
-        throw new DiskShrinkUnsupportedError(5_000, 1_024)
+        throw new Error('xfs_quota: not permitted')
       },
     })
     const res = await app.inject({
@@ -350,9 +350,9 @@ describe('平台管理面：管理员路径', () => {
       url: '/api/admin/instances/i-x/quota',
       payload: { cpus: 1, memoryMb: 2048, pidsLimit: 512, diskMb: 1_024 },
     })
-    expect(res.statusCode).toBe(400)
-    // 新语义：不是「已用 > 目标」，而是卷的容量**根本不能原地缩**，文案要说清这一点
-    expect(res.json().error).toContain('只能扩大，不能缩小')
+    // 池化之后扩和缩都合法 —— 设不上限额是**服务端**故障（缺 capability / 池子没就绪），
+    // 不是"这个请求不合法"，所以不再是 400。
+    expect(res.statusCode).toBe(500)
   })
 
   it('看日志：实例不存在 → 404，还没容器 → 409', async () => {

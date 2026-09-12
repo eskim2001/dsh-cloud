@@ -15,24 +15,24 @@
         │      ↳ forward-auth 中间件                   │
         │      ↳ 注入 X-Platform-Token                 │
         └──────┬─────────────────────────┬────────────┘
-               │ 控制面地址               │ 被接进每个实例网络，
-               │ （dev 经               │ 按容器名直连
-               │ host.docker.internal）  │ http://dsh-instance-<slug>:8080
+               │ 控制面地址               │ 宿主回环端口
+               │ （dev 经               │ 127.0.0.1:<hostPort>
+               │ host.docker.internal）  │ （容器内 caddy :8080 发布）
                ▼                         ▼
     ┌────────────────────┐    ┌──────────────────────────────┐
-    │ 控制面              │    │ 实例容器 instance-<slug>        │
-    │  web (React 管理台) │    │   独立 bridge 网络（可出网）  │
+    │ 控制面              │    │ 实例容器 dsh-instance-<slug>   │
+    │  web (React 管理台) │    │   Docker 默认 bridge（可出网） │
     │  server (Fastify)   │    │   caddy :8080 ──► dsh         │
     │  Postgres           │    │            127.0.0.1:3080     │
     │  control_net        │    │   卷 /data（workspace+会话+   │
     └─────────▲──────────┘    │        插件+配置）            │
-              │ dockerode      │   配额 cpu/mem · 不发布端口  │
+              │ dockerode      │   cpu/mem 有上限 · 磁盘无硬限  │
               └────────────────┴──────────────────────────────┘
 ```
 
-**关键点**：实例容器**只**挂在自己的网络上，**不发布任何宿主端口**；入口（Traefik）被接进每个实例网络，按容器名直连桥。实例容器之间、实例容器到控制面，**网络层互不可达**。
+**关键点**：实例容器把桥端口（`:8080`）**只发布到宿主回环** `127.0.0.1:<hostPort>`（端口由平台从 20000–31999 分配）；入口（Traefik 跑在容器里）经 `host.docker.internal:<hostPort>` 转发进来。**Linux 上这就是有效的网络隔离** —— 容器够不到宿主回环上的监听、也够不到**别的容器**发布的回环端口（2026-09-12 实测：全部 `ECONNREFUSED`，见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) #4）。
 
-> **为什么不是"只发布到宿主回环"**：Docker Desktop（macOS/Windows）会把宿主回环上发布的端口经魔法网关暴露给**所有**容器，跨实例因此可互达（见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) #4，已实测）。改法 A1 是干脆不发布；Linux 上绑 `127.0.0.1` 的发布 socket 只接受回环接口连接，所以那条路本来也通，但 Mac 上不通。**部署到 Linux 后仍要实测一次**（#8）。
+> ⚠️ **Docker Desktop（macOS/Windows）上不是**：它的 `host.docker.internal` 是**代理到宿主 localhost** 的别名，于是宿主回环上的**任何**监听（实例端口、控制面 API、Postgres）对所有容器开放。这是**开发机特有**，生产 Linux 不受影响。跨实例那条最后仍有**每实例门 token** 兜底 —— 但拦住它的是门，不是网络。
 
 ## 二、四个角色
 
@@ -62,8 +62,7 @@
 **前提假设：实例 = 不可信代码执行环境。** dsh 的 agent 会 spawn 进程、跑 shell、写文件——这是它的本职工作。所有设计从"一个被攻陷或被滥用的实例"出发。
 
 **⚠️ 内核是共享的**：实例跑在 **Docker 容器**里，与宿主共享内核。所以「逃逸即跨实例」这条**重新成立**，
-而且比 microVM 时代更重 —— 容器逃逸直接就是**宿主失陷**，不只是串到别的实例。这是选 Docker 时接受的代价
-（DECISIONS 里那条 microVM 决策已作废）。
+而且比 microVM 时代更重 —— 容器逃逸直接就是**宿主失陷**，不只是串到别的实例。这是选 Docker 时接受的代价。
 
 跨实例只有四条通道，逐条堵：
 
@@ -80,9 +79,12 @@
   macOS 的 Docker Desktop 上无解
 - 健康判定**不能只信容器的自报状态**：容器 `running` 不等于工作负载在服务（启动窗口期，或 entrypoint 里
   dsh / caddy 已经崩了但容器还没退）。真正的死活走 `InstanceOrchestrator.probeHealthy`（**真连入口端口**）
-- **磁盘没有配额**：Docker 命名卷没有硬上限 —— 它只是宿主文件系统上的一个目录，实例能把它写满宿主盘。
-  `diskMb` 目前只是**声明**（记在卷 label 上供展示和复制时重建），真配额要靠宿主文件系统
-  （XFS project quota），**仅 Linux**。见 [RUNTIME-CONTAINER-EVAL](RUNTIME-CONTAINER-EVAL.md)
+- **磁盘没有配额**：Docker 命名卷没有硬上限 —— 它只是宿主文件系统上的一个目录，实例能把它写满宿主盘
+  （**把整台机器上所有实例一起拖垮**，而且触发门槛很低）。`diskMb` 目前只是**声明**（记在卷 label 上供展示
+  和复制时重建）。真配额只能靠宿主文件系统的 project quota（XFS / ext4），**仅 Linux**；而**开发机
+  （macOS / Docker Desktop）上连这条路都没有** —— 实测它的 linuxkit 内核把配额整块裁了
+  （`CONFIG_XFS_QUOTA` 未设、`QFMT_V1`/`QFMT_V2` 未设），`mount -o pquota` / `-o usrquota` 一律 EINVAL。
+  见 [RUNTIME-CONTAINER-EVAL](RUNTIME-CONTAINER-EVAL.md)
 - **宿主回环上的「无门」服务对容器可见**（macOS / Docker Desktop 实测）：控制面 API 与 Postgres 都只听宿主
   回环、且没有门，开发机上一个租户容器能直连它们。生产宿主是 Linux 时这条是否成立**待验** —— Linux 上
   `host-gateway` 指向网桥网关，够不到绑 `127.0.0.1` 的 socket
@@ -93,21 +95,21 @@
 
 ## 五、实例加固清单
 
-> **换运行时后这张表变了大半**（D31）：容器时代靠 Docker 参数换来的加固，现在大部分由
-> **hypervisor + 独立内核**直接给出，不再需要配置。左列是旧清单，右列是现在由谁负责。
+> 实例是 Docker 容器，加固靠 **Docker 参数 + 镜像本身**。下面是逐项现状 —— ⚠️ 标出来的几条是
+> **该做而没做**（不是"无所谓"）。
 
-| 项 | 现在由谁负责 |
+| 项 | 现状 |
 |---|---|
-| 用户 | **仍要**：工作负载以**数据目录的属主**运行（不是 root）。镜像里那个 uid 1000 的用户还在，但运行 uid 由平台按数据目录属主传（D31） |
-| 权限 / capabilities | **hypervisor**：不再共享宿主内核，`CapDrop:ALL` 这类参数无处可施、也不再必要 |
-| 路径屏蔽 | **hypervisor**：独立内核 + 独立 rootfs，看不到宿主 `/proc`、`/sys`。D30 那套是为绕开 Docker 默认屏蔽而加的，随之退场 |
-| rootfs | **仍要可写**（D12：dsh 是编码 agent，装依赖是日常）——对应 VM 的 `--overlay` 层 |
-| PID 1 | **仍要**：镜像里的 tini（agent 大量 spawn 子进程，必须收僵尸） |
-| 命名空间 | **hypervisor**：整台 VM 就是边界 |
-| pids 限制 | **无处落地** —— smolvm 没有对应参数（D31 代价⑤）。这是相对容器时代的**净退步** |
-| 配额 | 内存 `--mem`、CPU `--cpus`（都是**上限而非预留**）；磁盘 `--storage` 是硬上限，超了 guest 拿 ENOSPC、**宿主不受影响** |
-| 网络 | 每台 VM 独立 NAT；只发布到**宿主回环** |
-| `--privileged` / host 网络 | 概念不存在：没有容器守护进程可以提权到 |
+| 用户 | 工作负载跑 **root**（渲染器固定 `user: '0'`）—— 命名卷的根归 root，容器内没法降权 |
+| rootfs | **可写**（D12：dsh 是编码 agent，装依赖是日常） |
+| PID 1 | 镜像里的 **tini**（agent 大量 spawn 子进程，必须收僵尸） |
+| 命名空间 / 内核 | **Docker 默认**：进程 / 挂载 / 网络命名空间独立，但**共享宿主内核**（逃逸即宿主失陷） |
+| capabilities | ⚠️ **没有 drop** —— 用 Docker 默认能力集（含 CHOWN / DAC_OVERRIDE / SETUID 等，不含 SYS_ADMIN） |
+| pids 限制 | ⚠️ **没设** —— schema 里有 `pidsLimit`（默认 512），但渲染器没往下带、驱动也没设 `HostConfig.PidsLimit` |
+| 内存 / CPU | `HostConfig.Memory` / `NanoCpus`（上限而非预留） |
+| `no-new-privileges` / seccomp | ⚠️ **没做**（Docker 默认 seccomp profile 生效，但没有额外收紧） |
+| 网络 | 桥端口**只发布到宿主回环**；Linux 上容器够不到它（[OPEN-QUESTIONS #4](OPEN-QUESTIONS.md) 实测） |
+| `--privileged` | **没用**，也不该用（那等于宿主 root） |
 
 **不随运行时变的**：
 
@@ -148,7 +150,8 @@
 
 **运行限制。** 以下是刻意选的边界，不是待补的漏：
 
-- **磁盘配额限的是 `/data` 文件系统**（§五），不是宿主全部存储；容器可写层、日志、升级快照要另行规划宿主容量。
+- **磁盘现在没有硬限**：`diskMb` 只是声明值，一个实例能把宿主盘写满（§四 残余风险）—— 在配额落地之前，
+  宿主容量是**共用且无保护**的。容器可写层、日志、升级快照也都要另行规划容量（它们本来就不在 `diskMb` 里）。
 - **镜像切换需要停机。** 回滚会同时恢复旧镜像和升级前的数据快照，**丢弃快照之后的数据变化**；每实例只保留一份升级前快照，不能替代独立备份。
 - **删除实例而不清数据**会保留数据及其归属记录；复用子域名创建的是独立文件系统，恢复旧数据要运营人员核验，不会按名称自动接回（§四 文件）。
 - **当前未包含**：计费、独立备份、完整可观测性栈、多节点运行时。状态对账与用量采样不能替代它们，推迟计划见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) §二。

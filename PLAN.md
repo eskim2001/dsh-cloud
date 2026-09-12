@@ -47,10 +47,11 @@
 
 - [x] 脚手架：pnpm workspace + `apps/server` + `apps/web` + `packages/instance-spec`
 - [x] 实例镜像：两段式 Dockerfile + tini + `DSH_HOME=/data` + **WORKDIR 落 `/data`**
-- [x] 编排闭环：dockerode 起一个带配额 + 数据文件系统 + 独立网络的容器
+- [x] 编排闭环：dockerode 起实例容器（桥端口发布到宿主回环 + `/data` 走 Docker 命名卷）
 - [x] 三道门：forward-auth + 每实例 gate token + 路由生成
 - [x] 页面：登录 + 实例列表 / 详情 / 打开
-- [x] 磁盘配额（D18）、升级 / 回滚（D19）、配额管理（D17）、状态现算（D16）
+- [x] 升级 / 回滚（D19）、配额管理（D17）、状态现算（D16）
+- [ ] **磁盘配额（D18）—— 没做**：实现随"切 microVM"那一轮被删，改回 Docker 时没恢复（现在只有命名卷 + 声明值，**没有硬限**，见 D18 的落地状态）
 
 ### M1.5 能装 —— 待定，卡在选型
 
