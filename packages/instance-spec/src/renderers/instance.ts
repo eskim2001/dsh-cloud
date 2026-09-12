@@ -84,6 +84,10 @@ export function renderInstance(spec: InstanceSpec, ctx: RenderContext): Rendered
     guestPort: BRIDGE_PORT,
     hostPort: ctx.hostPort,
     guestDataDir: DATA_ROOT,
+    // 资源上限属于"机器定义"：驱动照着建就行，别让它再回去翻 spec（那样漏一个字段就是静默失效）
+    cpus: quota.cpus,
+    memoryMb: quota.memoryMb,
+    pidsLimit: quota.pidsLimit,
     mounts,
     labels: {
       'dsh.cloud/instance': slug,
