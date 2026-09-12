@@ -4,8 +4,9 @@
 }
 
 :{$BRIDGE_PORT:8080} {
-	# header 门：入口（Traefik）会注入 DSH_GATE_TOKEN，直连者没有 → 403。
-	# 独立网络下这是纵深防御的第二层，不是唯一屏障。
+	# header 门：入口（Traefik）经 forward-auth 注入 DSH_GATE_TOKEN，直连者没有 → 403。
+	# 实例的 bridge 发布在**宿主回环**上，宿主上任何进程都够得着——这道门就是挡这些
+	# 本地进程的，不是可有可无的纵深防御。
 	@no_gate not header {$DSH_GATE_HEADER} {$DSH_GATE_TOKEN}
 	respond @no_gate "forbidden" 403
 

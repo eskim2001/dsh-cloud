@@ -14,16 +14,17 @@
 # DNS（全网解析到 127.0.0.1），所以**不需要本地 DNS 容器**，也不会和 Clash
 # 之类占用 :53 的程序撞车。
 #
-# 实例容器**不发布任何宿主端口**（铁律 6①）：控制面把 Traefik 接进每个实例
-# 网络（TRAEFIK_CONTAINER），它按容器名直连实例桥。只有 forward-auth 那一跳
-# 仍经 host.docker.internal 摸宿主上的控制面。
+# 实例**挂在宿主回环端口上** `127.0.0.1:<hostPort>`：端口由控制面从 20000-31999
+# 分配（apps/server/src/instance/port-allocator.ts）。
+# Traefik 跑在容器里，所以两跳都走 host.docker.internal——实例后端
+# （INSTANCE_UPSTREAM_HOST，见 scripts/dev.mjs）和 forward-auth（宿主上的控制面）。
 #
 # 跑法见 docker/compose/README.md。控制面需要的环境变量在 apps/server/.env.local
 # （`pnpm dev` 在它缺失时会自动生成）。
 services:
   traefik:
     image: traefik:v3.5
-    # 控制面按这个名字把入口接进实例网络（TRAEFIK_CONTAINER 的默认值）
+    # 固定容器名，方便 `docker logs dsh-ingress` 之类
     container_name: dsh-ingress
     restart: unless-stopped
     command: ["--configFile=/etc/traefik/traefik.yml"]
@@ -31,7 +32,7 @@ services:
       - "80:80"
       - "443:443"
     extra_hosts:
-      # forward-auth 要摸宿主回环上的控制面（实例后端走 Docker 网络，不用这个）
+      # 实例后端和 forward-auth 两跳都走它（见文件头）
       - "host.docker.internal:host-gateway"
     volumes:
       - ../traefik/traefik.yml:/etc/traefik/traefik.yml:ro
