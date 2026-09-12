@@ -1,7 +1,8 @@
 name: Instance image
 
-# 只有手动触发：tag 是不可变的，VERSION 是唯一旋钮。Dockerfile 一改就要么撞下面的
-# 守卫（红），要么绕过守卫换个 tag（漂）。发布必须是「人 + 改修订号」的刻意动作。
+# Manual trigger only: the tag is immutable and VERSION is the single knob. Editing the
+# Dockerfile either trips the guard below (red) or forces a new tag to bypass it (drift).
+# A release must be a deliberate act: a human bumping the revision number.
 on:
   workflow_dispatch:
 
@@ -10,13 +11,13 @@ permissions:
 
 concurrency:
   group: instance-image-${{ github.ref }}
-  # 发布不并发：取消一个正在推的 run 比排队更糟（同 tag 的第二次会被守卫拦下）。
+  # No concurrent releases: cancelling an in-flight push is worse than queueing.
   cancel-in-progress: false
 
 jobs:
   build:
-    # 每个架构都在**原生** runner 上构建（公开仓库的 ARM runner 免费）——不用 QEMU，
-    # 否则 node-pty 这类原生模块要在模拟的 arm64 里编译，慢且容易出怪问题。
+    # Each arch builds on a native runner (ARM runners are free for public repos) instead
+    # of QEMU, so native modules like node-pty are not compiled under emulated arm64.
     strategy:
       matrix:
         include:
@@ -30,6 +31,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Required for type=gha cache export. The docs do not mandate it, but an explicit
+      # permissions block turns unlisted scopes into none, which can 403 cache uploads.
+      actions: write
     steps:
       - uses: actions/checkout@v4
 
@@ -40,7 +44,7 @@ jobs:
           DSH_VERSION=${VERSION%_*}
           REVISION=${VERSION##*_}
           if [ -z "$DSH_VERSION" ] || [ "$DSH_VERSION" = "$VERSION" ] || ! [[ "$REVISION" =~ ^[1-9][0-9]*$ ]]; then
-            echo "VERSION 格式不对：期望 <dsh版本>_<修订号>（如 0.1.2-rc.1_1），实际 '$VERSION'" >&2
+            echo "Bad VERSION format: expected <dsh-version>_<revision> (e.g. 0.1.2-rc.1_1), got '$VERSION'" >&2
             exit 1
           fi
           echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
@@ -48,8 +52,8 @@ jobs:
           echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
           echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-      # 已存在的 tag 一律拒绝：同名不同字节会让「实例记的 ref」失去意义（D22）。
-      # 两个架构各查一次（同样的结论）——真正创建 tag 的是下面的 merge 任务。
+      # Refuse an existing tag: the same tag holding different bytes makes the ref recorded
+      # on each instance meaningless (D22). Both matrix legs check; the merge job creates it.
       - name: Refuse to overwrite an existing tag
         env:
           TAG: ${{ steps.v.outputs.tag }}
@@ -58,7 +62,7 @@ jobs:
             "https://ghcr.io/token?service=ghcr.io&scope=repository:eskim2001/dsh-instance:pull" \
             | jq -r '.token // empty')
           if [ -z "$TOKEN" ]; then
-            echo "拿不到 GHCR token（包还不存在）——按首次推送处理"
+            echo "No GHCR token (package does not exist yet) - treating as a first push"
             exit 0
           fi
           CODE=$(curl -s -o /dev/null -w '%{http_code}' -I \
@@ -67,14 +71,14 @@ jobs:
             "https://ghcr.io/v2/eskim2001/dsh-instance/manifests/$TAG")
           case "$CODE" in
             200)
-              echo "tag $TAG 已经存在——改 docker/instance-image/VERSION 里的修订号再发。" >&2
+              echo "tag $TAG already exists - bump the revision in docker/instance-image/VERSION." >&2
               exit 1
               ;;
             404 | 401)
-              echo "tag $TAG 不存在，继续"
+              echo "tag $TAG does not exist, continuing"
               ;;
             *)
-              echo "查询 GHCR 失败：HTTP $CODE" >&2
+              echo "GHCR query failed: HTTP $CODE" >&2
               exit 1
               ;;
           esac
@@ -87,14 +91,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 按 digest 推（不建 tag）：tag 由 merge 任务在**两个架构都成功之后**一次建好，
-      # 免得中途失败留下一个只有单架构的 tag。
+      # Push by digest, no tag: the merge job creates the tag once both arches succeed,
+      # so a mid-flight failure cannot leave a single-arch tag behind.
       - uses: docker/build-push-action@v6
         id: build
         with:
           context: docker/instance-image
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=ghcr.io/eskim2001/dsh-instance,push-by-digest=true,name-canonical=true,push=true
+          # Scope per arch: the default scope is "buildkit" and the two matrix legs run
+          # concurrently, so a shared scope would make them overwrite each other's cache.
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.arch }}
           build-args: |
             DSH_VERSION=${{ steps.v.outputs.dsh_version }}
             REVISION=${{ steps.v.outputs.revision }}
@@ -138,35 +146,35 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 必须两个架构都在：少一个就失败，绝不静默发一个单架构的 tag。
-      # digest 存在**文件名**里（Export digest 是 touch 出来的空文件），不是文件内容。
+      # Both arches are required: fail rather than silently publish a single-arch tag.
+      # The digest lives in the file NAME (Export digest touches empty files), not content.
       - name: Merge digests into one tag
         run: |
           set -euo pipefail
           VERSION=$(tr -d '[:space:]' < docker/instance-image/VERSION)
           count=$(ls /tmp/digests | wc -l | tr -d ' ')
           if [ "$count" != "2" ]; then
-            echo "期望 2 个架构的 digest，实际 $count 个——中止，不建 tag" >&2
+            echo "Expected 2 arch digests, got $count - aborting without creating a tag" >&2
             exit 1
           fi
           images=""
           for f in /tmp/digests/*; do
             digest=$(basename "$f")
             if ! [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
-              echo "digest 文件名不像 sha256：$digest" >&2
+              echo "digest filename does not look like sha256: $digest" >&2
               exit 1
             fi
             images="$images ghcr.io/eskim2001/dsh-instance@sha256:$digest"
           done
-          echo "合并：$images"
+          echo "Merging:$images"
           docker buildx imagetools create -t "ghcr.io/eskim2001/dsh-instance:$VERSION" $images
-          echo "已发布 ghcr.io/eskim2001/dsh-instance:$VERSION（amd64 + arm64）"
+          echo "Published ghcr.io/eskim2001/dsh-instance:$VERSION (amd64 + arm64)"
 
       - name: Summary
         run: |
           {
-            echo "### 已推送 \`ghcr.io/eskim2001/dsh-instance:$(tr -d '[:space:]' < docker/instance-image/VERSION)\`（linux/amd64 + linux/arm64）"
+            echo "### Pushed \`ghcr.io/eskim2001/dsh-instance:$(tr -d '[:space:]' < docker/instance-image/VERSION)\` (linux/amd64 + linux/arm64)"
             echo
-            echo "首次推送后要把包设为 Public（GHCR 新建的包默认私有）："
+            echo "After the first push, set the package to Public (new GHCR packages default to private):"
             echo "https://github.com/users/eskim2001/packages/container/dsh-instance/settings"
           } >> "$GITHUB_STEP_SUMMARY"
