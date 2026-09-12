@@ -63,6 +63,17 @@ export interface RenderedInstance {
   env: string[]
   /** 容器内桥端口（Caddy 监听）。 */
   guestPort: number
+  /**
+   * 资源上限（CPU 核数 / 内存 MiB / 进程数）。**驱动必须落到运行时上。**
+   *
+   * 为什么放在这里而不是让驱动自己回去翻 `spec.quota`：`create()` 的返回值的全部意义就是
+   * 「这台机器该长什么样」，驱动照着它建就行。资源曾经**不在**这份定义里 —— 于是
+   * `pidsLimit` 在 schema 里有、界面上能调，驱动却没往下带，护栏是空的；将来写 K8s /
+   * microVM 驱动的人同样会以为"接口里没提资源，那大概不用管"。
+   */
+  cpus: number
+  memoryMb: number
+  pidsLimit: number
   /** 宿主回环端口，入口转发目标。 */
   hostPort: number
   /** 容器内数据根（`/data`）。 */

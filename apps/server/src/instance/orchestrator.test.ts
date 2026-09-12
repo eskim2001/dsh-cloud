@@ -33,6 +33,9 @@ const RENDERED: RenderedInstance = {
   guestPort: 8080,
   hostPort: 20001,
   guestDataDir: '/data',
+  cpus: 1,
+  memoryMb: 2048,
+  pidsLimit: 512,
   mounts: [],
   labels: {},
 }

@@ -398,11 +398,12 @@ export class DockerDriver implements RuntimeDriver {
         Binds: r.mounts.map(
           (m) => `${this.enforced ? this.dirOf(m.storageKey) : m.storageKey}:${m.guest}:${m.mode}`,
         ),
-        Memory: spec.quota.memoryMb * 1024 * 1024,
-        NanoCpus: spec.quota.cpus * 1e9,
-        // pids cgroup 上限。**别省**：这是 fork bomb 的唯一护栏，spec 里一直有这个字段，
-        // 但从前没往下带 —— 于是「进程数上限」在界面上可调、在容器里完全不生效。
-        PidsLimit: spec.quota.pidsLimit,
+        // 资源上限来自**渲染结果**（不回去翻 spec）：机器定义里有什么，这里就落什么。
+        Memory: r.memoryMb * 1024 * 1024,
+        NanoCpus: r.cpus * 1e9,
+        // pids cgroup 上限。**别省**：这是 fork bomb 的唯一护栏（`spec.quota` 里一直有它，
+        // 但驱动曾经没往下带 —— 于是"进程数上限"在界面上可调、在容器里完全不生效）。
+        PidsLimit: r.pidsLimit,
         // 生命周期归平台管：宿主重启后由对账器决定该不该起来，别让 Docker 自己拉。
         RestartPolicy: { Name: 'no' },
       },
