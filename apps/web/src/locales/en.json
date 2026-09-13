@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "dshcloud console"
+    "title": "DSH Cloud"
   },
   "common": {
     "loading": "Loading…",
@@ -14,14 +14,114 @@
     "saving": "Saving…"
   },
   "nav": {
-    "platform": "Platform",
+    "platform": "Workspace",
     "settings": "Settings",
-    "instances": "Instances",
+    "instances": "Workspaces",
+    "home": "Home",
+    "workspaces": "Workspaces",
+    "files": "Files",
+    "activity": "Activity",
+    "help": "Help",
+    "backToWorkspace": "Back to workspace",
     "admin": "Platform admin",
+    "adminOverview": "Overview",
     "adminVersions": "Versions",
     "adminInstances": "All instances",
     "adminUsers": "Users",
     "account": "Account"
+  },
+  "home": {
+    "morning": "Good morning, {{name}}.",
+    "afternoon": "Good afternoon, {{name}}.",
+    "evening": "Good evening, {{name}}.",
+    "subtitle": "Pick up where you left off.",
+    "continue": "Continue working",
+    "recent": "Recent workspaces",
+    "allWorkspaces": "View all",
+    "create": "New workspace",
+    "quickActions": "Quick actions",
+    "browseFiles": "Browse files",
+    "activity": "Recent activity",
+    "viewActivity": "View all",
+    "emptyTitle": "Your workspace is waiting.",
+    "emptyBody": "Create your first workspace and start using DSH."
+  },
+  "workspaceCreate": {
+    "back": "Back to workspaces",
+    "title": "Create workspace",
+    "subtitle": "Give your DSH workspace a name. We will take care of the rest.",
+    "name": "Name",
+    "namePlaceholder": "personal-dsh",
+    "nameHint": "Use lowercase letters, numbers, and hyphens. This also becomes its private address.",
+    "advanced": "Use advanced settings",
+    "ready": "Workspace ready.",
+    "readyBody": "Your DSH environment is prepared and waiting for you.",
+    "open": "Open workspace"
+  },
+  "files": {
+    "title": "Files",
+    "subtitle": "Open the file environment for any of your workspaces.",
+    "search": "Search workspaces…",
+    "updated": "Created {{time}}",
+    "open": "Open files",
+    "empty": "No matching workspaces",
+    "emptyBody": "Create a workspace to start working with files.",
+    "boundary": "Files remain inside each isolated workspace. Open a workspace to upload, create, move, preview, or delete files in DSH."
+  },
+  "activity": {
+    "title": "Activity",
+    "subtitle": "A quiet record of what happened across your workspaces.",
+    "created": "Workspace created",
+    "stopped": "Workspace stopped",
+    "error": "Workspace needs attention",
+    "empty": "Nothing here yet",
+    "emptyBody": "Workspace activity will appear here as you work."
+  },
+  "command": {
+    "title": "Quick actions",
+    "search": "Search or jump to…",
+    "placeholder": "Search workspaces and actions…",
+    "create": "Create workspace",
+    "files": "Search files",
+    "settings": "Open settings"
+  },
+  "workspaceDetail": {
+    "back": "Back to workspaces",
+    "backToWorkspace": "Back to workspace",
+    "notFound": "This workspace could not be found.",
+    "created": "Created {{time}}",
+    "settings": "Settings",
+    "open": "Open workspace",
+    "attention": "This workspace needs attention",
+    "workspace": "Workspace",
+    "files": "Files",
+    "openFiles": "Open in DSH",
+    "storage": "Storage used",
+    "version": "DSH version",
+    "recent": "Recent activity",
+    "available": "Workspace is ready"
+  },
+  "workspaceOpen": {
+    "preparing": "Preparing your workspace",
+    "moment": "This usually takes a moment.",
+    "ready": "Workspace ready.",
+    "redirecting": "Opening DSH…",
+    "offline": "This workspace is offline.",
+    "offlineBody": "Start it when you are ready to continue.",
+    "start": "Start workspace",
+    "error": "Something went wrong.",
+    "errorBody": "We could not prepare this workspace.",
+    "retry": "Try again"
+  },
+  "workspaceSettings": {
+    "title": "Workspace settings",
+    "subtitle": "Everyday preferences first. Runtime details stay out of the way until you need them.",
+    "general": "General",
+    "storage": "Storage",
+    "storageUsed": "{{used}} used of {{total}}",
+    "unlimited": "available storage",
+    "runtime": "Runtime",
+    "advanced": "Advanced"
   },
   "language": {
     "label": "Language",
@@ -47,8 +147,8 @@
     "submitSignUp": "Create account"
   },
   "instances": {
-    "title": "My instances",
-    "subtitle": "Each instance is an isolated dsh environment",
+    "title": "Workspaces",
+    "subtitle": "Your personal DSH spaces, ready when you are.",
     "slug": "Identifier (subdomain)",
     "slugPlaceholder": "alice",
     "slugHint": "Lowercase letters, digits and hyphens, 3–32 characters.",
@@ -65,22 +165,23 @@
     "gigabytes": "{{count}} GB",
     "diskGb": "{{size}} disk",
     "diskHint": "A hard limit: once full, the instance can no longer write. Ask an admin for more space.",
-    "create": "New instance",
-    "creating": "Creating…",
+    "create": "New workspace",
+    "creating": "Creating workspace…",
     "createFailed": "Creation failed",
     "newTitle": "New instance",
     "newDescription": "Pick a subdomain — that becomes its address.",
     "loadFailed": "Failed to load instances",
-    "emptyTitle": "No instances yet",
-    "emptyHint": "Create one and you get an isolated dsh environment.",
-    "emptyAction": "New instance",
+    "emptyTitle": "Your workspace is waiting",
+    "emptyHint": "Create your first workspace to start using DSH.",
+    "emptyAction": "Create workspace",
+    "lastUsed": "Last used {{time}}",
     "createdAt": "Created",
     "restart": "Restart",
     "stop": "Stop",
     "start": "Start",
     "working": "Working…",
     "more": "More actions",
-    "open": "Open dsh",
+    "open": "Open",
     "delete": "Delete",
     "deleteTitle": "Delete this instance permanently?",
     "deleteDescription": "The container, the address and all data for “{{slug}}” are deleted for good. Just want it to stop? Use Stop — the instance and its data stay.",
@@ -143,7 +244,8 @@
   },
   "settings": {
     "profile": {
-      "title": "Profile"
+      "title": "Profile",
+      "description": "How your account is identified across DSH Cloud."
     },
     "sessions": {
       "title": "Sessions",
@@ -163,6 +265,13 @@
     "account": {
       "title": "Account",
       "description": "Your profile, password and signed-in devices",
+      "tabs": {
+        "label": "Account settings",
+        "profile": "Profile",
+        "security": "Security",
+        "sessions": "Devices"
+      },
+      "passwordDescription": "Update your password to protect your workspaces and persistent files.",
       "emailHint": "Changing your email means verifying the new address by mail, and this platform has no mailer configured — ask an operator.",
       "currentPassword": "Current password",
       "newPassword": "New password",
@@ -179,11 +288,26 @@
     }
   },
   "admin": {
+    "overview": {
+      "title": "Admin console",
+      "description": "Platform operations, separate from personal workspaces.",
+      "workspaces": "Workspaces",
+      "users": "Users",
+      "storage": "Measured storage",
+      "attention": "{{count}} need attention",
+      "activeUsers": "Registered accounts",
+      "measured": "Across readable workspace volumes",
+      "operations": "Operations",
+      "manageWorkspaces": "Runtime state, resources, logs, and recovery",
+      "manageUsers": "Access, roles, and workspace allowances",
+      "manageVersions": "Published DSH releases and host availability"
+    },
     "actionFailed": "Action failed, please retry",
     "users": {
       "title": "Users",
       "description": "Ban or unban accounts, change how many instances someone can create, grant or revoke admin.",
       "user": "User",
+      "total": "All users",
       "instances": "Instances",
       "quota": "Limit",
       "status": "Status",
@@ -235,6 +359,9 @@
       "pidsLimit": "Process limit",
       "loadFailed": "Failed to load instances",
       "disk": "Disk",
+      "total": "All workspaces",
+      "needsAttention": "Needs attention",
+      "search": "Search workspace or owner…",
       "attentionOnly": "Attention only",
       "filterAll": "All",
       "noneMatch": "No instances match"

@@ -75,7 +75,7 @@ importers:
       '@base-ui/react':
         specifier: ^1.8.0
         version: 1.8.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@fontsource-variable/inter':
+      '@fontsource-variable/noto-sans-sc':
         specifier: ^5.3.0
         version: 5.3.0
       '@tanstack/react-query':
@@ -1048,8 +1048,8 @@ packages:
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
 
-  '@fontsource-variable/inter@5.3.0':
-    resolution: {integrity: sha512-OupL48va4JNofb97w6NYeF9S7W/kHNKM0Er8Dem5nqi4jeOLrVJDoE8tZEpnMJmtkvNbB1EIPPwHcdkF6b1oUA==}
+  '@fontsource-variable/noto-sans-sc@5.3.0':
+    resolution: {integrity: sha512-lNar1dF7Ik/lHNPo/7JWG0TolXY29LtsqYgMvEysooZ5bsO9uH4shJmRrwyJ3PjyTPljhpMJEK0jDuLSU4vJ1w==}
 
   '@grpc/grpc-js@1.14.4':
     resolution: {integrity: sha512-k9Dj3DV/itK9D06Y8f190Qgop7/Ui+D0njFV3LHMPwPT75DpXLQohE9Wmz0QElrJnzsjB7KPWiKJbOl7IPDArQ==}
@@ -4065,7 +4065,7 @@ snapshots:
 
   '@floating-ui/utils@0.2.12': {}
 
-  '@fontsource-variable/inter@5.3.0': {}
+  '@fontsource-variable/noto-sans-sc@5.3.0': {}
 
   '@grpc/grpc-js@1.14.4':
     dependencies:

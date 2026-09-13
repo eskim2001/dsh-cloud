@@ -1,16 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { MoreHorizontalIcon } from 'lucide-react'
+import { AlertTriangleIcon, CircleCheckIcon, Layers3Icon, MoreHorizontalIcon, SearchIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { InstanceImageForm } from '@/components/admin/instance-image-form.js'
 import { InstanceQuotaForm } from '@/components/admin/instance-quota-form.js'
+import { AdminMetricStrip, AdminPage, AdminTableSection } from '@/components/admin/admin-page.js'
 import { LogsSheet, type LogsTarget } from '@/components/logs-sheet.js'
-import { PageHeader } from '@/components/page-header.js'
 import { QuotaMeter } from '@/components/quota-meter.js'
 import { StatusBadge } from '@/components/status-badge.js'
-import { Badge } from '@/components/ui/badge.js'
 import { Button } from '@/components/ui/button.js'
-import { Card, CardContent, CardHeader } from '@/components/ui/card.js'
 import {
   Dialog,
   DialogContent,
@@ -24,6 +22,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.js'
+import { Input } from '@/components/ui/input.js'
 import {
   Table,
   TableBody,
@@ -70,17 +69,18 @@ export default function AdminInstancesPage() {
   /** 正在改镜像的实例（null = 对话框关着）。 */
   const [imageTarget, setImageTarget] = useState<AdminInstance | null>(null)
 
-  /** 只看「需要注意的」（error / restarting / 磁盘 ≥90%）。 */
-  const [attentionOnly, setAttentionOnly] = useState(false)
   /** 状态筛选（`all` = 不筛）。 */
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [search, setSearch] = useState('')
 
   /** 筛选按钮上固定这几个状态；状态是服务端现算的，做成"出现过的状态"会一直在抖。 */
   const statusFilters = ['all', 'running', 'stopped', 'error'] as const
   const attentionCount = (instances.data ?? []).filter(needsAttention).length
+  const runningCount = (instances.data ?? []).filter((item) => item.status === 'running').length
   const visible = (instances.data ?? []).filter((i) => {
-    if (attentionOnly && !needsAttention(i)) return false
-    return statusFilter === 'all' || i.status === statusFilter
+    if (statusFilter !== 'all' && i.status !== statusFilter) return false
+    const needle = search.trim().toLowerCase()
+    return needle === '' || i.slug.toLowerCase().includes(needle) || i.ownerEmail.toLowerCase().includes(needle)
   })
 
   /** 实例相关的改动**两个列表一起刷**（用户面 + 舰队面），并把该实例的详情带上。 */
@@ -100,29 +100,54 @@ export default function AdminInstancesPage() {
     onSuccess: () => refreshInstances(),
   })
 
+  const renderActions = (item: AdminInstance) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={t('admin.instances.actions')}
+          />
+        }
+      >
+        <MoreHorizontalIcon className="size-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => setQuotaTarget(item)}>
+          {t('admin.instances.editQuota')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setImageTarget(item)}>
+          {t('admin.instances.editImage')}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => setLogTarget({ id: item.id, slug: item.slug, scope: 'admin' })}
+        >
+          {t('admin.instances.logs')}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+
   return (
     <>
-      <PageHeader
-        title={t('admin.instances.title')}
-        description={t('admin.instances.description')}
-      />
+      <AdminPage title={t('admin.instances.title')} description={t('admin.instances.description')}>
+        <AdminMetricStrip
+          items={[
+            { label: t('admin.instances.total'), value: instances.data?.length ?? 0, icon: Layers3Icon },
+            { label: t('status.running'), value: runningCount, icon: CircleCheckIcon },
+            { label: t('admin.instances.needsAttention'), value: attentionCount, icon: AlertTriangleIcon, alert: attentionCount > 0 },
+          ]}
+        />
 
-      <Card>
-        <CardHeader>
-          {/* 顶上一行筛选：状态 chip + 「只看需要注意的」。 */}
-          <div className="flex flex-wrap items-center gap-2 pt-2">
-            <Button
-              variant={attentionOnly ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => setAttentionOnly((v) => !v)}
-            >
-              {t('admin.instances.attentionOnly')}
-              {attentionCount > 0 && (
-                <Badge variant="destructive" className="ml-1">
-                  {attentionCount}
-                </Badge>
-              )}
-            </Button>
+        <AdminTableSection
+          toolbar={
+            <>
+              <div className="relative w-full lg:max-w-xs">
+                <SearchIcon className="absolute top-2.5 left-3 size-4 text-muted-foreground" />
+                <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('admin.instances.search')} className="pl-9" />
+              </div>
+              <div className="flex flex-wrap items-center gap-1">
             {statusFilters.map((s) => (
               <Button
                 key={s}
@@ -133,18 +158,56 @@ export default function AdminInstancesPage() {
                 {s === 'all' ? t('admin.instances.filterAll') : t(`status.${s}`, { defaultValue: s })}
               </Button>
             ))}
-          </div>
-        </CardHeader>
-        <CardContent>
+              </div>
+            </>
+          }
+        >
           {instances.isPending && (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+            <p className="py-10 text-sm text-muted-foreground">{t('common.loading')}</p>
           )}
           {instances.isError && (
             <p className="text-sm text-destructive">{t('admin.instances.loadFailed')}</p>
           )}
 
           {instances.data !== undefined && (
-            <Table>
+            <div className="divide-y md:hidden">
+              {visible.map((item) => (
+                <div key={item.id} className="py-4">
+                  <div className="flex min-w-0 items-center justify-between gap-3">
+                    <p className="min-w-0 break-all font-medium">{item.slug}</p>
+                    <div className="shrink-0">{renderActions(item)}</div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-5">
+                    <div className="min-w-0">
+                      <p className="mb-1.5 text-xs text-muted-foreground">
+                        {t('admin.instances.status')}
+                      </p>
+                      <StatusBadge status={item.status} statusText={item.statusText} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="mb-1.5 text-xs text-muted-foreground">
+                        {t('admin.instances.disk')}
+                      </p>
+                      <QuotaMeter
+                        usedMb={item.diskUsedMb}
+                        quotaMb={item.diskMb}
+                        enforced={item.diskEnforced}
+                        className="w-full min-w-0"
+                      />
+                    </div>
+                  </div>
+                  {(item.lastError !== null || (item.status === 'restarting' && item.statusText !== null)) && (
+                    <p className="mt-3 text-xs text-destructive">
+                      {item.lastError ?? item.statusText}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {instances.data !== undefined && (
+            <Table className="hidden min-w-[760px] md:table">
               <TableHeader>
                 <TableRow>
                   <TableHead>{t('admin.instances.slug')}</TableHead>
@@ -156,13 +219,15 @@ export default function AdminInstancesPage() {
                   <TableHead className="hidden lg:table-cell">
                     {t('admin.instances.createdAt')}
                   </TableHead>
-                  <TableHead className="w-10" />
+                  <TableHead className="sticky right-0 z-10 w-12 bg-background" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {visible.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium">{item.slug}</TableCell>
+                  <TableRow key={item.id} className="group h-20">
+                    <TableCell>
+                      <p className="font-medium">{item.slug}</p>
+                    </TableCell>
                     <TableCell className="hidden text-muted-foreground md:table-cell">
                       {item.ownerEmail}
                     </TableCell>
@@ -188,36 +253,9 @@ export default function AdminInstancesPage() {
                     <TableCell className="hidden text-muted-foreground lg:table-cell">
                       {new Date(item.createdAt).toLocaleString(i18n.language)}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="sticky right-0 z-10 w-12 bg-background transition-colors group-hover:bg-muted">
                       {/* 动作收进 `⋯`：默认一行只看状态与磁盘，不堆按钮 */}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              aria-label={t('admin.instances.actions')}
-                            />
-                          }
-                        >
-                          <MoreHorizontalIcon className="size-4" />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setQuotaTarget(item)}>
-                            {t('admin.instances.editQuota')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setImageTarget(item)}>
-                            {t('admin.instances.editImage')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() =>
-                              setLogTarget({ id: item.id, slug: item.slug, scope: 'admin' })
-                            }
-                          >
-                            {t('admin.instances.logs')}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      {renderActions(item)}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -225,10 +263,10 @@ export default function AdminInstancesPage() {
             </Table>
           )}
           {instances.data !== undefined && visible.length === 0 && (
-            <p className="pt-2 text-sm text-muted-foreground">{t('admin.instances.noneMatch')}</p>
+            <p className="border-b py-12 text-center text-sm text-muted-foreground">{t('admin.instances.noneMatch')}</p>
           )}
-        </CardContent>
-      </Card>
+        </AdminTableSection>
+      </AdminPage>
 
       {/* 日志抽屉：与用户列表**共用同一个组件**；关掉即卸载 → EventSource 跟着断 */}
       <LogsSheet target={logTarget} onClose={() => setLogTarget(null)} />

@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
+import { CircleCheckIcon, ShieldCheckIcon, UsersIcon } from 'lucide-react'
+import { AdminMetricStrip, AdminPage, AdminTableSection } from '@/components/admin/admin-page.js'
 import { BanButton } from '@/components/admin/ban-button.js'
 import { RoleButton } from '@/components/admin/role-button.js'
 import { UserQuotaEditor } from '@/components/admin/user-quota-editor.js'
-import { PageHeader } from '@/components/page-header.js'
 import { Badge } from '@/components/ui/badge.js'
 import { Button } from '@/components/ui/button.js'
-import { Card, CardContent } from '@/components/ui/card.js'
 import {
   Table,
   TableBody,
@@ -61,10 +61,17 @@ export default function AdminUsersPage() {
 
   // 服务端文案（如「不能降级最后一名管理员」）比笼统的「操作失败」有用
   const failed = ban.isError || unban.isError || quota.isError || role.isError
+  const allUsers = users.data?.users ?? []
+  const activeUsers = allUsers.filter((user) => !user.banned).length
+  const adminUsers = allUsers.filter((user) => user.role === 'admin').length
 
   return (
-    <>
-      <PageHeader title={t('admin.users.title')} description={t('admin.users.description')} />
+    <AdminPage title={t('admin.users.title')} description={t('admin.users.description')}>
+      <AdminMetricStrip items={[
+        { icon: UsersIcon, label: t('admin.users.total'), value: allUsers.length },
+        { icon: CircleCheckIcon, label: t('admin.users.active'), value: activeUsers },
+        { icon: ShieldCheckIcon, label: t('admin.users.admin'), value: adminUsers },
+      ]} />
 
       {failed && (
         <p className="mb-4 text-sm text-destructive">
@@ -75,8 +82,7 @@ export default function AdminUsersPage() {
         </p>
       )}
 
-      <Card>
-        <CardContent>
+      <AdminTableSection>
           {users.isPending && (
             <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
           )}
@@ -165,8 +171,7 @@ export default function AdminUsersPage() {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
-    </>
+      </AdminTableSection>
+    </AdminPage>
   )
 }

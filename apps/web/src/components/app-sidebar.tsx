@@ -1,9 +1,8 @@
-import { BoxesIcon, TagIcon, UserIcon, UsersIcon } from 'lucide-react'
+import { ActivityIcon, ArrowLeftIcon, FileIcon, HelpCircleIcon, HomeIcon, SettingsIcon, ShieldCheckIcon, TagIcon, UsersIcon, WorkflowIcon } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation } from 'react-router-dom'
 import { BrandMark } from '@/components/brand-mark.js'
-import { ServerHealth } from '@/components/server-health.js'
 import { SidebarUser } from '@/components/sidebar-user.js'
 import {
   Sidebar,
@@ -17,6 +16,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  SidebarSeparator,
+  useSidebar,
 } from '@/components/ui/sidebar.js'
 import { useSession } from '@/lib/use-session.js'
 
@@ -30,31 +31,52 @@ export function AppSidebar() {
   const { t } = useTranslation()
   const { pathname } = useLocation()
   const { data: user } = useSession()
+  const { isMobile, setOpenMobile } = useSidebar()
+  const adminMode = pathname.startsWith('/admin')
 
-  const platformNav: NavItem[] = [{ title: t('nav.instances'), url: '/instances', icon: BoxesIcon }]
+  const closeMobileSidebar = () => {
+    if (isMobile) setOpenMobile(false)
+  }
+
+  const platformNav: NavItem[] = [
+    { title: t('nav.home'), url: '/home', icon: HomeIcon },
+    { title: t('nav.workspaces'), url: '/workspaces', icon: WorkflowIcon },
+    { title: t('nav.files'), url: '/files', icon: FileIcon },
+    { title: t('nav.activity'), url: '/activity', icon: ActivityIcon },
+  ]
   /** 管理面单独成组：这三项都是管理员专属的作业面，混进「平台」里会让人看不清边界。
    *  藏起来不是安全边界——服务端每条管理面路由都自己查 role。 */
   const adminNav: NavItem[] = [
-    { title: t('nav.adminInstances'), url: '/admin/instances', icon: BoxesIcon },
+    { title: t('nav.adminOverview'), url: '/admin', icon: ShieldCheckIcon },
+    { title: t('nav.adminInstances'), url: '/admin/instances', icon: WorkflowIcon },
     { title: t('nav.adminUsers'), url: '/admin/users', icon: UsersIcon },
     { title: t('nav.adminVersions'), url: '/admin/versions', icon: TagIcon },
   ]
-  const settingsNav: NavItem[] = [
-    { title: t('nav.account'), url: '/settings/account', icon: UserIcon },
-  ]
+  const footerNav: NavItem[] = adminMode
+    ? [{ title: t('nav.backToWorkspace'), url: '/home', icon: ArrowLeftIcon }]
+    : [
+        ...(user?.role === 'admin'
+          ? [{ title: t('nav.admin'), url: '/admin', icon: ShieldCheckIcon }]
+          : []),
+        { title: t('nav.account'), url: '/settings/account', icon: SettingsIcon },
+      ]
 
-  const group = (label: string, items: NavItem[]) => (
-    <SidebarGroup>
-      <SidebarGroupLabel>{label}</SidebarGroupLabel>
+  const isNavItemActive = (url: string) =>
+    pathname === url || (url !== '/admin' && pathname.startsWith(`${url}/`))
+
+  const group = (label: string, items: NavItem[], className?: string) => (
+    <SidebarGroup className={className}>
+      {label !== '' && <SidebarGroupLabel>{label}</SidebarGroupLabel>}
       <SidebarGroupContent>
         <SidebarMenu>
           {items.map((item) => (
             <SidebarMenuItem key={item.url}>
               <SidebarMenuButton
+                className="h-9 gap-2.5 px-3 text-[13px] font-normal text-sidebar-foreground/70 transition-colors duration-150 ease-out hover:bg-foreground/[0.05] hover:text-sidebar-foreground hover:[&_svg]:translate-x-px data-active:bg-foreground/[0.07] data-active:font-medium data-active:text-sidebar-foreground [&_svg]:size-4 [&_svg]:transition-transform [&_svg]:duration-200 [&_svg]:ease-out"
                 tooltip={item.title}
                 // 子页面（如 /instances/:id）也要把这一项点亮
-                isActive={pathname === item.url || pathname.startsWith(`${item.url}/`)}
-                render={<NavLink to={item.url} />}
+                isActive={isNavItemActive(item.url)}
+                render={<NavLink to={item.url} end={item.url === '/admin'} onClick={closeMobileSidebar} />}
               >
                 <item.icon />
                 <span>{item.title}</span>
@@ -67,28 +89,41 @@ export function AppSidebar() {
   )
 
   return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader>
+    <Sidebar collapsible="offcanvas" className="border-r-0">
+      <SidebarHeader className="p-2 pb-1">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" render={<NavLink to="/instances" />}>
-              <BrandMark className="size-8 shrink-0" />
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">{t('app.title')}</span>
+            <SidebarMenuButton className="h-12 justify-start gap-2.5 px-3 transition-colors duration-150 ease-out" size="lg" render={<NavLink to="/home" onClick={closeMobileSidebar} />}>
+              <BrandMark className="h-9 w-11 shrink-0 transition-transform duration-300 ease-out group-hover/menu-button:-translate-y-px group-hover/menu-button:scale-[1.03]" />
+              <div className="grid text-left text-sm leading-tight">
+                <span className="truncate text-[15px] font-medium tracking-normal">
+                  {adminMode ? 'DSH Cloud Admin' : 'DSH Cloud'}
+                </span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarContent>
-        {group(t('nav.platform'), platformNav)}
-        {user?.role === 'admin' && group(t('nav.admin'), adminNav)}
-        {group(t('nav.settings'), settingsNav)}
+      <SidebarContent className="gap-0 px-1">
+        {adminMode ? group(t('nav.admin'), adminNav) : group('', platformNav)}
       </SidebarContent>
 
-      <SidebarFooter>
-        <ServerHealth />
+      <SidebarFooter className="gap-1 p-2">
+        {group('', footerNav, 'p-0')}
+        <SidebarGroup className="p-0">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton className="h-9 gap-2.5 px-3 text-[13px] font-normal text-sidebar-foreground/70 transition-colors duration-150 ease-out hover:bg-foreground/[0.05] hover:text-sidebar-foreground hover:[&_svg]:translate-x-px [&_svg]:size-4 [&_svg]:transition-transform [&_svg]:duration-200 [&_svg]:ease-out" render={<a href="https://github.com/eskim2001/dsh-cloud" target="_blank" rel="noreferrer" onClick={closeMobileSidebar} />}>
+                  <HelpCircleIcon />
+                  <span>{t('nav.help')}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarSeparator className="mx-1 my-1" />
         <SidebarUser />
       </SidebarFooter>
 

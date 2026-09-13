@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MoreHorizontalIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { AdminPage, AdminTableSection } from '@/components/admin/admin-page.js'
 import { CopyableText } from '@/components/copyable-text.js'
-import { PageHeader } from '@/components/page-header.js'
 import { PullDialog } from '@/components/pull-dialog.js'
 import {
   AlertDialog,
@@ -17,7 +17,6 @@ import {
 } from '@/components/ui/alert-dialog.js'
 import { Badge } from '@/components/ui/badge.js'
 import { Button } from '@/components/ui/button.js'
-import { Card, CardContent } from '@/components/ui/card.js'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -109,7 +108,7 @@ export default function AdminVersionsPage() {
 
   return (
     <>
-      <PageHeader
+      <AdminPage
         title={t('admin.versions.title')}
         description={t('admin.versions.description')}
         actions={
@@ -131,7 +130,7 @@ export default function AdminVersionsPage() {
             </Button>
           </>
         }
-      />
+      >
 
       {failed && (
         <p className="mt-4 text-sm text-destructive">
@@ -150,8 +149,7 @@ export default function AdminVersionsPage() {
         </p>
       )}
 
-      <Card className="mt-6">
-        <CardContent>
+      <AdminTableSection>
           {versions.isPending && (
             <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
           )}
@@ -211,8 +209,8 @@ export default function AdminVersionsPage() {
                 </Table>
               </>
             ))}
-        </CardContent>
-      </Card>
+      </AdminTableSection>
+      </AdminPage>
 
       {warming !== null && (
         <PullDialog

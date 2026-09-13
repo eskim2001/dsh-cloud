@@ -55,14 +55,14 @@ export function SidebarUser() {
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger
-            render={<SidebarMenuButton size="lg" className="data-open:bg-sidebar-accent" />}
+            render={<SidebarMenuButton size="lg" className="h-12 px-2 transition-colors duration-150 ease-out hover:bg-sidebar-accent data-open:bg-sidebar-accent" />}
           >
-            <Avatar className="size-8 rounded-lg">
+            <Avatar className="size-8 rounded-lg transition-transform duration-200 ease-out group-hover/menu-button:scale-[1.03]">
               <AvatarFallback>{initials}</AvatarFallback>
             </Avatar>
-            <div className="grid flex-1 text-left text-sm leading-tight">
+            <div className="grid flex-1 text-left text-[13px] leading-tight">
               <span className="truncate font-medium">{name}</span>
-              <span className="truncate text-xs text-muted-foreground">{email}</span>
+              <span className="truncate text-[11px] text-muted-foreground">{email}</span>
             </div>
             <ChevronsUpDownIcon className="ml-auto" />
           </DropdownMenuTrigger>

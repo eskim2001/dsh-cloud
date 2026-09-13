@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button.js'
 import {
-  DialogClose,
   DialogFooter,
 } from '@/components/ui/dialog.js'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field.js'
@@ -53,7 +53,7 @@ function tagOf(ref: string): string {
  *
  * 「不选版本」是一个真实选项（用平台默认版本），不是空值——所以有个 `__default__` 哨兵。
  */
-export function CreateInstanceForm({ onCreated }: { onCreated: () => void }) {
+export function CreateInstanceForm({ onCreated }: { onCreated: (id: string) => void }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
@@ -86,12 +86,12 @@ export function CreateInstanceForm({ onCreated }: { onCreated: () => void }) {
         // 没选具体版本就不带这个键，让服务端用平台默认版本（D21）
         ...(image === DEFAULT_IMAGE ? {} : { image }),
       }),
-    onSuccess: () => {
+    onSuccess: (instance) => {
       setSlug('')
       setImage(DEFAULT_IMAGE)
       // 新实例在两个列表里都该出现（用户面 + 舰队面）
       invalidateInstances(queryClient)
-      onCreated()
+      onCreated(instance.id)
     },
   })
 
@@ -129,7 +129,7 @@ export function CreateInstanceForm({ onCreated }: { onCreated: () => void }) {
     <form onSubmit={submit}>
       <FieldGroup>
         <Field>
-          <FieldLabel htmlFor="slug">{t('instances.slug')}</FieldLabel>
+          <FieldLabel htmlFor="slug">{t('workspaceCreate.name')}</FieldLabel>
           <Input
             id="slug"
             value={slug}
@@ -138,7 +138,7 @@ export function CreateInstanceForm({ onCreated }: { onCreated: () => void }) {
               // 输入变了，上一次的失败原因就不作数了
               if (create.isError) create.reset()
             }}
-            placeholder={t('instances.slugPlaceholder')}
+            placeholder={t('workspaceCreate.namePlaceholder')}
             pattern="[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
             minLength={3}
             maxLength={32}
@@ -152,10 +152,15 @@ export function CreateInstanceForm({ onCreated }: { onCreated: () => void }) {
                 : t('instances.createFailed')}
             </p>
           ) : (
-            <p className="text-xs text-muted-foreground">{t('instances.slugHint')}</p>
+            <p className="text-xs text-muted-foreground">{t('workspaceCreate.nameHint')}</p>
           )}
         </Field>
 
+        <details className="group rounded-md border px-4 py-3">
+          <summary className="cursor-pointer list-none text-sm text-muted-foreground marker:hidden">
+            {t('workspaceCreate.advanced')}
+          </summary>
+          <div className="mt-5 flex flex-col gap-5 border-t pt-5">
         <Field>
           <FieldLabel htmlFor="version">{t('instances.version')}</FieldLabel>
           <Select
@@ -275,12 +280,14 @@ export function CreateInstanceForm({ onCreated }: { onCreated: () => void }) {
               : t('instances.pidsInvalid', { min: MIN_PIDS_LIMIT, max: MAX_PIDS_LIMIT })}
           </p>
         </Field>
+          </div>
+        </details>
       </FieldGroup>
 
       <DialogFooter className="mt-6">
-        <DialogClose render={<Button type="button" variant="outline" />}>
+        <Button variant="outline" render={<Link to="/workspaces" />} nativeButton={false}>
           {t('common.cancel')}
-        </DialogClose>
+        </Button>
         <Button type="submit" disabled={create.isPending || !pidsValid}>
           {create.isPending ? t('instances.creating') : t('instances.create')}
         </Button>

@@ -1,7 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
+import { LockKeyholeIcon, MonitorSmartphoneIcon, UserRoundIcon } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { PageHeader } from '@/components/page-header.js'
 import {
   AlertDialog,
@@ -16,7 +19,6 @@ import {
 } from '@/components/ui/alert-dialog.js'
 import { Badge } from '@/components/ui/badge.js'
 import { Button } from '@/components/ui/button.js'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field.js'
 import { Input } from '@/components/ui/input.js'
 import {
@@ -51,18 +53,55 @@ import { sessionKey, useSession } from '@/lib/use-session.js'
  */
 export default function AccountPage() {
   const { t } = useTranslation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedView = searchParams.get('view')
+  const activeView: AccountView = isAccountView(requestedView) ? requestedView : 'profile'
+  const tabs = [
+    { value: 'profile' as const, label: t('settings.account.tabs.profile'), icon: UserRoundIcon },
+    { value: 'security' as const, label: t('settings.account.tabs.security'), icon: LockKeyholeIcon },
+    { value: 'sessions' as const, label: t('settings.account.tabs.sessions'), icon: MonitorSmartphoneIcon },
+  ]
 
   return (
-    <div className="flex w-full max-w-2xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 py-2 md:py-4">
       <PageHeader
         title={t('settings.account.title')}
         description={t('settings.account.description')}
       />
-      <ProfileCard />
-      <PasswordCard />
-      <SessionsCard />
+      <div className="flex gap-6 border-b" role="tablist" aria-label={t('settings.account.tabs.label')}>
+        {tabs.map(({ value, label, icon: Icon }) => (
+          <button
+            key={value}
+            id={`account-tab-${value}`}
+            type="button"
+            role="tab"
+            aria-selected={activeView === value}
+            aria-controls={`account-panel-${value}`}
+            className={`relative -mb-px inline-flex h-11 shrink-0 items-center gap-2 border-b-2 px-1 text-sm font-medium transition-colors ${activeView === value ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+            onClick={() => setSearchParams(value === 'profile' ? {} : { view: value }, { replace: true })}
+          >
+            <Icon className="size-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+      <div
+        id={`account-panel-${activeView}`}
+        role="tabpanel"
+        aria-labelledby={`account-tab-${activeView}`}
+      >
+        {activeView === 'profile' && <ProfileCard />}
+        {activeView === 'security' && <PasswordCard />}
+        {activeView === 'sessions' && <SessionsCard />}
+      </div>
     </div>
   )
+}
+
+type AccountView = 'profile' | 'security' | 'sessions'
+
+function isAccountView(value: string | null): value is AccountView {
+  return value === 'profile' || value === 'security' || value === 'sessions'
 }
 
 /**
@@ -88,23 +127,21 @@ function ProfileCard() {
   const dirty = name.trim() !== stored
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{t('settings.profile.title')}</CardTitle>
-      </CardHeader>
-      <CardContent>
+    <AccountSection
+      title={t('settings.profile.title')}
+      description={t('settings.profile.description')}
+    >
         <form
           onSubmit={(e) => {
             e.preventDefault()
             if (dirty) save.mutate()
           }}
         >
-          <FieldGroup>
+          <FieldGroup className="grid max-w-2xl gap-5 sm:grid-cols-2">
             <Field>
               <FieldLabel htmlFor="account-name">{t('login.name')}</FieldLabel>
               <Input
                 id="account-name"
-                className="max-w-sm"
                 value={name}
                 onChange={(e) => {
                   setName(e.target.value)
@@ -129,7 +166,7 @@ function ProfileCard() {
             </p>
           )}
 
-          <div className="mt-4 flex items-center gap-3">
+          <div className="mt-5 flex items-center gap-3">
             <Button type="submit" disabled={!dirty || save.isPending}>
               {save.isPending ? t('common.saving') : t('common.save')}
             </Button>
@@ -138,8 +175,7 @@ function ProfileCard() {
             )}
           </div>
         </form>
-      </CardContent>
-    </Card>
+    </AccountSection>
   )
 }
 
@@ -184,23 +220,21 @@ function PasswordCard() {
       : null
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{t('login.password')}</CardTitle>
-      </CardHeader>
-      <CardContent>
+    <AccountSection
+      title={t('login.password')}
+      description={t('settings.account.passwordDescription')}
+    >
         <form
           onSubmit={(e) => {
             e.preventDefault()
             if (valid) change.mutate()
           }}
         >
-          <FieldGroup>
+          <FieldGroup className="grid gap-5 sm:grid-cols-3">
             <Field>
               <FieldLabel htmlFor="password-current">{t('settings.account.currentPassword')}</FieldLabel>
               <Input
                 id="password-current"
-                className="max-w-sm"
                 type="password"
                 autoComplete="current-password"
                 value={current}
@@ -214,7 +248,6 @@ function PasswordCard() {
               <FieldLabel htmlFor="password-new">{t('settings.account.newPassword')}</FieldLabel>
               <Input
                 id="password-new"
-                className="max-w-sm"
                 type="password"
                 autoComplete="new-password"
                 value={next}
@@ -230,7 +263,6 @@ function PasswordCard() {
               </FieldLabel>
               <Input
                 id="password-confirm"
-                className="max-w-sm"
                 type="password"
                 autoComplete="new-password"
                 value={confirm}
@@ -239,7 +271,7 @@ function PasswordCard() {
             </Field>
           </FieldGroup>
 
-          <div className="mt-4">
+          <div className="mt-5 flex flex-wrap items-center gap-3">
             <Toggle
               variant="outline"
               size="sm"
@@ -248,6 +280,9 @@ function PasswordCard() {
             >
               {t('settings.account.revokeOthers')}
             </Toggle>
+            <Button type="submit" disabled={!valid || change.isPending}>
+              {change.isPending ? t('common.saving') : t('common.save')}
+            </Button>
           </div>
 
           {localError !== null && <p className="mt-4 text-sm text-destructive">{localError}</p>}
@@ -264,14 +299,8 @@ function PasswordCard() {
             <p className="mt-4 text-sm text-muted-foreground">{t('settings.account.passwordChanged')}</p>
           )}
 
-          <div className="mt-4">
-            <Button type="submit" disabled={!valid || change.isPending}>
-              {change.isPending ? t('common.saving') : t('common.save')}
-            </Button>
-          </div>
         </form>
-      </CardContent>
-    </Card>
+    </AccountSection>
   )
 }
 
@@ -310,13 +339,10 @@ function SessionsCard() {
   }, [sessions.data])
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{t('settings.sessions.title')}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="mb-4 text-sm text-muted-foreground">{t('settings.sessions.description')}</p>
-
+    <AccountSection
+      title={t('settings.sessions.title')}
+      description={t('settings.sessions.description')}
+    >
         {revoke.isError && (
           <p className="mb-4 text-sm text-destructive">{t('settings.sessions.revokeFailed')}</p>
         )}
@@ -328,7 +354,8 @@ function SessionsCard() {
         )}
 
         {sessions.data !== undefined && (
-          <Table>
+          <div className="overflow-x-auto border-y">
+            <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>{t('settings.sessions.device')}</TableHead>
@@ -371,10 +398,30 @@ function SessionsCard() {
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+            </Table>
+          </div>
         )}
-      </CardContent>
-    </Card>
+    </AccountSection>
+  )
+}
+
+function AccountSection({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description: string
+  children: ReactNode
+}) {
+  return (
+    <section className="max-w-3xl pt-2">
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold">{title}</h2>
+        <p className="mt-1 text-sm leading-5 text-muted-foreground">{description}</p>
+      </div>
+      <div>{children}</div>
+    </section>
   )
 }
 

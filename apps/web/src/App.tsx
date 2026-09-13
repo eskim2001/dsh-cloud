@@ -4,8 +4,15 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AppLayout } from './layouts/app-layout.js'
 import { useSession } from './lib/use-session.js'
 import AdminInstancesPage from './pages/admin/AdminInstancesPage.js'
+import AdminOverviewPage from './pages/admin/AdminOverviewPage.js'
 import AdminUsersPage from './pages/admin/AdminUsersPage.js'
 import AdminVersionsPage from './pages/AdminVersionsPage.js'
+import ActivityPage from './pages/ActivityPage.js'
+import CreateWorkspacePage from './pages/CreateWorkspacePage.js'
+import FilesPage from './pages/FilesPage.js'
+import HomePage from './pages/HomePage.js'
+import OpenWorkspacePage from './pages/OpenWorkspacePage.js'
+import WorkspaceSettingsPage from './pages/WorkspaceSettingsPage.js'
 import LoginPage from './pages/LoginPage.js'
 import InstanceDetailPage from './pages/InstanceDetailPage.js'
 import InstancesPage from './pages/InstancesPage.js'
@@ -24,17 +31,25 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route path="/" element={<Navigate to="/instances" replace />} />
-        <Route path="/instances" element={<InstancesPage />} />
+        <Route path="/" element={<Navigate to="/home" replace />} />
+        <Route path="/home" element={<HomePage />} />
+        <Route path="/workspaces" element={<InstancesPage />} />
+        <Route path="/workspaces/new" element={<CreateWorkspacePage />} />
+        <Route path="/workspaces/:id" element={<InstanceDetailPage />} />
+        <Route path="/workspaces/:id/open" element={<OpenWorkspacePage />} />
+        <Route path="/workspaces/:id/settings" element={<WorkspaceSettingsPage />} />
+        <Route path="/files" element={<FilesPage />} />
+        <Route path="/activity" element={<ActivityPage />} />
+        <Route path="/instances" element={<Navigate to="/workspaces" replace />} />
         <Route path="/instances/:id" element={<InstanceDetailPage />} />
         <Route path="/settings/account" element={<AccountPage />} />
         {/* 旧的设置页已经并进「账号」，收藏夹里的老链接接过去 */}
         <Route path="/settings/profile" element={<Navigate to="/settings/account" replace />} />
-        <Route path="/settings/sessions" element={<Navigate to="/settings/account" replace />} />
+        <Route path="/settings/sessions" element={<Navigate to="/settings/account?view=sessions" replace />} />
         <Route path="/settings/members" element={<Navigate to="/settings/account" replace />} />
 
         {/* `/admin` 本身不再是一个页面：舰队视图才是默认落点，旧链接自动接上 */}
-        <Route path="/admin" element={<Navigate to="/admin/instances" replace />} />
+        <Route path="/admin" element={<RequireAdmin><AdminOverviewPage /></RequireAdmin>} />
         <Route
           path="/admin/instances"
           element={
@@ -61,7 +76,7 @@ export default function App() {
         />
       </Route>
 
-      <Route path="*" element={<Navigate to="/instances" replace />} />
+      <Route path="*" element={<Navigate to="/home" replace />} />
     </Routes>
   )
 }
@@ -100,6 +115,6 @@ function RequireAdmin({ children }: { children: ReactNode }) {
       </div>
     )
   }
-  if (data?.role !== 'admin') return <Navigate to="/instances" replace />
+  if (data?.role !== 'admin') return <Navigate to="/home" replace />
   return children
 }

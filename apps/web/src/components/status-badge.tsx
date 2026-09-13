@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next'
-import { Badge } from '@/components/ui/badge.js'
 
 /**
  * 实例状态徽章。状态由服务端**查询时从 Docker 现算**（见 docs/DECISIONS.md D16），
@@ -14,16 +13,19 @@ export function StatusBadge({
   statusText?: string | null | undefined
 }) {
   const { t } = useTranslation()
-  const variant =
+  const dot =
     status === 'running'
-      ? 'secondary'
+      ? 'bg-emerald-600/70'
       : status === 'error' || status === 'restarting'
-        ? 'destructive'
-        : 'outline'
+        ? 'bg-destructive/80'
+        : status === 'provisioning'
+          ? 'animate-pulse bg-sky-600/60'
+          : 'bg-muted-foreground/45'
 
   return (
-    <Badge variant={variant} title={statusText ?? undefined}>
+    <span className="inline-flex items-center gap-2 text-xs text-muted-foreground" title={statusText ?? undefined}>
+      <span className={`size-1.5 rounded-full ${dot}`} aria-hidden="true" />
       {t(`status.${status}`, { defaultValue: status })}
-    </Badge>
+    </span>
   )
 }

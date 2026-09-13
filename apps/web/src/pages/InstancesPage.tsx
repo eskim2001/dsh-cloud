@@ -2,20 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PlusIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { BrandMark } from '@/components/brand-mark.js'
-import { CreateInstanceForm } from '@/components/instances/create-instance-form.js'
 import { InstanceCard } from '@/components/instances/instance-card.js'
 import { PageHeader } from '@/components/page-header.js'
-import { Button } from '@/components/ui/button.js'
+import { Button, buttonVariants } from '@/components/ui/button.js'
 import { Card, CardContent } from '@/components/ui/card.js'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog.js'
 import {
   ApiError,
   listInstances,
@@ -26,6 +18,7 @@ import {
 } from '@/lib/api.js'
 import { listRefetchInterval } from '@/lib/instance-status.js'
 import { invalidateInstances, keys } from '@/lib/query-keys.js'
+import { cn } from '@/lib/utils.js'
 
 /**
  * 我的实例。列表本身只做三件事：拉数据、把编排动作发出去、给出空态。
@@ -35,7 +28,6 @@ import { invalidateInstances, keys } from '@/lib/query-keys.js'
 export default function InstancesPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [createOpen, setCreateOpen] = useState(false)
 
   const instances = useQuery({
     queryKey: keys.instances,
@@ -81,7 +73,7 @@ export default function InstancesPage() {
     (remove.isPending && remove.variables?.id === id)
 
   return (
-    <div className="flex w-full max-w-4xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 py-4 md:py-8">
       <PageHeader
         title={t('instances.title')}
         description={t('instances.subtitle')}
@@ -96,19 +88,7 @@ export default function InstancesPage() {
                 {t('instances.quotaUsed', { used: list.length, limit: maxInstances })}
               </span>
             )}
-            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-              <DialogTrigger render={<Button disabled={atLimit} />}>
-                <PlusIcon />
-                {t('instances.create')}
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>{t('instances.newTitle')}</DialogTitle>
-                  <DialogDescription>{t('instances.newDescription')}</DialogDescription>
-                </DialogHeader>
-                <CreateInstanceForm onCreated={() => setCreateOpen(false)} />
-              </DialogContent>
-            </Dialog>
+            {atLimit ? <Button disabled><PlusIcon />{t('instances.create')}</Button> : <Link to="/workspaces/new" className={cn(buttonVariants())}><PlusIcon />{t('instances.create')}</Link>}
           </div>
         }
       />
@@ -124,14 +104,14 @@ export default function InstancesPage() {
             <BrandMark className="mb-1 size-10 text-muted-foreground/40" />
             <p className="font-medium">{t('instances.emptyTitle')}</p>
             <p className="text-sm text-muted-foreground">{t('instances.emptyHint')}</p>
-            <Button className="mt-2" onClick={() => setCreateOpen(true)}>
+            <Link className={cn(buttonVariants(), 'mt-2')} to="/workspaces/new">
               {t('instances.emptyAction')}
-            </Button>
+            </Link>
           </CardContent>
         </Card>
       )}
 
-      <div className="flex flex-col gap-3">
+      <div className="border-t">
         {list.map((instance) => (
           <InstanceCard
             key={instance.id}
