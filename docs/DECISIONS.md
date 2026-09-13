@@ -21,7 +21,8 @@
 
 - **决策**：实例 dsh 在 `<slug>.app.example.com`。
 - **理由**：dsh 的 SPA 用绝对路径，子路径载不动静态资源（[dsh-server-login](https://github.com/pointer-a/dsh-server-login) 的 README 里验证过）。
-- **代价**：通配证书 → DNS-01 challenge → **依赖 DNS provider**。
+- **代价**：通配证书 → DNS-01 challenge → **依赖 DNS provider**。**D34 已绕开这条**：默认不发通配证书，
+  改成逐主机 HTTP-01，于是不需要 provider。
 
 ## D5 · MVP 不做 iframe 外壳
 
@@ -525,8 +526,8 @@
   compose 的报错路径；④ 退出时 `docker compose down`——否，那样每次 `pnpm dev` 都要重等
   Postgres 起来，改成留着栈、用 `pnpm dev:down` 显式停。
 - **代价**：① 本地多一个常驻 Postgres 容器和一个 named volume（`down -v` 才清）；
-  ② 控制面**启动时**就要求 Docker daemon 活着（本来也要——`attachIngress` 只吞 404，daemon
-  挂了会崩 boot），现在这个前提被显式预检并写成文档；③ 固定凭据只适用于本地，且**只在全新库上
+  ② 控制面**启动时**就要求 Docker daemon 活着（本来也要 —— 建实例、读状态、投影路由全走它，
+  daemon 挂了 boot 就崩），现在这个前提被显式预检并写成文档；③ 固定凭据只适用于本地，且**只在全新库上
   成立**（见备选②）；④ 3000 / 5173 被写死这件事从隐含变成显式（`strictPort` + 预检），
   代价是「端口被占」时不再有 Vite 的自动退让，必须清掉占用者；⑤ 零证书的 `quickstart.yml`
   没了，不想碰证书警告的人只能自己签一张。
@@ -566,12 +567,20 @@
 
 ## D29 · 卷内属主只能在平台侧落地（容器内降不了权）
 
+> ⚠️ **这条的配置前提和它的实现都不在当前代码里。** `host-storage.ts`（下面引用的 `mountScript`）
+> 在切 microVM 那轮被删，改回 Docker 时没恢复 —— 全仓现在**没有一处 `chown`**；驱动也**不设**
+> `CapDrop` / `no-new-privileges`（见 [ARCHITECTURE §五](ARCHITECTURE.md)）。
+> 实测（2026-09-13）对一个运行中的实例：`CapDrop: None`、`Config.User=0`，容器里**所有进程都是
+> root**（`tini` / `entrypoint.sh` / `caddy`）。所以下面「dsh 以 uid 1000 跑」「容器内连 uid 0 都没有
+> capability、`setpriv`/`su`/`gosu` 全 EPERM」这两条**当前都不成立**，属主问题也不会以当时那个形式
+> 出现（root 写哪儿都行）。**原文保留是为了记住当时的判断依据，别当现状读。**
+
 - **决策**：实例卷里 `/data/home` 与工作区的属主，由**平台**在挂载脚本里 chown
-  （[`host-storage.ts`](../apps/server/src/instance/host-storage.ts) 的 `mountScript`，
+  （`host-storage.ts` 的 `mountScript` —— **该文件已不存在**，见本条开头，
   非递归、只碰 home 子树），既不靠镜像层，也不靠 entrypoint。
 - **理由**：三件事叠出来的 —— ① 镜像里 `chown -R dsh:dsh /data` 作用于**镜像层**的
   `/data`，而运行时 `/data` 被实例自己的文件系统 bind **整个覆盖**
-  （[`renderers/docker.ts`](../packages/instance-spec/src/renderers/docker.ts) 的 `Binds`），
+  （`renderers/docker.ts` 的 `Binds` —— **该文件已不存在**），
   那次 chown 运行时根本看不到；② 挂载脚本原来只 `chown` 挂载根，管不到里面的 `home`；
   ③ dsh 以 uid 1000 跑，写不进别人的目录 → `EACCES`。**为什么不能放 entrypoint**：
   容器跑 `CapDrop: ALL`，容器内连 uid 0 都没有 capability（实测 `CapEff: 0`），
@@ -590,6 +599,15 @@
 
 ## D30 · 覆盖 Docker 默认路径屏蔽：清掉 `/proc` 下的条目，bwrap 才建得起 proc
 
+> ⚠️ **这条的决策没有实现。** 驱动里找不到 `MaskedPaths` / `ReadonlyPaths` —— 它随切 microVM 那轮
+> 一起丢了（同 D29 开头那条）。实测（2026-09-13）对一个运行中的实例 `docker inspect`：容器拿到的是
+> Docker 的**默认**屏蔽表，含 `/proc/asound`、`/proc/kcore`、`/proc/keys` 等那批。
+> 后果是同一天实测出来的：容器里跑
+> `bwrap --ro-bind / / --dev /dev --unshare-pid --proc /proc --die-with-parent -- true`，
+> 返回 `Creating new namespace failed: Operation not permitted`（退出码 1）—— **这个问题又回来了**，
+> 连 D28 的前提（bwrap 可用）都不成立。注意报错落在**建 namespace** 而不是挂 proc，与下面矩阵里的
+> 现象不完全一样，而且本机是 Docker Desktop；**原生 Linux 待验**。下面的矩阵是当时的记录。
+
 - **决策**：容器 HostConfig 显式写死 `MaskedPaths: ['/sys/firmware']` 与
   `ReadonlyPaths: ['/sys/devices/virtual/powercap']` —— 即从 Docker 的默认列表里**去掉
   `/proc` 下的全部条目**，`/sys` 那两条保留。
@@ -601,7 +619,7 @@
 
   | 容器配置 | 探测 |
   |---|---|
-  | `CapDrop: ALL` + `no-new-privileges`（平台现状） | FAIL |
+  | `CapDrop: ALL` + `no-new-privileges`（当时平台现状） | FAIL |
   | 同上 + `--cap-add SYS_ADMIN` / `--cap-add ALL` / `seccomp=unconfined` / `apparmor=unconfined` | 全 FAIL |
   | `--privileged` | OK |
   | 只清 `/proc` 下的屏蔽、保留 `/sys` 两条 | **OK** |
@@ -616,7 +634,8 @@
 - **代价**：丢掉一批 `/proc` 下的屏蔽。其中只有 `/proc/sched_debug` 是全局可读（可能泄漏
   内核指针、削弱 KASLR）；其余（`/proc/kcore`、`/proc/keys`、`/proc/timer_list`、
   `/proc/latency_stats`、`/proc/timer_stats`、`/proc/acpi`、`/proc/asound`、`/proc/scsi`
-  等）都是 root-only `0400`，而实例以 uid 1000 跑且 `CapDrop: ALL`，够不到；`/proc/sys`、
+  等）都是 root-only `0400`，而实例当时以 uid 1000 跑且 `CapDrop: ALL`，够不到（**现在两者都不是**：
+  实例以 root 跑、也没 drop capabilities，见本条开头）；`/proc/sys`、
   `/proc/bus`、`/proc/fs`、`/proc/irq` 那几条只读保护同样因非 root 而不可写。这层是
   纵深防御，不是跨实例边界——边界仍是容器（D1），内核残余风险本就已接受（§四）。
 - **重审**：宿主内核开始带 Landlock 时（bwrap 那档可以退场，屏蔽可以加回来）；或 dsh 改了
@@ -652,3 +671,119 @@
   ③ 删除要多做几步（真删数据目录 / 快照 + 清配额账），而那条路本来就要停容器，感知差异不大。
 - **重审**：用户开始要求"误删恢复"，或平台要做备份 / 归档（M2）时 —— 那时恢复的正当来源是**备份**，
   不是"留着没删干净"。
+
+## D32 · 平台镜像：一个容器，控制面同源提供管理台
+
+- **决策**：平台自己也出镜像（`ghcr.io/<owner>/dsh-cloud`，多架构，CI 构建推公开 GHCR，交付形态同
+  D22 的实例镜像）。镜像里**一个**进程跑控制面，并
+  **同源**提供管理台静态文件（`@fastify/static`，`WEB_DIST_DIR=/app/web`）。本地开发那条路不变：
+  `WEB_DIST_DIR` 留空 = 该路由根本不注册，管理台仍由 Vite dev server 提供。
+- **理由**：
+  1. 仓库里现在**只有实例镜像**（`docker/instance-image/`）。控制面靠 `tsx` 解释执行、管理台靠 Vite
+     dev server —— 两者都不是能装到别人机器上的形态。「一键安装」缺的其实是这一步，不是安装脚本。
+  2. **同源**省掉第二个容器或 nginx：管理台与 `/api` 同源之后，CSRF 面、受信 `Origin` 白名单、cookie
+     域都不需要额外分支，本地 Vite `server.proxy` 的语义也原样落到生产。
+  3. 走 CI 而不是「宿主上构建」：宿主不需要 Node / pnpm / 仓库源码，产物可复现、按 tag 固定。
+- **备选**：① 管理台单独一个 nginx 容器（否——多一个容器加一份配置，只为发几个静态文件）；
+  ② 在宿主上构建平台镜像（否——把工具链和源码带到每个宿主，构建耗时压在安装路径上）；
+  ③ 继续拿 `pnpm dev` 当交付（否——那是开发栈）。
+- **代价**：① 多一个 GHCR 包，安装要能连 GHCR（预检项）；② 运行镜像必须带 `xfsprogs` 与 `util-linux`
+  —— 控制面直接 shell 出 `xfs_quota` / `mkfs.xfs` / `losetup`（`instance/pool.ts`），不是纯 Node 镜像。
+- **重审**：管理台要做成可独立替换的部署单元（多前端 / 灰度），或静态资源要交给 CDN 时。
+
+## D33 · 生产入口用 host 网络
+
+- **决策**：生产拓扑里 **Traefik 与控制面都 `network_mode: host`**，Postgres 单独一个 bridge 网络、
+  只发布到 `127.0.0.1`。实例容器不变（桥端口发布到宿主回环）。
+- **理由**：实例端口发布在**宿主回环**上，所以入口必须**就在宿主的网络命名空间里**才够得到它。
+  这是 [OPEN-QUESTIONS #4](OPEN-QUESTIONS.md) 实测（2026-09-12，Debian 12 / Docker 29）逼出来的：
+  Linux 上容器既够不到宿主回环、也够不到别的容器发布到 `127.0.0.1` 的端口（全 `ECONNREFUSED`）；
+  够得到的是 Docker Desktop 的 `host.docker.internal`（代理到宿主 localhost）——**那是开发机特性，
+  不是 Docker 通例**。`local.yml` 的入口拓扑正架在那条特性上，所以**不能照搬到 Linux**。
+- **备选**：① 把实例端口发布到 `0.0.0.0`（否——跨实例边界从「发布到回环」退化成「网络可达」，
+  只剩每实例门 token 兜底）；② 落地 D3（**可行但推迟**
+  ——`TRAEFIK_CONTAINER` 至今是死变量，D3 从未实现；它要给每建一个实例多一次 `network connect`，
+  并新增「入口能直连所有实例网」这个面）；③ 入口在宿主上裸跑、不进容器（否——那就得在宿主上装
+  Traefik 并自己管生命周期，与镜像化交付冲突）。
+- **代价**：① `80` / `443` 以及控制面的 `:3000` 在宿主上必须空闲（预检拦）；② 入口层没有容器网络
+  隔离，控制面直接绑宿主回环。可接受：要守住的那条边界是**实例**，而 Linux 上实例仍然够不到宿主回环。
+- **重审**：多机 / 入口不在本机时（入口与实例不再同一网络命名空间，得回到 ② 或引入覆盖网络）；
+  或 Docker 给出让容器安全访问宿主回环的机制时。
+
+## D34 · TLS 默认逐主机 ACME HTTP-01，通配证书推迟
+
+- **决策**：默认给**每台主机**单独签一张 Let's Encrypt 证书 —— 控制台一张、每个
+  `<slug>.<BASE_DOMAIN>` 一张，走 **HTTP-01**（challenge 落在 `web` entryPoint）。
+  `certificatesResolvers` 写在 Traefik **静态配置**里（安装脚本渲染 ACME 邮箱），
+  `TRAEFIK_CERT_RESOLVER=le` 传给控制面。逃生口 `--no-acme`：resolver 留空 + 自备证书丢进
+  file provider（等价 D26 那一档，只是搬到生产）。
+- **理由**：
+  1. **通配证书**只能走 DNS-01，而 DNS provider 的选型与凭据管理正是 #6 卡住的地方；但通配
+     **A 记录**（`*.<BASE_DOMAIN> → 本机`）任何 DNS 服务商都支持、不需要 API。于是逐主机 HTTP-01
+     就能拿到真证书。
+  2. 实例侧**不用改代码**：`index.ts` 已经按 `TRAEFIK_CERT_RESOLVER` 发 `tls.certResolver`，只需设值。
+  3. 结果是 **#6 不再是「能装」的阻塞项** —— 降级为推迟项（见 [OPEN-QUESTIONS](OPEN-QUESTIONS.md) §二）。
+- **备选**：① DNS-01 通配（**推迟**——要选 provider、把 DNS API 凭据交给平台容器、还要处理凭据轮换）；
+  ② 自签 + 让用户手工信任（否——生产不该顶着红锁）；③ 边缘终结，CDN / 反代持证书（部分部署下合理，
+  就是 `--no-acme` 那条）；④ 全站 `tls: {}` 吃默认自签证书（否——同 ②）。
+- **代价**：① `80` 必须对公网可达，否则签不下来；② Let's Encrypt 每注册域**每周约 50 张**上限 ——
+  一个实例一张，邀请制规模够用，实例数上去会撞到；③ `acme.json` 必须持久化（重启不能变成重签风暴）
+  且权限 `600`。
+- **重审**：实例数逼近频率上限、或宿主 `80` 不可达（家宽封 `80`、只放 `443`）时 —— 那时回到 ①。
+
+## D35 · 存储池由安装器在宿主上预置，控制面只拿 CAP_SYS_ADMIN
+
+- **决策**：池子（XFS + `pquota`，或 D18 的
+  loopback 镜像形态）由**安装脚本在宿主上**建好并**持久化**（`fstab` 或 systemd mount unit，重启后仍在）；
+  控制面容器**只做能力探针和设配额**，给 `cap_add: [SYS_ADMIN]`，**不用 `--privileged`**。
+- **理由**：
+  1. `xfs_quota limit`（写配额）要 `CAP_SYS_ADMIN`，**缺权限时是静默失败**（`index.ts` 的注释就是
+     为这条写的：带着"看起来有配额"跑着，比直接报错糟得多）。这条写路径必须在容器里真的能成功，
+     给它一个 capability 是让 `pool.ts` 的探针**有意义**的前提。
+  2. **建池不能进容器**：容器命名空间里 `mount` 出来的块设备，**宿主和 Docker daemon 都看不见**，
+     实例 bind `${HOST_STORAGE_ROOT}/<key>` 时会解析到空目录 —— 那是 D18 那种静默失效的翻版，
+     而且更隐蔽（探针在容器里是成功的）。宿主的事交给宿主做。
+- **备选**：① `--privileged`（否——`SYS_ADMIN` 是这条路径的最小集，§五 明令禁止 privileged 那一档）；
+  ② 恢复那个被删掉的 `nsenter` 助手容器（否——往宿主命名空间里钻，比直接给一个 capability 更难审计）；
+  ③ 容器内建 loopback 池（否——见理由 2）。
+- **代价**：① 控制面带 `CAP_SYS_ADMIN` **又挂着 `docker.sock`**，等于宿主 root —— 这本来就已经是宿主
+  root（`docker.sock` 本身就是那个权限），**不新增信任面**，但必须在文档里讲明白，别让「控制面跑在容器里」
+  听起来像隔离；§五 那条禁令说的是**实例**，不是控制面；② 安装器要在宿主上做挂载并写持久化，
+  比纯 `compose up` 多几步，幂等更难做对。
+- **重审**：宿主换 btrfs squota（[#7](OPEN-QUESTIONS.md) 已实测通过，不需要 loop 建池）时；
+  或 Docker 原生支持 XFS project quota 时。
+
+## D36 · 不填域名也能装：引导态 + 在面板里配域名
+
+- **决策**：装机**可以不给** `--domain`。不给就是**引导态**：控制面照旧只听宿主回环
+  （`127.0.0.1:3000`，绑定一行不改），暴露面是 `:80` 上**一条控制面自己写的动态 catch-all
+  router**（`dynamic/bootstrap.yml`），唯一入口是 token 门保护的 `/setup`。操作者填域名后：
+  写 `platform_setting` → **立刻删掉那条 catch-all（暴露当场关闭）** → 重启自己换身份
+  （cookie 域与 better-auth 的 baseURL 都是**启动期**配置）。
+  域名的来源固定为：**env 优先 → DB 其次 → 都没有才是引导态**。
+- **理由**：
+  1. 装机那一步是「一键部署」最后的摩擦。域名确实不是门牌、是身份模型的一部分（父域 cookie
+     覆盖控制台与全部实例子域），**但"必须在装机时给"不是身份模型的要求** —— 那只是当初实现
+     （安装脚本渲染静态 router + `env.ts` 硬校验）的产物。
+  2. 三条实测（2026-09-13，真 Traefik **v3.5.6**）把形态定死了：① 静态
+     `entryPoints.web.http.redirections` 会把 `:80` 上**所有**请求 301 掉，连我们的 catch-all
+     一起 —— 所以跳转**必须**是动态的；② 动态 `redirectScheme` + `service: noop@internal`
+     可用（v3.5 认）；③ ACME HTTP-01 的挑战路径由 Traefik **内部先接管**，既不被跳转拦、
+     也不落到 router。结论：跳转搬到动态侧之后，「引导期没有跳转 / 配好后出现」都只是写文件。
+  3. **暴露面靠"删一条路由"关闭**，不是靠改绑定或重启：删文件即摘除（同实测）。所以
+     「配完就关」是免费的，而且**先投影关暴露、再重启**这个顺序让最坏情况（重启失败）也是安全的。
+  4. **一次性 token**，而不是「首个注册者当管理员」：公网机器上后者等于"谁先扫到谁当管理员"，
+     与邀请制定位（D20、拒绝公开注册）直接冲突。
+- **备选**：① 像同类平台那样把面板直接绑在公网端口、不做门（否 —— 见理由 4；而且要么多开一个
+  防火墙口，要么事后靠重启换绑定）；② 给引导期上 HTTPS（LE 的 IP 证书已 GA，但 6 天有效、
+  Traefik 对 IP 标识符的支持还不完整 —— 为几分钟的窗口不值得）；③ 只给 SSH 隧道引导
+  （否 —— 把门槛从"会配 DNS"换成"会 SSH 端口转发"，没更简单）；④ 把 cookie 域动态化，省掉
+  那次重启（否 —— 那是动认证链路，按铁律另议）。
+- **代价**：① 引导期是**明文 HTTP 直接对公网**，唯一屏障是那枚 token（单次、配完即失效）——
+  所以引导态的**路由面必须保持极小**，`route-surface.test.ts` 有一份专门的白名单盯着它；
+  ② 配完域名要**重启一次控制面**（秒级；实例不受影响），且此刻已登录的会话会因 cookie 域变化失效；
+  ③ 泛解析仍然要操作者自己配（不接 DNS API，见 [#6](OPEN-QUESTIONS.md)），面板只**检查并警告**；
+  ④ 控制面从写一个动态文件变成写三个（`platform.yml` / `redirect.yml` / `bootstrap.yml`），
+  每次启动按状态幂等对齐。
+- **重审**：接上 DNS API 时（#6）—— 那时面板能自己写记录、甚至签通配证书，引导期可以更短；
+  或 cookie 域做成运行时可换时（那次重启也省了）。

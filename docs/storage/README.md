@@ -143,7 +143,8 @@ xfs_quota -x -c 'report -p -b -h' /pool                       # 用量：读不�
 ## 本平台怎么落的
 
 - 决策：[`docs/DECISIONS.md`](../DECISIONS.md) **D18**（一个 XFS 池 + 每租户一个 project ID；
-  宿主非 XFS 时自动建 loopback 池子；开发机不强制 + 一行警告）。
+  宿主非 XFS 时建 loopback 池子 —— **生产上这一步由安装脚本在宿主上做完并写进 `fstab`**，
+  控制面跑在容器里时**不建池**（容器里建出来的宿主看不见，见 D35）；开发机不强制 + 一行警告）。
 - 实现：`apps/server/src/instance/pool.ts`（池子判定 / loopback 兜底 / 严格自检 / project ID 注册表）、
   `apps/server/src/runtime/docker/driver.ts` 的存储方法。
 - 边界情况见 [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) §四 的残余风险。

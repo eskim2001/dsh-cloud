@@ -113,13 +113,13 @@ df -h /data  →  100.0M  100%         ← df 报的是配额，不是宿主盘
 
 字节配额之外必须同时设 inode 配额。只限字节不限文件数，一个容器可以用几百万个零字节文件把宿主的 inode 耗尽，整台机器的文件系统都会瘫痪。
 
-设限额需要 `CAP_SYS_ADMIN`，这跟平台现在「容器 CapDrop 全部丢弃」的加固方向是冲突的，得想清楚这层权限给谁——合理的归属是控制面进程，不是实例容器。
+设限额需要 `CAP_SYS_ADMIN`，这跟平台当时声明的「容器 CapDrop 全部丢弃」加固方向是冲突的，得想清楚这层权限给谁——合理的归属是控制面进程，不是实例容器。
 
 缺权限这件事是隐形的：`xfs_quota report`（读）不需要权限，只有 `limit`（写）需要。所以缺权限要到第一次建实例才暴露。必须在启动时做检查并拒绝启动，否则就成了「看起来配了限额，实际没配」。
 
 最后，重启后要对已有的实例目录重新施加配额（回填），否则限额会静默消失。
 
-**落地状态（2026-09-12）**：上面这套**还没实现**。当前是 Docker 命名卷 + 把容量记进卷 label ——
+**落地状态（2026-09-12，已过期 —— 见文末订正）**：上面这套**还没实现**。当前是 Docker 命名卷 + 把容量记进卷 label ——
 **没有硬限**。所以：
 
 - 在 Linux 宿主上接上 project quota 之前，「每实例磁盘硬限」这条需求是**未满足**的；
@@ -303,3 +303,21 @@ dsh 的沙箱候选链是 `bwrap → Landlock → 全部失败就拒绝执行任
 - Northflank，MicroVM vs gVisor
 - safeguard.sh，gVisor vs Firecracker in 2026
 - github.com/manifest-network/fred（低热度参考实现，见上）
+
+## 订正（2026-09-13）
+
+**「容器 CapDrop 全部丢弃」不是现状。** 实例的 `HostConfig` 里没有 `CapDrop`、没有 `SecurityOpt`
+（`no-new-privileges`）、也没有 `MaskedPaths` 覆盖 —— 这三项随切 microVM 那轮（`b5d3888` 删掉
+`host-storage.ts` 与 `renderers/docker.ts`）一起丢了，改回 Docker 时没恢复。实测 2026-09-13 对一个
+运行中的实例 `docker inspect`：`CapDrop: None`、`CapAdd: None`、`SecurityOpt: None`、`MaskedPaths`
+是 Docker 的**默认**表、`Config.User=0`（容器里 `tini` / `entrypoint.sh` / `caddy` 全是 root）。
+**实例加固的现状以 [ARCHITECTURE §五](ARCHITECTURE.md) 为准**（那张表是对的）。
+
+**「磁盘硬限还没实现」也已过期**：`apps/server/src/instance/pool.ts` 已经落地 —— 池子探针、
+`pquota`、每实例一个 project quota（字节 + inode 双限）、设不上就**拒绝启动**，见 D18。
+
+**一条实测补充**：同一台机器上，实例容器里跑
+`bwrap --ro-bind / / --dev /dev --unshare-pid --proc /proc --die-with-parent -- true`
+返回 `Creating new namespace failed: Operation not permitted`（退出码 1）。也就是说 D28 装的
+bubblewrap 沙箱在这套配置下**用不了**，D30 想修的那个问题重新出现了 —— 但这条只在
+Docker Desktop 上测过，原生 Linux 待验。

@@ -22,7 +22,7 @@
 3. **升级 = 换镜像**，用户内容靠卷保留；要锁依赖版本就真装进 profile-own `node_modules`，别靠 symlink。
 4. **验证插件用四级收尾**：`dump-config` 有行 → `/plugins/<id>/client.js` 可拉 → 控制台无 bundle 报错 → **真渲染**。判重启**别用** `/proc/1/uptime`。
 5. **不钻 dsh 内部**：密钥存储、模型端点等是 dsh 自己的功能，平台不管细；唯一平台级判断是「别把共享 key 塞进多租户容器」。
-6. **访问控制三道门**：① 实例容器把桥端口**只发布到宿主回环**（`127.0.0.1:<hostPort>`，入口容器经 `host.docker.internal` 转发进来）。⚠️ 这条**在 Linux 上是有效的网络隔离**（容器够不到宿主回环，见 OPEN-QUESTIONS #4 实测），**在 Docker Desktop 上不是**（`host.docker.internal` 代理到宿主 localhost，宿主回环上的服务对所有容器开放）；② 平台入口对**页面 / API / WS** 都前置认证，且做**授权**（登录者 == owner）；③ 桥校验一个**只有入口会注入的签名 header**（HMAC，每实例独立密钥）。**漏挂认证不会报错，只有洞**：认证是**逐条 router 显式挂的**（不是默认拒绝），漏挂的 router 在 Traefik 里是合法配置——照常 200、无告警、无日志。实例路由有门③ 兜底（token 只在认证 + 授权通过后注入，漏挂表现为 **403 而非裸奔**），但**症状和正常工作一模一样 → 错误不可见**；指向**非实例后端**的新路由没有这层兜底，漏挂就是真洞。→ 实例路由只走 `buildTraefikConfig`；新增非实例路由必须显式决定「谁来认证」；必须有自动化攻击测试。
+6. **访问控制三道门**：① 实例容器把桥端口**只发布到宿主回环**（`127.0.0.1:<hostPort>`；生产入口在 host 网络上直接连它，本地开发入口是容器、经 `host.docker.internal` 转发）。⚠️ 这条**在 Linux 上是有效的网络隔离**（容器够不到宿主回环，见 OPEN-QUESTIONS #4 实测），**在 Docker Desktop 上不是**（`host.docker.internal` 代理到宿主 localhost，宿主回环上的服务对所有容器开放）；② 平台入口对**页面 / API / WS** 都前置认证，且做**授权**（登录者 == owner）；③ 桥校验一个**只有入口会注入的签名 header**（HMAC，每实例独立密钥）。**漏挂认证不会报错，只有洞**：认证是**逐条 router 显式挂的**（不是默认拒绝），漏挂的 router 在 Traefik 里是合法配置——照常 200、无告警、无日志。实例路由有门③ 兜底（token 只在认证 + 授权通过后注入，漏挂表现为 **403 而非裸奔**），但**症状和正常工作一模一样 → 错误不可见**；指向**非实例后端**的新路由没有这层兜底，漏挂就是真洞。→ 实例路由只走 `buildTraefikConfig`；新增非实例路由必须显式决定「谁来认证」；必须有自动化攻击测试。
 7. **绝不跨实例**：独立卷 / 零跨实例凭据；网络层靠**宿主回环发布 + 每实例门 token**（不是独立网络）。备份、迁移、升级脚本、控制面查询，凡涉及实例数据的地方**必须带实例维度**。
 
 ## 三、目录结构
@@ -40,8 +40,12 @@ dsh-cloud/
 │   └── instance-spec/   ★ 实例规格 + runtime renderer（换 K8s / microVM 只换这层）
 ├── docker/
 │   ├── instance-image/  实例容器基础镜像（Dockerfile + entrypoint + Caddyfile）
-│   ├── traefik/         入口静态 / 开发态配置
-│   └── compose/         本地入口栈
+│   ├── platform/        ★ 平台镜像（控制面 + 管理台同源）+ VERSION + build.sh
+│   ├── traefik/         入口静态 / 开发态配置；生产模板是 *.prod.yml.tmpl
+│   └── compose/         本地入口栈（local.yml）；生产栈是 prod.yml
+├── scripts/
+│   ├── dev.mjs          本地一键起停
+│   └── install.sh       ★ 一键安装 / 升级 / 卸载（在宿主上以 root 跑）
 └── docs/                架构 / 决策 / 待验证
 ```
 
@@ -88,6 +92,16 @@ pnpm --filter @dsh-cloud/server test:security
 
 完整本地链路（TLS + 子域 + cookie 作用域）见 [docker/compose/README.md](docker/compose/README.md)。配置项见 [.env.example](.env.example)。
 
+平台镜像（控制面 + 管理台同源）本地构建：
+
+```bash
+./docker/platform/build.sh
+```
+
+正式发布走 `.github/workflows/platform-image.yml`。**生产安装（`scripts/install.sh`）不在本机验** —— 它在
+宿主上建挂载、写 `fstab`、绑 80/443，只能在真 Linux 上跑；镜像本身可以在本机构建、用 `docker run`
+单独试（见 [docker/platform/README.md](docker/platform/README.md)）。
+
 ## 五、约定
 
 - **叫「实例」不叫「租户」**：代码、DB、资源名一律用 instance / slug；`tenant` 一词留给「用户 / 企业」。
@@ -106,5 +120,6 @@ pnpm --filter @dsh-cloud/server test:security
 | 架构 + 安全模型 + 隔离边界 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | 为什么这么定（ADR） | [docs/DECISIONS.md](docs/DECISIONS.md) |
 | 待验证 / 待定 | [docs/OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md) |
+| 生产部署怎么装（镜像 / 拓扑 / 权限） | [docker/platform/README.md](docker/platform/README.md) |
 | 本地入口栈怎么起 | [docker/compose/README.md](docker/compose/README.md) |
 | 项目概览 / 快速开始 | [README.md](README.md) · [README.en.md](README.en.md) |

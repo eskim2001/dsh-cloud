@@ -7,12 +7,7 @@
 
 | # | 问题 | 怎么验 | 不验会怎样 |
 |---|---|---|---|
-| 6 | **DNS provider** 选型（Cloudflare / 阿里云 / Route53） | 定下来 + 实测通配证书签发 | 通配证书走 DNS-01，决定 Traefik 配置与实例子域解析 |
 | 13 | **门改 host-only cookie + 控制台签发短时 token**（解同注册域的 Set-Cookie 投毒 / 浏览器状态继承） | 设计 token 交换链路 + 真实浏览器双租户复现 | 同注册域下浏览器状态仍是跨租户通道（D24 代价⑤） |
-
-### #6
-
-只是选型，不影响已实现的隔离模型。
 
 ### #13
 
@@ -26,6 +21,7 @@ cookie，而是由控制台签一枚**短时、单实例、绑定 owner** 的 to
 
 | 项 | 推迟到 |
 |---|---|
+| **通配证书**（DNS-01，原 #6：DNS provider 选型） | 实例数逼近 ACME 每周约 50 张的上限、或宿主 `80` 端口不可达时。默认走**逐主机 HTTP-01**，不需要 DNS provider，也不再阻塞「能装」（D34） |
 | 可观测性（Prometheus / Loki / Grafana） | M2 |
 | 备份 / 镜像扫描 / 对象存储 | M2 |
 | 插件信任边界（恶意插件） | M2 |
@@ -91,7 +87,14 @@ Linux 上做磁盘配额只有四条路：文件系统级三条 + 块设备级�
 
 **选定的形态**：每实例一个宿主稀疏文件 + loop + ext4，**文件系统大小即配额**，宿主级操作走特权助手容器。只依赖宿主自带工具，开发机端到端可验。见 [D18](DECISIONS.md)。
 
-⚠️ **但 D18 的实现目前不存在** —— `host-storage.ts` 在切 microVM 那轮被删，改回 Docker 时没恢复；现在是 Docker 命名卷 + 把容量记进 label，**没有硬限**。
+✅ **D18 已实现**（2026-09-12，`4149d9f`）：`apps/server/src/instance/pool.ts` 里有池子判定
+（XFS + `pquota`；探针会**真设一次限额再读回来**校验 Hard 列的值，不是只看"是不是 XFS"）、
+每实例一个 project quota（字节 + inode 双限，**已释放的 ID 不复用**）、宿主不是 XFS 时建**一块**
+loopback XFS 镜像、设不上就**拒绝启动**；驱动按 `enforced` 决定 bind 池子目录还是退回命名卷
+（`runtime/docker/driver.ts` 的 `Binds`）。
+
+（本节早先写过「D18 的实现目前不存在」—— 那描述的是切 microVM 那轮删掉 `host-storage.ts`、
+改回 Docker 还没补上时的状态，已经过期。）
 
 **后续实测（2026-09-12）**，给上面那张表补一格、并收窄一条：
 
@@ -105,3 +108,18 @@ Linux 上做磁盘配额只有四条路：文件系统级三条 + 块设备级�
 ### dsh 入口一次性 token → **D14**
 
 `dsh web` 每次启动 `randomBytes` 生成入口 token，没有 flag / 配置能固定或关闭。做法：桥在**无 cookie 的 `GET /`** 上注入 token 再转发（从前是 `/__open` 这条精确路径），**token 不进浏览器 URL / 历史 / Referer**，用户直接输裸域名即可。见 [D14](DECISIONS.md)。
+
+### 引导态寻址：静态跳转 vs 动态 router、与 ACME 共存 → **已实测（2026-09-13）**
+
+为「不填域名也能装」（引导口复用 :80 上一条**动态**路由）先验了四条，真 Traefik **v3.5.6**、一次性容器：
+
+| 验的 | 结果 |
+|---|---|
+| 静态 `entryPoints.web.http.redirections` + :80 上一条显式 router | **跳转赢**：一切 301，显式 router 完全不生效 |
+| 改用动态 router 出跳转（`redirectScheme` + `service: noop@internal`） | 可用，正确 301；`noop@internal` 在 v3.5 认 |
+| 动态 catch-all（或跳转 router）与 ACME HTTP-01 挑战共存 | **兼容**：`/.well-known/acme-challenge/<token>` 由 ACME provider 内部接管（日志 `Cannot retrieve the ACME challenge for …`），既不被跳转拦、也不落到 router |
+| `/dynamic` 下三个文件，删其中一个 | 只摘掉它那条路由，其余路由不受影响 |
+
+结论：**HTTP→HTTPS 跳转不能用静态的**——它在引导态会把 catch-all 一起拦掉，而静态配置又没法按状态变化
+（改它就得重启 Traefik）。跳转改由控制面渲染成动态 router，于是「配好域名后立即生效、引导期没有跳转」
+两件事都不用重启。落地见 [DECISIONS.md](DECISIONS.md) 里引导态装机那条。

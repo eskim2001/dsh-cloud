@@ -3,6 +3,10 @@
 `local.yml` 是**唯一**的本地栈：Postgres + Traefik 接入 + 认证前置，跑通「经真实入口访问」——
 登录 → 打开实例，并覆盖线上真实的 TLS 与 cookie 条件。
 
+> 生产栈是隔壁的 `prod.yml`（入口与控制面走 host 网络、Postgres 只发布到宿主回环），
+> 由 `scripts/install.sh` 装；两者拓扑的差异与理由见 [docker/platform/README.md](../platform/README.md) 与 D33。
+> **本文只讲本地**，其中的 `host.docker.internal` 那套是 Docker Desktop 特有的，别搬到生产。
+
 正常不用手工操作：根目录 `pnpm dev` 会起它、等 Postgres 就绪、跑迁移和 seed，再起控制面和管理台。
 本文是它坏了的时候的参考。
 
@@ -101,9 +105,12 @@ pnpm dev:web
 
    实例路由不受影响——`routes.yml` 在目录挂载里，`watch: true` 会实时加载。
 
-3. **入口容器被重建（`up -d` / `down` 后重起）要重启控制面**：Traefik 被接进每个实例网络（D3），
-   重建后这些附着就没了，实例会 502。控制面启动对账时会把它们接回去（`attachIngress`），
-   所以重启控制面即可。`restart traefik` 不重建容器，不受影响。
+3. **入口容器重建（`up -d` / `down` 后重起）不影响实例路由。** 这里从前写着「Traefik 被接进每个
+   实例网络（D3），重建后附着就没了、实例会 502，要重启控制面把它接回去」—— 那个机制**从未实现**：
+   代码里没有 `attachIngress`，也没有任何容器网络 `connect`，实例容器也不设 `NetworkMode`。
+   真实拓扑是实例把桥端口发布到**宿主回环**，入口按 `INSTANCE_UPSTREAM_HOST:<hostPort>` 转发过去
+   （本地那份是 `host.docker.internal`；`local.yml` 的 `extra_hosts` 保证重建后仍然有它）。
+   生产走 host 网络出于同一个理由（见 D33）。`restart traefik` 不重建容器，自然也不受影响。
 
 4. **改了 `BASE_DOMAIN` 之后要重建实例容器**：`DSH_TRUSTED_HOSTS` 是建容器时写进环境的，
    旧容器还认旧域名。走 `POST /api/instances/:id/restart` 或管理台的「重建」，卷不受影响。

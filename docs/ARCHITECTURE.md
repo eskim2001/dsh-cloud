@@ -6,33 +6,42 @@
 
 ```
                           互联网
-                            │ 443
+                            │ 80 / 443
                             ▼
-        ┌────────────────────────────────────────────┐
-        │ Traefik （host 网络 · TLS *.app.example.com）│
-        │  ① console.app.example.com → 平台管理面      │
-        │  ② <slug>.app.example.com  → 实例 dsh        │
-        │      ↳ forward-auth 中间件                   │
-        │      ↳ 注入 X-Platform-Token                 │
-        └──────┬─────────────────────────┬────────────┘
-               │ 控制面地址               │ 宿主回环端口
-               │ （dev 经               │ 127.0.0.1:<hostPort>
-               │ host.docker.internal）  │ （容器内 caddy :8080 发布）
-               ▼                         ▼
-    ┌────────────────────┐    ┌──────────────────────────────┐
-    │ 控制面              │    │ 实例容器 dsh-instance-<slug>   │
-    │  web (React 管理台) │    │   Docker 默认 bridge（可出网） │
-    │  server (Fastify)   │    │   caddy :8080 ──► dsh         │
-    │  Postgres           │    │            127.0.0.1:3080     │
-    │  control_net        │    │   卷 /data（workspace+会话+   │
-    └─────────▲──────────┘    │        插件+配置）            │
-              │ dockerode      │   cpu/mem 有上限 · 磁盘有硬限  │
-              └────────────────┴──────────────────────────────┘
+        ┌──────────────────────────────────────────────┐
+        │ Traefik（host 网络 · TLS 逐主机签发（D34）） │
+        │   ① console.<父域>   → 平台管理面            │
+        │   ② <slug>.<父域>    → 实例 dsh              │
+        │       ↳ forward-auth 中间件                  │
+        │       ↳ 注入 X-Platform-Token                │
+        └──────────────────────────────────────────────┘
+               │ 控制面 127.0.0.1:3000    │ 实例 127.0.0.1:<hostPort>
+               ▼                          ▼
+    ┌──────────────────────────┐  ┌──────────────────────────────┐
+    │ 控制面（host 网络）      │  │ 实例容器 dsh-instance-<slug> │
+    │ Fastify + 管理台静态文件 │  │ Docker 默认 bridge（可出网） │
+    │ （同一个进程，同源）     │  │ caddy :8080 ──► dsh          │
+    └──────────────────────────┘  │           127.0.0.1:3080     │
+                                  │ 池子里的目录挂到 /data       │
+                                  │ cpu/mem 有上限 · 磁盘有硬限  │
+                                  └──────────────────────────────┘
+
+        （控制面经 docker.sock 用 dockerode 建 / 起停 / 观测实例容器）
+
+    ┌───────────────────────────┐
+    │ Postgres（bridge dsh-db） │
+    │ 只发布到 127.0.0.1:55432  │
+    └───────────────────────────┘
 ```
 
-**关键点**：实例容器把桥端口（`:8080`）**只发布到宿主回环** `127.0.0.1:<hostPort>`（端口由平台从 20000–31999 分配）；入口（Traefik 跑在容器里）经 `host.docker.internal:<hostPort>` 转发进来。**Linux 上这就是有效的网络隔离** —— 容器够不到宿主回环上的监听、也够不到**别的容器**发布的回环端口（2026-09-12 实测：全部 `ECONNREFUSED`，见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) #4）。
+**关键点**：实例容器把桥端口（`:8080`）**只发布到宿主回环** `127.0.0.1:<hostPort>`（端口由平台从 20000–31999 分配）。入口必须与那些端口**同处宿主的网络命名空间**才够得到它们，所以：
 
-> ⚠️ **Docker Desktop（macOS/Windows）上不是**：它的 `host.docker.internal` 是**代理到宿主 localhost** 的别名，于是宿主回环上的**任何**监听（实例端口、控制面 API、Postgres）对所有容器开放。这是**开发机特有**，生产 Linux 不受影响。跨实例那条最后仍有**每实例门 token** 兜底 —— 但拦住它的是门，不是网络。
+- **生产**：Traefik 与控制面都在 **host 网络**上，上游就是字面意义的 `127.0.0.1`（见 D33）。这也是被逼出来的唯一可行档 —— Linux 上容器够不到宿主回环（2026-09-12 实测：全部 `ECONNREFUSED`，见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) #4）。
+- **本地开发**：Traefik 是容器，它的 `127.0.0.1` 不是宿主，于是走 `host.docker.internal:<hostPort>`（`INSTANCE_UPSTREAM_HOST`，见 [docker/compose/README.md](../docker/compose/README.md)）。**这一档只在 Docker Desktop 上成立**。
+
+**Linux 上这就是有效的网络隔离** —— 容器够不到宿主回环上的监听、也够不到**别的容器**发布的回环端口。
+
+> ⚠️ **Docker Desktop（macOS/Windows）上不是**：它的 `host.docker.internal` 是**代理到宿主 localhost** 的别名，于是宿主回环上的**任何**监听（实例端口、控制面 API、Postgres）对所有容器开放。这是**开发机特有**，生产 Linux 不受影响（同 #4 实测）。跨实例那条最后仍有**每实例门 token** 兜底 —— 但拦住它的是门，不是网络。
 
 ## 二、四个角色
 
@@ -68,7 +77,7 @@
 
 | 通道 | 堵法 |
 |---|---|
-| **网络** | 实例的桥端口只发布到**宿主回环** `127.0.0.1`，不对局域网暴露。⚠️ 但**回环不等于隔离**：同 daemon 的容器可以经 `host.docker.internal` 够到宿主的回环端口（macOS / Docker Desktop 实测如此；Linux 宿主待验）。所以**跨实例真正的闸门是每实例的门 token** —— `HMAC(secret, "dsh-cloud:gate:<slug>")`，见 `instance/gate-token.ts`：A 拿自己的 token 打 B 会被 403。拦住的**是门，不是网络不可达** |
+| **网络** | 实例的桥端口只发布到**宿主回环** `127.0.0.1`，不对局域网暴露。**Linux 宿主上这是硬边界** —— 容器够不到宿主回环、也够不到**别的容器**发布的回环端口（2026-09-12 实测，见 #4）。⚠️ **Docker Desktop 上不是**：那里的 `host.docker.internal` 代理到宿主 localhost，宿主的回环端口对所有容器开放。所以每实例门 token 无论哪档都在 —— `HMAC(secret, "dsh-cloud:gate:<slug>")`，见 `instance/gate-token.ts`：A 拿自己的 token 打 B 会被 403。Linux 上它是**纵深防御**，开发机上是**最后一道** |
 | **文件** | 每实例一份**独立的数据目录** —— 池子里的 `<pool>/<key>`，带自己的 project quota（配额落不了地的宿主上退回命名卷，见下），按 `storage_key` 定位，不能靠复用 slug 接管。删容器不删数据 → 重建不丢数据 |
 | **凭据** | 实例里零跨实例凭据：无 DB 凭据、无平台密钥、无 Docker socket、无全局共享 HMAC |
 | **控制面** | 入口（Traefik）经**宿主回环端口**转发；日志 / 用量等观测全部来自平台侧 |
@@ -87,9 +96,9 @@
   安全代价要说清：**池化把"物理隔离"换成了"逻辑隔离"** —— 全靠配额设对，而设配额是特权操作、失败是静默的，
   所以启动有一条自检，设不上就**拒绝启动**。见 [storage/README.md](storage/README.md)、D18、
   [RUNTIME-CONTAINER-EVAL](RUNTIME-CONTAINER-EVAL.md)
-- **宿主回环上的「无门」服务对容器可见**（macOS / Docker Desktop 实测）：控制面 API 与 Postgres 都只听宿主
-  回环、且没有门，开发机上一个租户容器能直连它们。生产宿主是 Linux 时这条是否成立**待验** —— Linux 上
-  `host-gateway` 指向网桥网关，够不到绑 `127.0.0.1` 的 socket
+- **宿主回环上的「无门」服务对容器可见 —— 但只在 Docker Desktop 上**：控制面 API 与 Postgres 都只听宿主
+  回环、且没有门，所以开发机上一个租户容器能直连它们。**Linux 宿主上实测不通**（#4：`host-gateway`
+  指向网桥网关，够不到绑 `127.0.0.1` 的 socket），这条是开发机特有的，不是 Docker 通例
 
 **运行时接缝**：[`apps/server/src/runtime/driver.ts`](../apps/server/src/runtime/driver.ts) 是**唯一**
 接触具体运行时的接口；业务层（`provisioner` / `boot` / `reconciler` / `routes-sync`）不认识任何具体运行时。
@@ -102,7 +111,7 @@
 
 | 项 | 现状 |
 |---|---|
-| 用户 | 工作负载跑 **root**（渲染器固定 `user: '0'`）—— 命名卷的根归 root，容器内没法降权 |
+| 用户 | 工作负载跑 **root**（渲染器固定 `user: '0'`，镜像也是 `USER root`）。**没有**容器内降权这一步 —— 曾经的理由（卷归 root + 容器内降不了权）随 microVM 回退一起失效了，见 D29 |
 | rootfs | **可写**（D12：dsh 是编码 agent，装依赖是日常） |
 | PID 1 | 镜像里的 **tini**（agent 大量 spawn 子进程，必须收僵尸） |
 | 命名空间 / 内核 | **Docker 默认**：进程 / 挂载 / 网络命名空间独立，但**共享宿主内核**（逃逸即宿主失陷） |
@@ -112,6 +121,11 @@
 | `no-new-privileges` / seccomp | ⚠️ **没做**（Docker 默认 seccomp profile 生效，但没有额外收紧） |
 | 网络 | 桥端口**只发布到宿主回环**；Linux 上容器够不到它（[OPEN-QUESTIONS #4](OPEN-QUESTIONS.md) 实测） |
 | `--privileged` | **没用**，也不该用（那等于宿主 root） |
+
+> **与 D29 / D30 冲突时以本表为准。** 那两条 ADR 写的是 microVM 回退**之前**的配置
+> （`CapDrop: ALL`、`no-new-privileges`、`MaskedPaths` / `ReadonlyPaths` 覆盖）—— 那三项在切回
+> Docker 时丢了，驱动现在一个都不设，容器拿到的是 Docker 默认能力集与默认屏蔽表。两条 ADR 开头
+> 各有一段说明，实测记录在 [RUNTIME-CONTAINER-EVAL](RUNTIME-CONTAINER-EVAL.md) 的「订正」。
 
 **不随运行时变的**：
 
@@ -168,4 +182,6 @@
 
 ## 九、待验证
 
-见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md)。WebSocket 握手授权与 cookie 过滤已通过真实 Traefik 集成测试，控制面跨源写请求拒绝已有回归测试。目标宿主网络隔离、DNS/TLS 配置、完整浏览器链路和长连接撤权仍需部署环境验证。
+见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md)。WebSocket 握手授权与 cookie 过滤已通过真实 Traefik 集成测试，控制面跨源写请求拒绝已有回归测试。
+
+**DNS/TLS 与入口拓扑已经有实现**（逐主机 ACME HTTP-01 + 入口 host 网络，见 D33、D34，落地路径见 [PLAN.md](../PLAN.md) M1.5）—— 但那一整套**只在开发机上验过**。必须上真 Linux 主机才能确认的清单在 PLAN 的 M1.5：host 网络端到端（登录 → 建实例 → 访问）、`CAP_SYS_ADMIN` 下对 bind mount 的 XFS 真设配额、重启后池子还在、逐主机签发。完整浏览器链路与长连接撤权同样待部署环境验证。

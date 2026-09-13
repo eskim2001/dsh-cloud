@@ -90,16 +90,56 @@ After deploying the platform, administrators can add users through invitation li
 
 ## Getting Started
 
-### Prerequisites
+### Deploy to your own server
 
-- Node.js 22+ and pnpm 10.10.0; see [package.json](package.json).
-- Docker Desktop with Linux container support and Compose v2. The control plane connects to the Docker daemon at startup.
-- Host ports `80`, `443`, `3000`, `5173`, `55432` free.
-- Hard disk quotas need the host on XFS mounted with `pquota`. Otherwise the platform mounts a loopback XFS image, which requires `CAP_SYS_ADMIN`; if neither works it refuses to start. macOS and Docker Desktop support neither, so quotas are not enforced in development and the console shows "no limit". Workspace data lives under `HOST_STORAGE_ROOT`, `~/dsh-data` by default with `pnpm dev`. See [D18](docs/DECISIONS.md).
+Prerequisites:
 
-### Run it
+- A Linux host (x86-64 or arm64) with Docker and Compose v2.
+- **Storage that can enforce a hard quota**: `HOST_STORAGE_ROOT` (default `/var/lib/dsh`) must either sit on XFS mounted with `pquota`, or the installer creates a loopback XFS image for it (needs root, and writes the mount into `fstab`). If neither is possible the install **refuses to proceed** — once storage is pooled, a quota that merely looks enforced is worse than none. See [D18](docs/DECISIONS.md).
+- Ports `80` and `443` free: the ingress binds them directly, and `80` is also needed for the ACME HTTP-01 check.
+- Host access to GHCR (both the platform image and workspace images come from there).
 
-From the repository root:
+```bash
+curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh | sudo bash -s -- --version 0.1.0 --domain example.com --email you@example.com
+```
+
+The `0.1.0` in both places is the same tag: the script at `v0.1.0`, and the platform image `dsh-cloud:0.1.0`. Change both together.
+
+The script runs, in order: preflight (environment, ports, storage capability) → provision the storage pool on the host and persist it in `fstab` → start PostgreSQL → migrate the database → create the first administrator → start the control plane and ingress. It then prints the console URL and an administrator password **shown once**.
+
+`--domain` is the **parent** domain: the console lives at `console.<parent>` and every workspace takes a subdomain of its own. Certificates are issued per host (one for the console, one per workspace), so no DNS provider API is involved — but the wildcard record `*.<parent>` must already point at this machine, or certificates cannot be issued.
+
+**No domain yet? Leave `--domain` off**: the script prints a `http://<ip>/setup?token=...` link. Open it and enter the domain there. During that bootstrap the platform serves **only** that page (guarded by a one-time token; no other API is mounted), and the entry point is closed the moment you submit — the console then lives at `console.<the parent you entered>`. See [D36](docs/DECISIONS.md).
+
+To read the script before running it, replace `| sudo bash -s --` with `-o install.sh`. Its URL is pinned to a tag, so the contents never change; to verify, compute the SHA-256 on both sides and compare:
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh" | sha256sum
+```
+
+```bash
+git show v0.1.0:scripts/install.sh | sha256sum
+```
+
+Upgrade to a new version (keeps data and secrets):
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.1/scripts/install.sh" | sudo bash -s -- update --version 0.1.1
+```
+
+Uninstall (keeps the database volume and storage pool; add `--purge` to delete data irrecoverably):
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh" | sudo bash -s -- uninstall
+```
+
+For bring-your-own certificates (skip ACME), upgrades and rollbacks, and **why it is expected for the control plane to hold the Docker socket and `CAP_SYS_ADMIN`**, see the [deployment guide](docker/platform/README.md).
+
+> The project is in early development: deployment verification and security work still have open items. Before exposing it to the internet, read the hardening checklist and permission boundaries in the [architecture and security model](docs/ARCHITECTURE.md).
+
+### Local development
+
+Use this path when changing code. Prerequisites: Node.js 22+ and pnpm 10.10.0, plus Docker Desktop with Compose v2.
 
 ```bash
 pnpm install
@@ -109,27 +149,9 @@ pnpm install
 pnpm dev
 ```
 
-Open `https://console.lvh.me` and sign in with `admin@lvh.me` / `dsh-cloud-dev`.
+One command brings up everything: preflight → generate `apps/server/.env.local` → start PostgreSQL and the ingress ([local.yml](docker/compose/local.yml)) → migrate → create the administrator → start the server and console. Open `https://console.lvh.me` and sign in with `admin@lvh.me` / `dsh-cloud-dev`.
 
-`pnpm dev` runs: preflight (dependencies, ports, Docker daemon) → generate `apps/server/.env.local` (validated only if it already exists) → start PostgreSQL and the ingress ([docker/compose/local.yml](docker/compose/local.yml)) → migrate the database and create the first administrator → start the server and console, then print the URL.
-
-`Ctrl-C` stops the server and console; the ingress and PostgreSQL keep running, so the next start is fast. To stop them too:
-
-```bash
-pnpm dev:down
-```
-
-To reset the local environment (drops the database, regenerates secrets):
-
-```bash
-docker compose -f docker/compose/local.yml down -v
-```
-
-Then delete `apps/server/.env.local`.
-
-### Local ingress and certificates
-
-Everything local goes through `*.lvh.me`, which resolves to `127.0.0.1` everywhere, so there is nothing to add to your hosts file. The cost is HTTPS only, and the repository ships no trusted certificate: Traefik uses its built-in `CN=TRAEFIK DEFAULT CERT`, so the browser shows a certificate warning — select "Advanced → Proceed". For a green lock, issue a certificate with a SAN covering `DNS:lvh.me,DNS:*.lvh.me` and add it to the system trust store. See [D26](docs/DECISIONS.md).
+`Ctrl-C` stops the server and console; `pnpm dev:down` stops the ingress and PostgreSQL (add `-v` to drop the database too). Repository layout and conventions are in [AGENTS.md](AGENTS.md); local DNS, TLS and common failures are in the [local ingress guide](docker/compose/README.md).
 
 ### Create a workspace
 
@@ -147,8 +169,6 @@ The tag comes from [VERSION](docker/instance-image/VERSION) and follows `<dsh ve
 
 With a version configured, create a workspace on the "Workspaces" page and open it from its details page.
 
-> For the ingress topology, the trade-offs of `lvh.me`, and issues such as Clash PAC or needing to restart the container after ingress config changes, see the [local ingress guide](docker/compose/README.md).
-
 ## Contributing
 
 Bug reports, documentation improvements and narrowly scoped pull requests are welcome. Include reproduction steps and environment details when reporting a bug. For changes to authentication, isolation or the data model, discuss the design and security implications before implementation.
@@ -162,6 +182,7 @@ The detailed guides currently contain primarily Chinese text.
 | Guide | Contents |
 | --- | --- |
 | [Architecture](docs/ARCHITECTURE.md) | Components, isolation model, permission boundaries and operational limits |
+| [Deployment](docker/platform/README.md) | Platform image, production topology, the control plane's permission boundaries |
 | [Storage selection & measurements](docs/storage/README.md) | Giving a container a disk with a hard limit: the four options, measured, and how dev machines degrade |
 | [Design decisions](docs/DECISIONS.md) | Technical choices and trade-offs |
 | [Open questions](docs/OPEN-QUESTIONS.md) | Unresolved validation and known gaps |

@@ -55,35 +55,69 @@
       池子不可用时退回命名卷 + 一行警告。宿主不是 XFS 时平台自己建一块 loopback XFS 池。
       选型与实测见 [docs/storage/README.md](docs/storage/README.md)。
 
-### M1.5 能装 —— 待定，卡在选型
+### M1.5 能装 —— 代码已就绪，等真机验证
 
-让不读源码的人把平台装到自己的服务器上。这决定 README「快速开始」的终态 —— 现在那节写的是本地栈，是过渡形态。
+让不读源码的人把平台装到自己的服务器上。
 
-**卡在**：[OPEN-QUESTIONS](docs/OPEN-QUESTIONS.md) #6（DNS provider）。它决定通配证书走 DNS-01 还是
-HTTP-01，也就决定 installer 的证书分支。（部署形态 #8 已定：容器，见 [OPEN-QUESTIONS](docs/OPEN-QUESTIONS.md) §三。）
+**已实现**（[D32](docs/DECISIONS.md)–[D35](docs/DECISIONS.md)）：
 
-**installer 契约**（先定这个，脚本照此实现，README 那节也按这个写）：
+- **平台镜像** `ghcr.io/eskim2001/dsh-cloud`：一个容器跑控制面、**同源**提供管理台；CI 手动 dispatch
+  出 amd64 + arm64（`.github/workflows/platform-image.yml`）
+- **生产栈** `docker/compose/prod.yml`：入口与控制面走 **host 网络**，Postgres 只发布到宿主回环（D33）
+- **TLS** 默认**逐主机 ACME HTTP-01**（控制台一张、每个实例子域一张），不需要 DNS provider ——
+  于是原 #6 从「阻塞」降级为「推迟」（D34、[OPEN-QUESTIONS](docs/OPEN-QUESTIONS.md) §二）
+- **存储池**由安装脚本在**宿主上**预置并写持久化；控制面只做探针与设配额、拿 `CAP_SYS_ADMIN`，
+  **不在容器里建池**（D35）
+- **`scripts/install.sh`**：install / update / uninstall，幂等，**绝不重发 secret**；
+  部署资产（prod.yml + Traefik 模板）随镜像走、用 `docker cp` 取出，模板与镜像版本严格对齐
+- **不填域名也能装**（[D36](docs/DECISIONS.md)）：`--domain` 可省 —— 引导态只暴露 token 门保护的
+  setup 页（复用 `:80` 上一条动态 router），操作者在面板里填域名，填完暴露当场关闭。
+  跳转也从静态配置搬进了动态 router（静态那份会把 :80 全 301 掉，实测见 D36）
+- README「快速开始」已换成部署路径；只对本地成立的链路（`lvh.me`、自签红锁）收进
+  [AGENTS.md](AGENTS.md) §四 与 [docker/compose/README.md](docker/compose/README.md)
 
-一行安装，脚本按序做：预检环境与端口 → 生成两个随机 secret → 起 Postgres 和入口 → 跑迁移 → 建第一个管理员 → **打印控制台地址与管理员一次性密码**。
+**必须在真 Linux 主机上验**（下面每一条在本机都验不了）：
+
+1. **host 网络端到端**：登录控制台 → 开一个实例 → 访问。这是 #4 推出来的承重假设；不通就得回头实现 D3。
+2. 容器内 `cap_add: SYS_ADMIN` 下对 bind mount 的 XFS 跑 `xfs_quota`：探针与设限额都成功、`report` 读到真数字。
+3. loopback 池**重启后仍在**；挂载丢了时新护栏（`DSH_CONTAINERIZED=1`）正确拒绝启动。
+4. 实例容器 bind `${HOST_STORAGE_ROOT}/<key>` 时，daemon 解析到的是池而不是空目录。
+5. 逐主机 ACME：控制台与某个实例都真签下来；`acme.json` 权限 600、重启不风暴重签。
+6. `install.sh` 的三条存储路径（已是 XFS+`pquota` / 建 loopback / 都不行）在干净 VM 上各跑一遍。
+7. CI 的 amd64 构建（本地只验过 arm64）。
+
+**这套里唯一能在开发机上验完整的是引导态那条链路**（引导页 → 填域名 → 摘掉入口 → 控制台落位）：
+它不依赖 host 网络，本地起一个 Traefik + 控制面即可端到端跑（见 D36）。
+
+**还差一道发布工序**：仓库目前**没有任何 git tag**，而 README 那行安装命令钉的是
+`raw.githubusercontent.com/<repo>/v<版本>/...` —— 首次发布要先给 tag 起名并打上去。
+
+**installer 契约**（脚本照此实现）：
+
+一行安装，脚本按序做：预检（环境 / 端口 / **存储能力**）→ 生成两个随机 secret →
+**在宿主上预置存储池并写持久化**（D35）→ 起 Postgres → 跑迁移 → 建第一个管理员 →
+起控制面与入口 → **打印控制台地址与管理员一次性密码**。
 
 **部署前置条件**（和本地开发完全不重叠，别复用）：
 
 - Linux 主机，装了 Docker 与 Compose v2
 - **一块能给硬配额的文件系统**：`HOST_STORAGE_ROOT` 落在一块 **XFS 且以 `pquota` 挂载**的盘上；
-  不是 XFS 时平台会自己建**一块** loopback XFS 镜像当池子（整机一个 loop，不是每实例一个），
-  那一步要宿主允许 loop 设备且控制面拿得到 `CAP_SYS_ADMIN`。**两条都做不到就拒绝启动** ——
-  池化之后"看起来有配额"比没有更糟（见 [D18](docs/DECISIONS.md)、[storage/README.md](docs/storage/README.md)）
+  不是 XFS 时**安装脚本会在宿主上**建**一块** loopback XFS 镜像当池子（整机一个 loop，不是每实例一个），
+  那一步要宿主允许 loop 设备、脚本以 root 跑（建镜像 / `mkfs.xfs` / 挂载 / 写持久化），
+  之后控制面靠 `CAP_SYS_ADMIN` 设配额（[D35](docs/DECISIONS.md)）。**两条都做不到就拒绝安装**；
+  装完池子若失效，平台也会拒绝启动 —— 池化之后"看起来有配额"比没有更糟
+  （见 [D18](docs/DECISIONS.md)、[storage/README.md](docs/storage/README.md)）
 - 端口 `80` / `443` 空闲（ACME 的 HTTP-01 校验需要 `80`）
-- 一个域名，`A` 记录或 `*` 泛解析已指向该机器
+- **域名**：装机时给（`--domain`）可以，不给也可以 —— 不给就是**引导态**，装完在面板里填。
+  两条路都要求**泛解析 `*.<父域>` 指向这台机器**，否则证书签不下来（面板会检查并警告，不拦）
 - 宿主能访问 GHCR（拉实例镜像）
 
-**README 快速开始终态**：一行安装 → 上面的前置条件 → 「装完」（登录 → 建实例） → 一句安全警告（链架构文档）。同时下线三段只对本地成立的内容：`lvh.me` 说明、自签证书红锁、「Compose 栈只面向本地开发，不是生产安装方案」。
+**三项已定**：
 
-**待定三项**：
-
-1. **脚本 URL 挂哪** —— 自己的安装脚本域名，还是 `raw.githubusercontent.com/<repo>/<tag>/scripts/install.sh`。建议 **pin tag + 校验 checksum**，不要从移动分支管道进 shell。
-2. **管理员凭据** —— 随机生成、打印一次，还是交互输入。现在的 `admin@lvh.me` / `dsh-cloud-dev` 是本地固定值，生产绝不能沿用。
-3. **域名怎么给** —— 交互提问（适合人手动装）还是读 `.env`（适合自动化），决定 README 那行命令后面要不要跟参数示例。
+1. **脚本 URL** —— 挂 `raw.githubusercontent.com/<repo>/<tag>/scripts/install.sh`，**pin tag + 校验 checksum**，
+   不从移动分支管道进 shell。
+2. **管理员凭据** —— 安装时随机生成、打印一次。本地那对 `admin@lvh.me` / `dsh-cloud-dev` 绝不沿用。
+3. **域名怎么给** —— 交互提问，`--domain` / `DSH_DOMAIN` 可覆盖（自动化走参数）。
 
 ### M2 能管
 

@@ -91,16 +91,56 @@
 
 ## 快速开始
 
-### 前置条件
+### 部署到自己的服务器
 
-- Node.js 22+，pnpm 10.10.0。版本见 [package.json](package.json)。
-- Docker Desktop，能跑 Linux 容器，带 Compose v2。控制面启动时就要连 Docker daemon。
-- 端口 `80`、`443`、`3000`、`5173`、`55432` 空闲。
-- 磁盘硬配额要求宿主是挂载了 `pquota` 的 XFS。不是的话，平台会挂一个 loopback XFS 镜像（需 `CAP_SYS_ADMIN`）；两样都不行就拒绝启动。macOS 和 Docker Desktop 不支持，所以本地不强制配额，界面写「无上限」。工作空间数据放在 `HOST_STORAGE_ROOT`，`pnpm dev` 默认 `~/dsh-data`。见 [D18](docs/DECISIONS.md)。
+前置条件：
 
-### 启动开发环境
+- Linux 主机（x86-64 或 arm64），装有 Docker 与 Compose v2。
+- **一块能给硬配额的盘**：`HOST_STORAGE_ROOT`（默认 `/var/lib/dsh`）要么落在一块以 `pquota` 挂载的 XFS 上，要么让安装脚本建一块 loopback XFS 镜像（要 root，并把挂载写进 `fstab`）。两条都做不到会**拒绝安装** —— 池化之后「看起来有配额」比没有更糟。见 [D18](docs/DECISIONS.md)。
+- 端口 `80`、`443` 空闲：入口直接绑它们，其中 `80` 还要留给 ACME 的 HTTP-01 校验。
+- 宿主能访问 GHCR（拉平台镜像与工作空间镜像）。
 
-在仓库根目录：
+```bash
+curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh | sudo bash -s -- --version 0.1.0 --domain example.com --email you@example.com
+```
+
+两处的 `0.1.0` 指同一个 tag：`v0.1.0` 那份脚本、和 `dsh-cloud:0.1.0` 那个平台镜像。换版本要一起改。
+
+脚本按序做：预检（环境 / 端口 / 存储能力）→ 在宿主上准备好存储池并写进 `fstab` → 起 PostgreSQL → 迁移数据库 → 建第一个管理员 → 起控制面与入口，最后打印控制台地址和**只显示一次**的管理员密码。
+
+`--domain` 给的是**父域**：控制台落在 `console.<父域>`，每个工作空间各占 `<子域>.<父域>`。证书按主机逐个签发（控制台一张、每个工作空间一张），所以不需要任何 DNS 服务商的 API —— 但**泛解析 `*.<父域>` 要先指向这台机器**，否则证书签不下来。
+
+**还没有域名就省略 `--domain`**：脚本会打印一条 `http://<ip>/setup?token=…`，用浏览器打开、把域名填进去即可。引导期平台**只**开着那一页（靠一枚一次性 token 保护，其余接口一律不挂），填完这个入口立刻关掉、控制台随即落在 `console.<你填的父域>`。见 [D36](docs/DECISIONS.md)。
+
+想先看脚本做了什么，把 `| sudo bash -s --` 换成 `-o install.sh`，读过再执行。脚本 URL 钉在 tag 上、内容不会变；要核对就两边各算一次 SHA-256，应当一致：
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh" | sha256sum
+```
+
+```bash
+git show v0.1.0:scripts/install.sh | sha256sum
+```
+
+升级到新版本（保留数据与密钥）：
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.1/scripts/install.sh" | sudo bash -s -- update --version 0.1.1
+```
+
+卸载（默认保留数据库卷与存储池；加 `--purge` 连数据一起删，不可恢复）：
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh" | sudo bash -s -- uninstall
+```
+
+自备证书（不加 ACME）、升级与回滚、以及**为什么控制面持有 Docker socket 与 `CAP_SYS_ADMIN` 是预期内的**，见[部署说明](docker/platform/README.md)。
+
+> 项目处于早期开发阶段：部署验证与安全工作仍有未决项，公网部署前请先读[架构与安全模型](docs/ARCHITECTURE.md)里的权限边界与运行限制（§五、§八）。
+
+### 本地开发
+
+改代码用这条。前置：Node.js 22+ 与 pnpm 10.10.0，Docker Desktop（带 Compose v2）。
 
 ```bash
 pnpm install
@@ -110,27 +150,9 @@ pnpm install
 pnpm dev
 ```
 
-打开 `https://console.lvh.me`，用 `admin@lvh.me` / `dsh-cloud-dev` 登录。
+一条命令起全套：预检 → 生成 `apps/server/.env.local` → 起 PostgreSQL 和入口服务（[local.yml](docker/compose/local.yml)）→ 迁移 → 建管理员 → 起控制面和管理台。打开 `https://console.lvh.me`，用 `admin@lvh.me` / `dsh-cloud-dev` 登录。
 
-`pnpm dev` 依次做：预检依赖、端口、Docker daemon → 生成 `apps/server/.env.local`（已存在就只校验，不改）→ 起 PostgreSQL 和入口服务（[docker/compose/local.yml](docker/compose/local.yml)）→ 迁移数据库、建首个管理员 → 起控制面和管理台，就绪后打印地址。
-
-`Ctrl-C` 只停控制面和管理台，入口服务和 PostgreSQL 留着，下次秒起。要一起停：
-
-```bash
-pnpm dev:down
-```
-
-重置本地环境（清空数据库、重发 secret）：
-
-```bash
-docker compose -f docker/compose/local.yml down -v
-```
-
-再删 `apps/server/.env.local`。
-
-### 本地入口与证书
-
-本地走 `*.lvh.me`，全网解析到 `127.0.0.1`，不用改 hosts。代价是只能走 HTTPS，而仓库不给受信任的证书：Traefik 用自带的 `CN=TRAEFIK DEFAULT CERT`，浏览器会报红锁，点「高级 → 继续访问」即可。想绿锁就自己签一张 SAN 覆盖 `DNS:lvh.me,DNS:*.lvh.me` 的证书装进系统信任库。见 [D26](docs/DECISIONS.md)。
+`Ctrl-C` 只停控制面和管理台；`pnpm dev:down` 停入口和 PostgreSQL，加 `-v` 连数据库一起清。仓库结构与约定见 [AGENTS.md](AGENTS.md)，本地入口的 DNS / TLS / 常见故障见[本地入口指南](docker/compose/README.md)。
 
 ### 创建工作空间
 
@@ -148,8 +170,6 @@ tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式 `<dsh版本>_<�
 
 配好版本后，在「工作空间」页创建工作空间，建好后从详情页直接在浏览器打开。
 
-> 入口拓扑、`lvh.me` 的取舍，以及 Clash PAC、改完入口配置要重启容器这类问题，见[本地入口指南](docker/compose/README.md)。
-
 ## 参与贡献
 
 欢迎提交问题报告、文档改进和范围明确的 pull request。报告缺陷时，请附上复现步骤和环境信息。涉及认证、隔离或数据模型的改动，请在实现前讨论其设计与安全影响。
@@ -163,6 +183,7 @@ tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式 `<dsh版本>_<�
 | 指南 | 内容 |
 | --- | --- |
 | [架构](docs/ARCHITECTURE.md) | 组件、隔离模型、权限边界与运行限制 |
+| [部署](docker/platform/README.md) | 平台镜像、生产拓扑、控制面的权限边界 |
 | [存储选型与实测](docs/storage/README.md) | 给容器一块有硬上限的盘：四条路的实测数据、开发机怎么退化 |
 | [设计决策](docs/DECISIONS.md) | 技术选择与取舍 |
 | [待验证问题](docs/OPEN-QUESTIONS.md) | 未决验证与已知缺口 |

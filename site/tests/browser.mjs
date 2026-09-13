@@ -36,8 +36,11 @@ try {
       await question.locator('summary').click()
       assert.equal(await question.getAttribute('open'), '')
       assert.equal(await question.locator('p').isVisible(), true)
+      // 这里断言的是「复制按钮把代码块的内容放进了剪贴板」，不是「第一个代码块写着某条命令」——
+      // 所以读 DOM 来比，别把命令内容钉死在测试里（文案一改就会误报红）。
+      const firstCode = await page.locator('.code-block code').first().textContent()
       await page.locator('[data-copy]').first().click()
-      assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'pnpm install\npnpm dev')
+      assert.equal(await page.evaluate(() => navigator.clipboard.readText()), firstCode)
       if (name !== 'desktop') {
         await page.locator('.mobile-menu summary').click()
         await page.locator('.mobile-menu nav a').first().click()
