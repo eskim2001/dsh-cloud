@@ -1,0 +1,33 @@
+# 构建上下文是**仓库根**（见 docker/platform/Dockerfile）。这里只排掉两类：
+# 构建用不到的，以及**不该进镜像的**。
+
+# 依赖：镜像里按 lockfile 重装。宿主那份是别的架构，还带平台专属的二进制
+# （esbuild / lightningcss 之类，装到 Linux 镜像里是死重量）
+node_modules
+**/node_modules
+
+# 构建产物：一律在镜像里现构建，别把宿主的陈旧产物带进去
+**/dist
+*.tsbuildinfo
+
+# **密钥**：`pnpm dev` 生成的本地 secret，绝不能烙进镜像层
+apps/server/.env.local
+.env
+.env.*
+!.env.example
+
+# 开发期产物：`pnpm dev` 渲染的路由文件，里面的路径都是宿主的
+apps/server/traefik-dynamic
+
+# 仓库元数据与文档
+.git
+.github
+docs
+site
+**/*.md
+LICENSE
+
+# 编辑器 / 系统
+.DS_Store
+.vscode
+.idea

@@ -1,0 +1,48 @@
+# Traefik 静态配置（**生产**）。由 scripts/install.sh 渲染后挂给 Traefik 容器。
+#
+# 与本地那份（traefik.yml）的差异只有证书：
+#   * `certificatesResolvers.le` —— **逐主机** ACME HTTP-01：控制台一张、每个实例子域一张。
+#     逐主机是有意的，通配证书只能走 DNS-01，那条路要 DNS provider（见 D34）。
+#   * `web`（:80）**只接 ACME 的 HTTP-01 校验**，其余请求由控制面渲染的**动态** router 做跳转。
+#
+# 静态配置**不支持热重载**，所以它由安装脚本生成一次，不跟着控制面变。
+
+entryPoints:
+  web:
+    address: ":80"
+    # **这里没有** HTTP→HTTPS 跳转，它在 `dynamic/redirect.yml` 里（控制面写）。
+    #
+    # 为什么不能留在这儿：静态的 `http.redirections` 会把 :80 上**所有**请求 301 掉，
+    # 包括引导期那条 catch-all（实测 2026-09-13，真 Traefik v3.5.6）—— 于是"没配域名时
+    # 只开一个 setup 页"就做不到。而静态配置一改就得重启 Traefik，所以跳转必须待在
+    # 能按状态增删的那一侧（动态）。
+    # ACME 的 acme-challenge 由 Traefik 内部先接管，不受这些 router 影响。
+  websecure:
+    address: ":443"
+
+# >>> acme
+# 这一段是可选的：install.sh 跑 --no-acme 时会把这两行 marker 之间的内容整段删掉
+# （anchor 就是下面这两条注释），那时证书走 file provider 里的静态证书。
+certificatesResolvers:
+  le:
+    acme:
+      email: __ACME_EMAIL__
+      storage: /acme/acme.json
+      httpChallenge:
+        entryPoint: web
+# <<< acme
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+# 多一个对外面就多一份攻击面；看路由用控制台，不用 dashboard
+api:
+  dashboard: false
+
+log:
+  level: INFO
+
+# 验收表要靠它取证（哪些请求被 forward-auth 挡了），别关
+accessLog: {}

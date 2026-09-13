@@ -1,0 +1,183 @@
+name: Platform image
+
+# Manual trigger only: the tag is immutable and docker/platform/VERSION is the single knob.
+# Editing the Dockerfile either trips the guard below (red) or forces a new tag to bypass it
+# (drift). A release must be a deliberate act: a human bumping the version.
+#
+# This is the image the one-line installer pulls (scripts/install.sh), so a bad publish here
+# breaks new installs - and `update`, which pulls the same tag.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-image-${{ github.ref }}
+  # No concurrent releases: cancelling an in-flight push is worse than queueing.
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Each arch builds on a native runner (ARM runners are free for public repos) instead of
+    # QEMU: the build runs `pnpm install` + `tsc` + `vite build`, and emulated arm64 would
+    # both crawl and reselect platform-specific binaries under the wrong arch.
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+      # Required for type=gha cache export. The docs do not mandate it, but an explicit
+      # permissions block turns unlisted scopes into none, which can 403 cache uploads.
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: v
+        run: |
+          VERSION=$(tr -d '[:space:]' < docker/platform/VERSION)
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Bad VERSION format: expected plain semver (e.g. 0.1.0), got '$VERSION'" >&2
+            exit 1
+          fi
+          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # Refuse an existing tag: the installer and each installed host record this tag, so the
+      # same tag holding different bytes makes "what am I running" unanswerable. Both matrix
+      # legs check; the merge job creates it.
+      - name: Refuse to overwrite an existing tag
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          TOKEN=$(curl -sS -u "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:eskim2001/dsh-cloud:pull" \
+            | jq -r '.token // empty')
+          if [ -z "$TOKEN" ]; then
+            echo "No GHCR token (package does not exist yet) - treating as a first push"
+            exit 0
+          fi
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -I \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json" \
+            "https://ghcr.io/v2/eskim2001/dsh-cloud/manifests/$TAG")
+          case "$CODE" in
+            200)
+              echo "tag $TAG already exists - bump docker/platform/VERSION." >&2
+              exit 1
+              ;;
+            404 | 401)
+              echo "tag $TAG does not exist, continuing"
+              ;;
+            *)
+              echo "GHCR query failed: HTTP $CODE" >&2
+              exit 1
+              ;;
+          esac
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Push by digest, no tag: the merge job creates the tag once both arches succeed, so a
+      # mid-flight failure cannot leave a single-arch tag behind.
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          # Context is the repo root: pnpm needs the whole workspace, and .dockerignore
+          # (also at the root) is what keeps .git / node_modules / .env.local out.
+          context: .
+          file: docker/platform/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/eskim2001/dsh-cloud,push-by-digest=true,name-canonical=true,push=true
+          # Scope per arch: the default scope is "buildkit" and the two matrix legs run
+          # concurrently, so a shared scope would make them overwrite each other's cache.
+          cache-from: type=gha,scope=platform-${{ matrix.arch }}
+          cache-to: type=gha,scope=platform-${{ matrix.arch }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ steps.v.outputs.build_time }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Both arches are required: fail rather than silently publish a single-arch tag.
+      # The digest lives in the file NAME (Export digest touches empty files), not content.
+      - name: Merge digests into one tag
+        run: |
+          set -euo pipefail
+          VERSION=$(tr -d '[:space:]' < docker/platform/VERSION)
+          count=$(ls /tmp/digests | wc -l | tr -d ' ')
+          if [ "$count" != "2" ]; then
+            echo "Expected 2 arch digests, got $count - aborting without creating a tag" >&2
+            exit 1
+          fi
+          images=""
+          for f in /tmp/digests/*; do
+            digest=$(basename "$f")
+            if ! [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "digest filename does not look like sha256: $digest" >&2
+              exit 1
+            fi
+            images="$images ghcr.io/eskim2001/dsh-cloud@sha256:$digest"
+          done
+          echo "Merging:$images"
+          docker buildx imagetools create -t "ghcr.io/eskim2001/dsh-cloud:$VERSION" $images
+          echo "Published ghcr.io/eskim2001/dsh-cloud:$VERSION (amd64 + arm64)"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Pushed \`ghcr.io/eskim2001/dsh-cloud:$(tr -d '[:space:]' < docker/platform/VERSION)\` (linux/amd64 + linux/arm64)"
+            echo
+            echo "After the first push, set the package to Public (new GHCR packages default to private) -"
+            echo "the installer pulls it anonymously:"
+            echo "https://github.com/users/eskim2001/packages/container/dsh-cloud/settings"
+          } >> "$GITHUB_STEP_SUMMARY"

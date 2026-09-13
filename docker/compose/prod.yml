@@ -1,0 +1,86 @@
+# 生产栈。由 scripts/install.sh 渲染到 /opt/dsh-cloud/ 并拉起；别手工改这份副本 ——
+# 改仓库里的这一份，重跑安装脚本。
+#
+# 与 local.yml 的差异**都是被 Linux 的网络语义逼出来的**（见 D33、OPEN-QUESTIONS #4）：
+#   * 入口（Traefik）与控制面跑在 **host 网络**：实例端口发布在宿主回环上，只有同在宿主
+#     网络命名空间里的进程才够得到它。容器够不到 —— 那是实测结论，不是猜测。
+#   * 控制面跑在**容器**里（平台镜像），不是宿主上的 tsx。
+#   * Postgres 留在自己的 bridge 网络上，只发布到宿主回环。
+# **别把 local.yml 的拓扑搬过来**：那条路靠 Docker Desktop 的 host.docker.internal。
+#
+# 控制面的环境变量全在旁边的 .env（权限 600，含两个 secret），安装脚本生成。
+
+name: dsh-cloud
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks: [dsh-db]
+    # 只绑宿主回环：控制面在 host 网络上，走 127.0.0.1 连它。
+    # 端口默认 55432（不是 5432）—— 宿主上很可能已经有一个 Postgres 占着 5432。
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
+    environment:
+      POSTGRES_USER: dshcloud
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?安装脚本会生成它}
+      POSTGRES_DB: dsh_cloud
+    volumes:
+      - dsh-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dshcloud -d dsh_cloud"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  control-plane:
+    image: ${DSH_CLOUD_IMAGE:?安装脚本会写进 .env}
+    # 固定容器名：引导态里配完域名，控制面要**重启自己**让新身份（cookie 域、baseURL）生效，
+    # 重启靠这个名字定位。名字与下面的 SELF_CONTAINER 挨着写，省得两处漂移，
+    # 也别去依赖"容器默认 hostname 恰好等于短 ID"这种隐式关系。
+    container_name: dsh-control-plane
+    restart: unless-stopped
+    # 见文件头：实例端口在宿主回环上，控制面的 forward-auth 又得被 Traefik 够到。
+    network_mode: host
+    env_file: .env
+    environment:
+      # 让它知道"我在容器里"——容器内**不建存储池**（建了宿主看不见，见 D35），
+      # 池子由安装脚本在宿主上预置。见 instance/pool.ts 的 containerized。
+      DSH_CONTAINERIZED: "1"
+      SELF_CONTAINER: dsh-control-plane
+    volumes:
+      # 控制面用它创建 / 观测 / 销毁实例容器
+      - /var/run/docker.sock:/var/run/docker.sock
+      # **同路径** bind：实例容器里的 `/data` 是控制面传过去的宿主路径，
+      # 由 daemon 在宿主上解析。两边路径不一致的话，实例会挂到一个空目录上。
+      - ${HOST_STORAGE_ROOT:-/var/lib/dsh}:${HOST_STORAGE_ROOT:-/var/lib/dsh}
+      # 控制面写、Traefik 读（TRAEFIK_ROUTES_PATH）。两边都是这个容内路径。
+      - ./traefik/dynamic:/etc/traefik/dynamic
+    # 只做**探针与设配额**：`xfs_quota limit` 要它，而它在缺权限时是**静默失败**。
+    # 不用 --privileged —— SYS_ADMIN 是这条路径的最小集。
+    # 说明白：这个 capability 叠加 docker.sock 等于宿主 root。docker.sock 本来就已经是
+    # 宿主 root，所以不新增信任面；ARCHITECTURE §五 那条禁令说的是**实例**，不是控制面。
+    cap_add: [SYS_ADMIN]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  traefik:
+    image: traefik:v3.5
+    restart: unless-stopped
+    # 同控制面：只有 host 网络下，Traefik 的 127.0.0.1 才是宿主回环，才够得到实例端口。
+    # host 网络下**不能再写 ports:**（compose 会报错），80/443 是直接绑在宿主上的。
+    network_mode: host
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      # 实例路由（控制面写）+ 控制台自己的 router
+      - ./traefik/dynamic:/etc/traefik/dynamic
+      # ACME 账户与证书。**必须持久化**：丢了就是重启一次重签一次，撞速率上限。
+      - ./traefik/acme:/acme
+
+networks:
+  dsh-db:
+
+volumes:
+  dsh-pgdata:
