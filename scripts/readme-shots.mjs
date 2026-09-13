@@ -12,34 +12,44 @@
  *
  * 只用 Node 内置能力（node 22 起自带 WebSocket / fetch），不引依赖 —— 和 `scripts/dev.mjs` 一致。
  */
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const OUT_DIR = path.join(ROOT, 'docs/screenshots')
+const OUT_DIR = process.env.SHOTS_DIR
+  ? path.resolve(process.env.SHOTS_DIR)
+  : path.join(ROOT, 'docs/screenshots')
 
 const CDP = 'http://127.0.0.1:9222'
 const ORIGIN = 'https://console.lvh.me'
 const EMAIL = 'admin@lvh.me'
 const PASSWORD = 'dsh-cloud-dev'
 
-/** 截图宽度：1440 会在 `max-w-4xl` 的页面右侧留一大片空白，1200 正好让内容贴住两侧留白。 */
-const WIDTH = 1200
-/** 侧栏「品牌 + 三个分组 + 页脚」要 564px 才不出现滚动，所以带侧栏的页一律 580 起。 */
+/**
+ * 截图宽度：README 正文区在 GitHub 上约 830px 宽，图片按 100% 缩放过去。
+ * 1200 会被缩到 0.69，14px 的字落到 10px 就发糊了；**960 缩放约 0.86**，字号基本原样，
+ * 同时侧栏（约 256px）不至于把内容区挤扁。别往 1440 走 —— 那是屏幕全屏的宽度，
+ * 放进 README 只会更小更看不清。
+ */
+const WIDTH = 960
+/** 侧栏「品牌 + 两个分组 + 页脚」要这么高才不出现滚动，所以带侧栏的页一律以它为下限。 */
 const SIDEBAR_MIN_HEIGHT = 580
 
 /**
- * 每个（语言 × 页面）的抓法。高度是量出来的**卡片底边**，不是拍脑袋：
- * 实例详情到「版本」卡结束是 597，所以 620；其余按各自内容取整。
+ * 每个（语言 × 页面）的抓法。**高度不写死**了：新布局每页高矮差得远，写死一个值不是裁掉内容
+ * 就是留一大片白 —— 改成先按 SIDEBAR_MIN_HEIGHT 渲染、量出内容底边、再按它裁剪（见下面 shoot）。
+ * 真要固定某页高度时，在条目上写 `height` 覆盖。
  *
- * **没有登录页**：一个邮箱密码表单不是这个平台的卖点，占一格折叠位不如把位置让给实例页。
+ * **没有登录页**：一个邮箱密码表单不是这个平台的卖点，占一格折叠位不如把位置让给工作空间。
  */
 const PAGES = [
-  { file: 'instances', route: '/instances', height: SIDEBAR_MIN_HEIGHT },
-  { file: 'instance', route: ':instance', height: 620 },
-  { file: 'admin-instances', route: '/admin/instances', height: SIDEBAR_MIN_HEIGHT },
-  { file: 'admin-users', route: '/admin/users', height: SIDEBAR_MIN_HEIGHT },
+  { file: 'home', route: '/home' },
+  { file: 'workspaces', route: '/workspaces' },
+  { file: 'workspace', route: ':workspace' },
+  { file: 'admin', route: '/admin' },
+  { file: 'admin-instances', route: '/admin/instances' },
+  { file: 'admin-users', route: '/admin/users' },
 ]
 
 const LOCALES = ['zh-CN', 'en']
@@ -121,9 +131,11 @@ const signedIn = await cdp.evaluate(
 )
 if (signedIn !== 200) fail(`登录失败（${signedIn}）—— 本地栈起了吗？密码还是 ${PASSWORD} 吗？`)
 
-const instances = await cdp.evaluate(`fetch('/api/instances').then(r=>r.json()).then(d=>d.instances.map(i=>i.id))`)
-if (!Array.isArray(instances) || instances.length === 0) {
-  fail('一个实例都没有：详情页截图需要至少一个实例，先建一个再跑')
+const workspaces = await cdp.evaluate(
+  `fetch('/api/instances').then(r=>r.json()).then(d=>d.instances.map(i=>i.id))`,
+)
+if (!Array.isArray(workspaces) || workspaces.length === 0) {
+  fail('一个工作空间都没有：详情页截图需要至少一个，先建一个再跑')
 }
 
 for (const locale of LOCALES) {
@@ -132,28 +144,46 @@ for (const locale of LOCALES) {
     await cdp.evaluate(
       `localStorage.setItem('dsh-cloud.theme','light');localStorage.setItem('dsh-cloud.locale',${JSON.stringify(locale)});'ok'`,
     )
-    const route = page.route === ':instance' ? `/instances/${instances[0]}` : page.route
-    await cdp.send('Page.navigate', { url: `${ORIGIN}${route}` })
-    await sleep(3000)
-
-    // 视口高度决定 vh 类布局，抓之前才设成最终高度
+    // 先按最小高度渲染：视口高度决定 vh 类布局，量内容底边之前得先把高度定下来
     await cdp.send('Emulation.setDeviceMetricsOverride', {
       width: WIDTH,
-      height: page.height,
+      height: SIDEBAR_MIN_HEIGHT,
       deviceScaleFactor: 1,
       mobile: false,
     })
+    const route = page.route === ':workspace' ? `/workspaces/${workspaces[0]}` : page.route
+    await cdp.send('Page.navigate', { url: `${ORIGIN}${route}` })
+    await sleep(3000)
     await cdp.evaluate('scrollTo(0,0);"top"')
-    await sleep(900)
+    await sleep(400)
+
+    // 高度量出来再裁：新布局各页高矮差得远，写死不是裁掉内容就是留一大片白。
+    const measured = await cdp.evaluate(
+      'Math.ceil(Math.max(document.documentElement.scrollHeight, document.body.scrollHeight))',
+    )
+    const height =
+      page.height ??
+      Math.max(SIDEBAR_MIN_HEIGHT, Number.isFinite(measured) ? measured : SIDEBAR_MIN_HEIGHT)
+    if (height !== SIDEBAR_MIN_HEIGHT) {
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: WIDTH,
+        height,
+        deviceScaleFactor: 1,
+        mobile: false,
+      })
+      await cdp.evaluate('scrollTo(0,0);"top"')
+      await sleep(700)
+    }
 
     const shot = await cdp.send('Page.captureScreenshot', {
       format: 'png',
-      clip: { x: 0, y: 0, width: WIDTH, height: page.height, scale: 1 },
+      clip: { x: 0, y: 0, width: WIDTH, height, scale: 1 },
       captureBeyondViewport: false,
     })
     const out = path.join(OUT_DIR, locale, `${page.file}.png`)
+    mkdirSync(path.dirname(out), { recursive: true })
     writeFileSync(out, Buffer.from(shot.data, 'base64'))
-    console.log(`✓ ${path.relative(ROOT, out)}  ${WIDTH}x${page.height}`)
+    console.log(`✓ ${path.relative(ROOT, out)}  ${WIDTH}x${height}`)
   }
 }
 

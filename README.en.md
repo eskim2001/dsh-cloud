@@ -22,32 +22,46 @@
   <a href="#contributing">Contributing</a>
 </p>
 
-**dshcloud** adds account management, instance provisioning and access control to [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`). Each instance runs in its own Docker container, with a dedicated network, persistent data volume and resource limits. Users access their instances through an authenticated subdomain; operators manage accounts, capacity and instance versions from a web console.
+**dshcloud** adds account management, workspace provisioning and access control to [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`). Each workspace is a dsh instance plus the persistent storage that follows it: the container runs on its own Docker network, and the data under `/data` is still there after a rebuild or an image change. Users reach their workspaces through an authenticated subdomain; operators manage accounts, capacity and available versions from a web console.
 
 > **Early development.** Use this project for evaluation and development. It is not production-ready; deployment validation and security work remain open. See the permission boundaries and operational limits in the [architecture and security model](docs/ARCHITECTURE.md) before exposing it to the internet.
 
 ## Features
 
-- **Instance management:** Create, start, stop, rebuild and delete instances. Per-user instance-count limits allow multiple instances within an assigned quota.
-- **Resource controls:** CPU, memory and process limits, plus a hard capacity limit on each instance's `/data` filesystem. Administrators can adjust resource quotas after creation.
-- **Authenticated access:** Per-instance subdomains behind Traefik, owner authorization and an instance-specific HMAC-derived gate token. Instances publish ports on the host loopback only, never on a public interface.
-- **Persistent workspaces:** Workspace, configuration and installed user packages all live under `/data` — its own subdirectory in the storage pool, under an XFS project quota — so they survive instance rebuilds and image changes. Image changes take a pre-upgrade snapshot for rollback.
-- **Operations:** Account bans, quota management, version publishing, runtime-backed status, usage sampling and instance log streaming. See the role boundaries below.
+- **Workspace management:** Create, start, stop, rebuild and delete workspaces. Per-user limits allow multiple workspaces within an assigned quota.
+- **Resource controls:** CPU, memory and process limits, plus a hard capacity limit on each workspace's `/data` filesystem. Administrators can adjust resource quotas after creation.
+- **Authenticated access:** Per-workspace subdomains behind Traefik, owner authorization and an HMAC-derived entry token unique to each workspace. Workspaces publish ports on the host loopback only, never on a public interface.
+- **Persistent data:** Files, configuration and installed user packages all live under `/data` — its own subdirectory in the storage pool, under an XFS project quota — so they survive rebuilds and image changes. Image changes take a pre-upgrade snapshot for rollback.
+- **Operations:** Account bans, quota management, version publishing, runtime-backed status, usage sampling and workspace log streaming. See the role boundaries below.
+- **Console entry points:** Home answers "what was I doing", with workspaces, files and activity as separate entry points and a ⌘K command menu to search or jump; administration has its own navigation.
 - **Bilingual console:** English and Simplified Chinese, light and dark themes, email/password sign-in and session management.
 
 ## Screenshots
 
-### Instance list
+### Home
 
 <p>
-  <a href="docs/screenshots/en/instances.png"><img src="docs/screenshots/en/instances.png" alt="Instance list" width="100%"></a>
+  <a href="docs/screenshots/en/home.png"><img src="docs/screenshots/en/home.png" alt="Home: recent workspaces, quick actions and recent activity" width="100%"></a>
 </p>
 
-### Instance details
+### Workspaces
 
 <p>
-  <a href="docs/screenshots/en/instance.png"><img src="docs/screenshots/en/instance.png" alt="Instance details, version and upgrade" width="100%"></a>
+  <a href="docs/screenshots/en/workspaces.png"><img src="docs/screenshots/en/workspaces.png" alt="Workspace list" width="100%"></a>
 </p>
+
+### Workspace details
+
+<p>
+  <a href="docs/screenshots/en/workspace.png"><img src="docs/screenshots/en/workspace.png" alt="Workspace details, files entry and version" width="100%"></a>
+</p>
+
+<details>
+  <summary>Administration · Overview</summary>
+  <p>
+    <a href="docs/screenshots/en/admin.png"><img src="docs/screenshots/en/admin.png" alt="Administration · Overview" width="100%"></a>
+  </p>
+</details>
 
 <details>
   <summary>Administration · All instances</summary>
@@ -72,9 +86,9 @@ The Compose stacks in this repository target local development, not a production
 ### Prerequisites
 
 - Node.js 22 or later and pnpm 10.10.0, as specified in [package.json](package.json).
-- Docker Desktop that can run Linux containers and ships Compose v2. The control plane connects to its daemon **at startup**, not only when creating instances.
+- Docker Desktop that can run Linux containers and ships Compose v2. The control plane connects to its daemon **at startup**, not only when creating workspaces.
 - Host ports `80` / `443` / `3000` / `5173` / `55432` free.
-- **A hard disk quota needs the host filesystem to provide it:** instance data lives under `HOST_STORAGE_ROOT` (`pnpm dev` uses `~/dsh-data`). On Linux it must be **XFS mounted with `pquota`**; if it is not XFS the platform builds its own loopback XFS image and mounts it (needs `CAP_SYS_ADMIN`), and if neither works it **refuses to start**. macOS / Docker Desktop kernels ship without quota support → it degrades to "not enforced plus a warning" and the console labels quotas as "no limit". See [D18](docs/DECISIONS.md).
+- **A hard disk quota needs the host filesystem to provide it:** workspace data lives under `HOST_STORAGE_ROOT` (`pnpm dev` uses `~/dsh-data`). On Linux it must be **XFS mounted with `pquota`**; if it is not XFS the platform builds its own loopback XFS image and mounts it (needs `CAP_SYS_ADMIN`), and if neither works it **refuses to start**. macOS / Docker Desktop kernels ship without quota support → it degrades to "not enforced plus a warning" and the console labels quotas as "no limit". See [D18](docs/DECISIONS.md).
 
 ### Run it
 
@@ -116,9 +130,11 @@ then delete `apps/server/.env.local`.
 
 Traefik has no certificate configured, so it falls back to its built-in default self-signed certificate (`CN=TRAEFIK DEFAULT CERT`) and the browser shows a red lock — click "Advanced → Proceed". Rationale in [D26](docs/DECISIONS.md). For a green lock, sign a certificate whose SAN covers `DNS:lvh.me,DNS:*.lvh.me` and add it to your system trust store; the repository does not include this step.
 
-### Create an instance
+### Create a workspace
 
-On the "Versions" page click "Check for updates" to read GHCR tags into the catalog, then "Publish" the version you want and "Set as default" if needed. For **users to be able to upgrade** to a version you must also "Pre-warm on this host" — the upgrade picker only lists versions already cached locally (rationale in [D23](docs/DECISIONS.md)); **creating an instance is not affected**, missing images are pulled automatically.
+You land on **Home** after signing in: recently used workspaces on top, quick actions and recent activity below.
+
+On the "Versions" page click "Check for updates" to read GHCR tags into the catalog, then "Publish" the version you want and "Set as default" if needed. For **users to be able to upgrade** to a version you must also "Pre-warm on this host" — the upgrade picker only lists versions already cached locally (rationale in [D23](docs/DECISIONS.md)); **creating a workspace is not affected**, missing images are pulled automatically.
 
 Build locally only if you changed `docker/instance-image/`:
 
@@ -128,7 +144,7 @@ Build locally only if you changed `docker/instance-image/`:
 
 The tag comes from [VERSION](docker/instance-image/VERSION) and reads `<dsh version>_<our revision>` (e.g. `0.1.2-rc.1_2`); local builds and CI use the same full name `ghcr.io/eskim2001/dsh-instance:<tag>`. See [D22](docs/DECISIONS.md).
 
-Then create one on the "Instances" page and open it.
+Then create one on the "Workspaces" page and open it.
 
 > For the ingress topology, why `lvh.me`, and the pitfalls (Clash PAC, restarting the container after ingress config changes), see the [local ingress guide](docker/compose/README.md).
 
@@ -148,7 +164,7 @@ The detailed guides currently contain primarily Chinese text.
 | [Storage selection & measurements](docs/storage/README.md) | Giving a container a disk with a hard limit: the four options, measured, and how dev machines degrade |
 | [Design decisions](docs/DECISIONS.md) | Technical choices and trade-offs |
 | [Open questions](docs/OPEN-QUESTIONS.md) | Unresolved validation and known gaps |
-| [Local ingress](docker/compose/README.md) | DNS, TLS and instance access in development |
+| [Local ingress](docker/compose/README.md) | DNS, TLS and workspace access in development |
 | [Configuration](.env.example) | Server environment template |
 | [Contributor guidance](AGENTS.md) | Local development, repository layout and conventions |
 | [Security policy](SECURITY.md) | Vulnerability reporting and scope |

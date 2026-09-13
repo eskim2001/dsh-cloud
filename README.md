@@ -23,32 +23,46 @@
   <a href="#参与贡献">参与贡献</a>
 </p>
 
-**dshcloud** 为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）提供账号管理、实例创建和访问控制。每个实例跑在独立的 Docker 容器里，拥有专属网络、持久化数据卷和资源限制。用户通过经过认证的子域访问自己的实例，运营者通过 Web 管理台管理账号、资源容量和实例版本。
+**dshcloud** 为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）提供账号管理、工作空间创建和访问控制。每个工作空间是一个独立的 dsh 实例，外带一份跟着它走的持久化存储：容器跑在自己的 Docker 网络里，`/data` 里的数据在重建、换镜像之后都还在。用户通过经过认证的子域进入自己的工作空间，运营者通过 Web 管理台管理账号、资源容量和可用版本。
 
 > **项目处于早期开发阶段。** 当前适合评估与开发，尚不具备生产可用性；部署验证和安全工作仍有未决项。暴露到公网前，请先阅读[架构与安全模型](docs/ARCHITECTURE.md)里的权限边界与运行限制。
 
 ## 功能
 
-- **实例管理：** 创建、启动、停止、重建和删除实例。通过每用户实例数上限，允许用户在分配的额度内拥有多个实例。
-- **资源控制：** CPU、内存、进程数限制，以及每实例 `/data` 文件系统的容量硬限制。管理员可以在创建后调整资源配额。
-- **认证访问：** Traefik 后的实例独立子域、所有者授权，以及通过 HMAC 派生的实例专属入口令牌。实例只在宿主回环上发布端口，不对公网暴露。
-- **持久化工作区：** 工作区、配置和用户安装的软件包都落在 `/data`（池子里的独立子目录，带 XFS project quota 硬配额），实例重建与镜像切换都不丢。镜像切换前先打一份数据快照，失败可回滚。
-- **运维管理：** 账号封禁、配额管理、版本上架、基于运行时的状态查询、用量采样和实例日志流。各角色的权限边界见下文。
+- **工作空间管理：** 创建、启动、停止、重建和删除工作空间。通过每用户数量上限，允许用户在分配的额度内拥有多个。
+- **资源控制：** CPU、内存、进程数限制，以及每工作空间 `/data` 文件系统的容量硬限制。管理员可以在创建后调整资源配额。
+- **认证访问：** Traefik 后的工作空间独立子域、所有者授权，以及通过 HMAC 派生的专属入口令牌。工作空间只在宿主回环上发布端口，不对公网暴露。
+- **持久化数据：** 文件、配置和用户安装的软件包都落在 `/data`（池子里的独立子目录，带 XFS project quota 硬配额），重建与镜像切换都不丢。镜像切换前先打一份数据快照，失败可回滚。
+- **运维管理：** 账号封禁、配额管理、版本上架、基于运行时的状态查询、用量采样和工作空间日志流。各角色的权限边界见下文。
+- **控制台入口：** 主页回答「接着做什么」，工作空间、文件、活动三个入口各司其职，⌘K 命令面板随时搜索或跳转。管理面另有一套导航。
 - **双语管理台：** 英文与简体中文、明暗主题、邮箱密码登录和会话管理。
 
 ## 截图
 
-### 实例列表
+### 主页
 
 <p>
-  <a href="docs/screenshots/zh-CN/instances.png"><img src="docs/screenshots/zh-CN/instances.png" alt="实例列表" width="100%"></a>
+  <a href="docs/screenshots/zh-CN/home.png"><img src="docs/screenshots/zh-CN/home.png" alt="主页：最近的工作空间、快捷操作与最近活动" width="100%"></a>
 </p>
 
-### 实例详情
+### 工作空间
 
 <p>
-  <a href="docs/screenshots/zh-CN/instance.png"><img src="docs/screenshots/zh-CN/instance.png" alt="实例详情、版本与升级" width="100%"></a>
+  <a href="docs/screenshots/zh-CN/workspaces.png"><img src="docs/screenshots/zh-CN/workspaces.png" alt="工作空间列表" width="100%"></a>
 </p>
+
+### 工作空间详情
+
+<p>
+  <a href="docs/screenshots/zh-CN/workspace.png"><img src="docs/screenshots/zh-CN/workspace.png" alt="工作空间详情、文件入口与版本" width="100%"></a>
+</p>
+
+<details>
+  <summary>平台管理 · 概览</summary>
+  <p>
+    <a href="docs/screenshots/zh-CN/admin.png"><img src="docs/screenshots/zh-CN/admin.png" alt="平台管理 · 概览" width="100%"></a>
+  </p>
+</details>
 
 <details>
   <summary>平台管理 · 全部实例</summary>
@@ -73,9 +87,9 @@
 ### 前置条件
 
 - Node.js 22 或更新版本，以及 pnpm 10.10.0，版本要求见 [package.json](package.json)。
-- 装了 Docker Desktop（能跑 Linux 容器，且带 Compose v2）。控制面**启动时**就要连它的 daemon，不是只在建实例时才用。
+- 装了 Docker Desktop（能跑 Linux 容器，且带 Compose v2）。控制面**启动时**就要连它的 daemon，不是只在创建工作空间时才用。
 - 宿主端口 `80` / `443` / `3000` / `5173` / `55432` 空闲。
-- **磁盘硬配额要靠宿主文件系统**：实例数据落在 `HOST_STORAGE_ROOT`（`pnpm dev` 默认 `~/dsh-data`）下，Linux 上要求它是 **XFS 且以 `pquota` 挂载**；不是 XFS 时平台会自己建一块 loopback XFS 镜像挂上去（要 `CAP_SYS_ADMIN`），两条都做不到就**拒绝启动**。macOS / Docker Desktop 的内核没编配额支持 → 退化为「不强制 + 一行警告」，界面里的配额标成「无上限」。见 [D18](docs/DECISIONS.md)。
+- **磁盘硬配额要靠宿主文件系统**：工作空间数据落在 `HOST_STORAGE_ROOT`（`pnpm dev` 默认 `~/dsh-data`）下，Linux 上要求它是 **XFS 且以 `pquota` 挂载**；不是 XFS 时平台会自己建一块 loopback XFS 镜像挂上去（要 `CAP_SYS_ADMIN`），两条都做不到就**拒绝启动**。macOS / Docker Desktop 的内核没编配额支持 → 退化为「不强制 + 一行警告」，界面里的配额标成「无上限」。见 [D18](docs/DECISIONS.md)。
 
 ### 起
 
@@ -117,9 +131,11 @@ docker compose -f docker/compose/local.yml down -v
 
 Traefik 没配证书，回落到它内置的默认自签证书（`CN=TRAEFIK DEFAULT CERT`），所以会红锁——点「高级 → 继续访问」。理由见 [D26](docs/DECISIONS.md)。想要绿锁就自己签一张 SAN 覆盖 `DNS:lvh.me,DNS:*.lvh.me` 的证书装进系统信任库；仓库默认不含这一步。
 
-### 建一个实例
+### 建一个工作空间
 
-在「版本管理」页点「检查更新」把 GHCR 上的版本读进来，再对某一版「上架」、必要时「设为默认」。要让**用户能升级**到某一版，还得先把它「预热到本机」—— 用户面的升级列表只列本机已缓存的版本（理由见 [D23](docs/DECISIONS.md)）；**新建实例不受这条限制**，缺的镜像会自动拉。
+登录后落在「主页」：最近用过的空间在最上面，下面是快捷操作和最近活动。
+
+在「版本管理」页点「检查更新」把 GHCR 上的版本读进来，再对某一版「上架」、必要时「设为默认」。要让**用户能升级**到某一版，还得先把它「预热到本机」—— 用户面的升级列表只列本机已缓存的版本（理由见 [D23](docs/DECISIONS.md)）；**新建工作空间不受这条限制**，缺的镜像会自动拉。
 
 只有改了 `docker/instance-image/` 才需要本地构建：
 
@@ -129,7 +145,7 @@ Traefik 没配证书，回落到它内置的默认自签证书（`CN=TRAEFIK DEF
 
 tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式是 `<dsh版本>_<修订号>`（如 `0.1.2-rc.1_2`），本地和 CI 打的是同一个全名 `ghcr.io/eskim2001/dsh-instance:<tag>`。见 [D22](docs/DECISIONS.md)。
 
-然后在「实例」页新建一个，点开它就在浏览器里跑起来了。
+然后在「工作空间」页新建一个，点开它就在浏览器里跑起来了。
 
 > 入口栈的拓扑、为什么是 `lvh.me`、以及会踩的坑（Clash PAC、改入口配置要重启容器）见[本地入口指南](docker/compose/README.md)。
 
@@ -149,7 +165,7 @@ tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式是 `<dsh版本>
 | [存储选型与实测](docs/storage/README.md) | 给容器一块有硬上限的盘：四条路的实测数据、开发机怎么退化 |
 | [设计决策](docs/DECISIONS.md) | 技术选择与取舍 |
 | [待验证问题](docs/OPEN-QUESTIONS.md) | 未决验证与已知缺口 |
-| [本地入口](docker/compose/README.md) | 开发环境中的 DNS、TLS 与实例访问 |
+| [本地入口](docker/compose/README.md) | 开发环境中的 DNS、TLS 与工作空间访问 |
 | [配置](.env.example) | 控制面环境变量模板 |
 | [贡献者指南](AGENTS.md) | 本地开发、仓库结构与约定 |
 | [安全策略](SECURITY.md) | 漏洞报告方式与范围 |
