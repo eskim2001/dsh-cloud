@@ -2,8 +2,8 @@ export type Locale = 'zh' | 'en'
 
 const zh = {
   lang: 'zh-CN',
-  title: 'dshcloud · 把 dsh 跑在你自己机器上',
-  description: '把 DeepSeek Harness 搬到你自己的一台机器上。你和你邀请的人各有一个工作空间，浏览器打开就能用，数据留在自己手里。',
+  title: 'dshcloud：DeepSeek Harness 自托管多用户云平台',
+  description: 'dshcloud 是面向 DeepSeek Harness 的自托管多用户云平台，提供隔离工作空间、持久化存储、访问控制与资源配额。',
   skip: '跳转到内容',
   nav: ['能力', '隔离设计', '开始使用'],
   language: 'English',
@@ -77,8 +77,8 @@ type Dictionary = typeof zh
 
 const en: Dictionary = {
   lang: 'en',
-  title: 'dshcloud · Run dsh on your own machine',
-  description: 'Move DeepSeek Harness onto a machine you own. A workspace for you and one for each person you invite, open in any browser, with the data staying with you.',
+  title: 'dshcloud: Self-hosted Multi-user Cloud Platform for DeepSeek Harness',
+  description: 'A self-hosted multi-user cloud platform for DeepSeek Harness, with isolated workspaces, persistent storage, access control and resource quotas.',
   skip: 'Skip to content',
   nav: ['Capabilities', 'Isolation', 'Get started'],
   language: '简体中文',

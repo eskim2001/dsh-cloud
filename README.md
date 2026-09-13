@@ -8,8 +8,8 @@
 </p>
 
 <p align="center">
-  <b>dsh-aaS</b> —— 你自己的 dsh 云，给你和你邀请的人各一份工作空间。<br>
-  <sub>dsh as a Service, on your own hardware: run DeepSeek Harness yourself and give each person you invite a workspace of their own.</sub>
+  <b>DeepSeek Harness 的自托管多用户运行平台</b><br>
+  <sub>A self-hosted, multi-user platform for DeepSeek Harness.</sub>
 </p>
 
 <p align="center">
@@ -23,28 +23,28 @@
   <a href="#参与贡献">参与贡献</a>
 </p>
 
-**dshcloud** 把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）搬到你自己的一台机器上，让它一直跑着。你和你邀请的人各有一个工作空间——独立的容器、独立的 `/data`，互不干扰；手机、平板、任意一台电脑打开浏览器就能进，合上笔记本它也不会停。升级 dsh 只是换一次镜像，工作区、会话、插件和配置都留在原处。
+**dshcloud** 在自有基础设施上为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）提供相互隔离的工作空间，并统一管理身份认证、资源配额和运行版本。用户可通过浏览器访问工作空间；工作空间数据独立持久化，升级运行版本时，文件、会话、插件和配置均保持不变。
 
-平台装一次，然后发邀请链接：对方自己设密码进来，各自在配额内建自己的工作空间。
+管理员完成平台部署后，可通过邀请链接添加用户。每位用户均可在授权配额内创建和管理多个工作空间。
 
-> **项目处于早期开发阶段。** 当前适合评估与开发，尚不具备生产可用性；部署验证和安全工作仍有未决项。暴露到公网前，请先阅读[架构与安全模型](docs/ARCHITECTURE.md)里的权限边界与运行限制。
+> **项目处于早期开发阶段。** 当前适合评估与开发，尚不具备生产可用性；部署验证和安全工作仍有未决项。部署至公网前，请先阅读[架构与安全模型](docs/ARCHITECTURE.md)中的权限边界与运行限制。
 
-## 为什么不是本地跑
+## 与本地运行的区别
 
-| 本地跑 dsh | 在 dshcloud 上 |
+| 本地运行 dsh | 使用 dshcloud |
 | --- | --- |
-| 合上笔记本就停了 | 跑在你自己的服务器上，合上笔记本它也不会停 |
-| 只有这一台机器能开 | 手机、平板、公司电脑，任意浏览器打开就进 |
-| 一份 dsh，第二个人要用就得打架 | **多用户**：你和你邀请的人各一份，互不干扰 |
-| 想按项目分开，只能重装一份 | **多实例**：一个人也能开好几个工作空间 |
-| 升级要重装，配置和插件得重来 | 换镜像就升完，工作区、会话、插件和配置都留在 `/data` |
+| 依赖本地设备持续运行 | 在自有服务器上持续运行 |
+| 访问范围受本地设备限制 | 可通过浏览器从多个设备访问 |
+| 缺少用户间的资源与数据隔离 | **多用户：** 为每位用户提供独立工作空间 |
+| 多项目需要维护多套安装 | **多工作空间：** 支持单个用户创建多个工作空间 |
+| 升级可能需要重新配置环境 | 通过镜像升级，并保留持久化数据 |
 
 ## 功能
 
-- **工作空间：** 创建、启动、停止、重建、删除；每个有独立的容器和 `/data`，CPU、内存、进程数和磁盘容量都可设限。
-- **多用户：** 管理员发邀请链接，对方自己设密码进来，各管各的工作空间，看不到别人的。
-- **访问控制：** 工作空间的端口只发布到宿主回环；对外经 Traefik 前置认证与所有者校验，外加一道每工作空间独立的签名门。
-- **版本：** 从 GHCR 读版本、上架、设为默认；升级换镜像，升级前自动打一份可回滚的数据快照。
+- **工作空间：** 支持创建、启动、停止、重建和删除。每个工作空间拥有独立容器与持久化存储，并可分别设置 CPU、内存、进程数和磁盘容量限制。
+- **多用户：** 管理员通过邀请链接添加用户。用户仅可访问和管理其所属工作空间。
+- **访问控制：** 工作空间端口仅发布至宿主回环地址；外部访问须通过 Traefik 前置认证、所有者校验和工作空间级签名验证。
+- **版本管理：** 从 GHCR 同步版本目录，支持版本发布和默认版本设置。升级通过替换镜像完成，并在升级前自动创建可用于回滚的数据快照。
 - **管理台：** 账号状态、资源配额、用量采样、工作空间日志流。
 - **界面：** 英文与简体中文、明暗主题、⌘K 命令面板。
 
@@ -91,18 +91,18 @@
 
 ## 快速开始
 
-本地用 `lvh.me`：`*.lvh.me` 是公共通配 DNS，全网解析到 `127.0.0.1`，所以不需要任何 DNS 配置，也不会和 Clash 之类占用 `:53` 的程序撞车。
+本地开发环境使用 `lvh.me`：`*.lvh.me` 是解析至 `127.0.0.1` 的公共通配 DNS，因此无需配置本地 DNS，也不会与 Clash 等占用 `:53` 的程序冲突。
 
 仓库内的 Compose 栈只面向本地开发，不是生产安装方案。
 
 ### 前置条件
 
 - Node.js 22 或更新版本，以及 pnpm 10.10.0，版本要求见 [package.json](package.json)。
-- 装了 Docker Desktop（能跑 Linux 容器，且带 Compose v2）。控制面**启动时**就要连它的 daemon，不是只在创建工作空间时才用。
+- 已安装 Docker Desktop，能够运行 Linux 容器并提供 Compose v2。控制面在**启动时**即需连接 Docker daemon，而非仅在创建工作空间时连接。
 - 宿主端口 `80` / `443` / `3000` / `5173` / `55432` 空闲。
-- **磁盘硬配额要靠宿主文件系统**：工作空间数据落在 `HOST_STORAGE_ROOT`（`pnpm dev` 默认 `~/dsh-data`）下，Linux 上要求它是 **XFS 且以 `pquota` 挂载**；不是 XFS 时平台会自己建一块 loopback XFS 镜像挂上去（要 `CAP_SYS_ADMIN`），两条都做不到就**拒绝启动**。macOS / Docker Desktop 的内核没编配额支持 → 退化为「不强制 + 一行警告」，界面里的配额标成「无上限」。见 [D18](docs/DECISIONS.md)。
+- **磁盘硬配额依赖宿主文件系统**：工作空间数据存储在 `HOST_STORAGE_ROOT` 下（`pnpm dev` 默认为 `~/dsh-data`）。在 Linux 上，该路径须位于以 `pquota` 挂载的 **XFS** 文件系统中；若当前文件系统不是 XFS，平台将创建并挂载 loopback XFS 镜像，此操作需要 `CAP_SYS_ADMIN`。两种方式均不可用时，平台将**拒绝启动**。macOS 与 Docker Desktop 的内核不支持所需的配额能力，因此开发环境不会强制磁盘配额，并会在界面中将其标记为「无上限」。见 [D18](docs/DECISIONS.md)。
 
-### 起
+### 启动开发环境
 
 在仓库根目录：
 
@@ -116,37 +116,37 @@ pnpm dev
 
 打开 `https://console.lvh.me`，用 `admin@lvh.me` / `dsh-cloud-dev` 登录。
 
-`pnpm dev` 按顺序做这些事，任何一步失败都会停下来说清原因：
+`pnpm dev` 依次执行以下流程；任一步骤失败时，脚本都会终止并输出错误原因：
 
 1. 预检依赖、端口、Docker daemon。
-2. 生成 `apps/server/.env.local`（已存在则只校验，一个字节都不改）——两个 secret 随机生成、不打印。
-3. 起 Postgres 和入口（[docker/compose/local.yml](docker/compose/local.yml)），等 Postgres 真的能连。
-4. 跑迁移，建第一个管理员。
-5. 起控制面（改代码自动重启）和管理台，等管理台起来了才打印地址。
+2. 生成 `apps/server/.env.local`；若文件已存在，则仅执行校验，不修改现有内容。两个 secret 均随机生成且不会输出至终端。
+3. 启动 PostgreSQL 和入口服务（[docker/compose/local.yml](docker/compose/local.yml)），并等待数据库通过就绪检查。
+4. 执行数据库迁移并创建首个管理员账号。
+5. 启动支持代码变更自动重启的控制面和管理台；管理台就绪后输出访问地址。
 
-Ctrl-C 只停控制面和管理台，**入口和 Postgres 留着**——下次 `pnpm dev` 秒起。要停它们：
+`Ctrl-C` 仅停止控制面和管理台，**入口服务与 PostgreSQL 将继续运行**，以便后续启动时复用。停止这些服务请运行：
 
 ```bash
 pnpm dev:down
 ```
 
-想从零重来（清空数据库、重新生成 secret）：
+重置本地开发环境（清空数据库并重新生成 secret）：
 
 ```bash
 docker compose -f docker/compose/local.yml down -v
 ```
 
-再删掉 `apps/server/.env.local` 即可。
+随后删除 `apps/server/.env.local`。
 
-### 浏览器报证书错误是正常的
+### 处理本地证书警告
 
-Traefik 没配证书，回落到它内置的默认自签证书（`CN=TRAEFIK DEFAULT CERT`），所以会红锁——点「高级 → 继续访问」。理由见 [D26](docs/DECISIONS.md)。想要绿锁就自己签一张 SAN 覆盖 `DNS:lvh.me,DNS:*.lvh.me` 的证书装进系统信任库；仓库默认不含这一步。
+Traefik 未配置本地证书时，会使用内置的默认证书（`CN=TRAEFIK DEFAULT CERT`），因此浏览器将显示证书安全警告。选择「高级 → 继续访问」即可进入管理台，相关决策见 [D26](docs/DECISIONS.md)。如需使用受系统信任的证书，请签发一张 SAN 覆盖 `DNS:lvh.me,DNS:*.lvh.me` 的证书，并将其加入系统信任库；仓库默认不包含此配置。
 
-### 建一个工作空间
+### 创建工作空间
 
 登录后落在「主页」：最近用过的空间在最上面，下面是快捷操作和最近活动。
 
-在「版本管理」页点「检查更新」把 GHCR 上的版本读进来，再对某一版「上架」、必要时「设为默认」。要让**用户能升级**到某一版，还得先把它「预热到本机」—— 用户面的升级列表只列本机已缓存的版本（理由见 [D23](docs/DECISIONS.md)）；**新建工作空间不受这条限制**，缺的镜像会自动拉。
+在「版本管理」页面选择「检查更新」，同步 GHCR 中的可用版本；随后发布所需版本，并可将其设为默认版本。若要允许**用户升级**至某一版本，还须先执行「预热到本机」：用户端的升级列表仅显示本机已缓存的版本，相关决策见 [D23](docs/DECISIONS.md)。**创建工作空间不受此限制**，平台会自动拉取尚未缓存的镜像。
 
 只有改了 `docker/instance-image/` 才需要本地构建：
 
@@ -154,17 +154,17 @@ Traefik 没配证书，回落到它内置的默认自签证书（`CN=TRAEFIK DEF
 ./docker/instance-image/build.sh
 ```
 
-tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式是 `<dsh版本>_<修订号>`（如 `0.1.2-rc.1_2`），本地和 CI 打的是同一个全名 `ghcr.io/eskim2001/dsh-instance:<tag>`。见 [D22](docs/DECISIONS.md)。
+镜像 tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式为 `<dsh版本>_<修订号>`（如 `0.1.2-rc.1_2`）。本地构建与 CI 使用相同的完整镜像名称：`ghcr.io/eskim2001/dsh-instance:<tag>`。见 [D22](docs/DECISIONS.md)。
 
-然后在「工作空间」页新建一个，点开它就在浏览器里跑起来了。
+完成版本配置后，在「工作空间」页面创建工作空间。创建完成后，可直接从详情页在浏览器中打开。
 
-> 入口栈的拓扑、为什么是 `lvh.me`、以及会踩的坑（Clash PAC、改入口配置要重启容器）见[本地入口指南](docker/compose/README.md)。
+> 入口栈拓扑、`lvh.me` 的选用原因及常见问题（Clash PAC、修改入口配置后重启容器）见[本地入口指南](docker/compose/README.md)。
 
 ## 参与贡献
 
-欢迎提交问题报告、文档改进和聚焦单一问题的 pull request。报告缺陷时请附上复现步骤和环境信息。涉及认证、隔离或数据模型的改动，请在实现前讨论设计与安全影响。
+欢迎提交问题报告、文档改进和范围明确的 pull request。报告缺陷时，请附上复现步骤和环境信息。涉及认证、隔离或数据模型的改动，请在实现前讨论其设计与安全影响。
 
-本地开发和仓库约定见 [AGENTS.md](AGENTS.md)。测试应紧邻其覆盖的行为，提交前运行工作区检查；修改共用 README 内容时，请同步更新中英文两版；改过控制台 UI 后跑 `node scripts/readme-shots.mjs` 重拍截图，别让 README 里的图比代码老。
+本地开发流程和仓库约定见 [AGENTS.md](AGENTS.md)。测试应与其覆盖的行为位于同一目录，提交前请运行工作区检查。修改 README 的共用内容时，请同步更新中英文版本；修改控制台界面后，请运行 `node scripts/readme-shots.mjs` 重新生成截图，确保截图与当前界面保持一致。
 
 ## 文档
 

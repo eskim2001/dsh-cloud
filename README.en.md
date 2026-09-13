@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <b>dsh-aaS</b> — your own dsh cloud: a workspace for you, and one for each person you invite.
+  <b>A self-hosted, multi-user platform for DeepSeek Harness</b>
 </p>
 
 <p align="center">
@@ -22,28 +22,28 @@
   <a href="#contributing">Contributing</a>
 </p>
 
-**dshcloud** moves [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) onto a machine you own and keeps it running. You and the people you invite each get a workspace — its own container, its own `/data`, no interference between them. Open any browser on a phone, a tablet or another computer and you are in; closing the laptop does not stop it. Upgrading dsh is an image swap: workspaces, sessions, plugins and configuration stay where they are.
+**dshcloud** provides isolated workspaces for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) on infrastructure you control, with centralized authentication, resource quotas and version management. Users can access their workspaces through a browser. Workspace data is persisted independently, so files, sessions, plugins and configuration remain intact across version upgrades.
 
-Install the platform once, then send invite links: each person sets their own password and creates workspaces within their quota.
+After deploying the platform, administrators can add users through invitation links. Each user can create and manage multiple workspaces within their assigned quota.
 
 > **Early development.** Use this project for evaluation and development. It is not production-ready; deployment validation and security work remain open. See the permission boundaries and operational limits in the [architecture and security model](docs/ARCHITECTURE.md) before exposing it to the internet.
 
-## Why not just run it locally
+## Local dsh vs. dshcloud
 
 | Running dsh locally | On dshcloud |
 | --- | --- |
-| Closing the laptop stops it | Runs on a server you own, up while your laptop is shut |
-| Only that one machine can reach it | Phone, tablet, work computer — any browser gets in |
-| One dsh, and a second person has to fight over it | **Multi-user:** you and the people you invite each get one, isolated |
-| Splitting by project means installing again | **Multiple workspaces:** one person can have several |
-| Upgrading means reinstalling; configuration and plugins start over | Swap the image and it is done; workspaces, sessions, plugins and configuration stay under `/data` |
+| Depends on the local device remaining available | Runs continuously on infrastructure you control |
+| Access is limited by the local device | Accessible through a browser from multiple devices |
+| No resource or data isolation between users | **Multi-user:** each user receives isolated workspaces |
+| Multiple projects require separate installations | **Multiple workspaces:** each user can create several workspaces |
+| Upgrades may require environment reconfiguration | Image-based upgrades preserve persistent data |
 
 ## Features
 
-- **Workspaces:** create, start, stop, rebuild and delete; each has its own container and `/data`, with limits on CPU, memory, process count and disk capacity.
-- **Multi-user:** the owner sends invite links; each person sets their own password and only sees their own workspaces.
-- **Access control:** workspace ports are published on the host loopback only; the public path goes through Traefik authentication and an owner check, plus a per-workspace signature gate.
-- **Versions:** read versions from GHCR, publish, set a default; upgrades swap the image and take a rollback-capable snapshot first.
+- **Workspaces:** create, start, stop, rebuild and delete workspaces. Each workspace has an independent container and persistent storage, with configurable limits for CPU, memory, process count and disk capacity.
+- **Multi-user:** administrators add users through invitation links. Users can access and manage only their assigned workspaces.
+- **Access control:** workspace ports are published only to the host loopback interface. External access requires Traefik authentication, an ownership check and per-workspace signature validation.
+- **Version management:** synchronize the version catalog from GHCR, publish versions and configure the default version. Upgrades replace the image and create a rollback-capable data snapshot beforehand.
 - **Console:** account status, resource quotas, usage sampling and workspace log streaming.
 - **Interface:** English and Simplified Chinese, light and dark themes, ⌘K command menu.
 
@@ -90,16 +90,16 @@ Install the platform once, then send invite links: each person sets their own pa
 
 ## Getting Started
 
-Locally this uses `lvh.me`: `*.lvh.me` is public wildcard DNS that resolves to `127.0.0.1` everywhere, so no DNS configuration is needed and it cannot collide with anything holding `:53` such as Clash.
+The local development environment uses `lvh.me`. Its public wildcard DNS entry, `*.lvh.me`, resolves to `127.0.0.1`, so no local DNS configuration is required and it does not conflict with applications such as Clash that use port `53`.
 
 The Compose stacks in this repository target local development, not a production installation.
 
 ### Prerequisites
 
 - Node.js 22 or later and pnpm 10.10.0, as specified in [package.json](package.json).
-- Docker Desktop that can run Linux containers and ships Compose v2. The control plane connects to its daemon **at startup**, not only when creating workspaces.
+- Docker Desktop with Linux container support and Compose v2. The control plane connects to the Docker daemon **at startup**, rather than only when creating workspaces.
 - Host ports `80` / `443` / `3000` / `5173` / `55432` free.
-- **A hard disk quota needs the host filesystem to provide it:** workspace data lives under `HOST_STORAGE_ROOT` (`pnpm dev` uses `~/dsh-data`). On Linux it must be **XFS mounted with `pquota`**; if it is not XFS the platform builds its own loopback XFS image and mounts it (needs `CAP_SYS_ADMIN`), and if neither works it **refuses to start**. macOS / Docker Desktop kernels ship without quota support → it degrades to "not enforced plus a warning" and the console labels quotas as "no limit". See [D18](docs/DECISIONS.md).
+- **Hard disk quotas depend on the host filesystem:** workspace data is stored under `HOST_STORAGE_ROOT` (`~/dsh-data` by default with `pnpm dev`). On Linux, this path must reside on **XFS mounted with `pquota`**. If the current filesystem is not XFS, the platform creates and mounts a loopback XFS image, which requires `CAP_SYS_ADMIN`. The platform **refuses to start** if neither option is available. The macOS and Docker Desktop kernels do not provide the required quota support, so disk quotas are not enforced in development and the console reports them as "no limit." See [D18](docs/DECISIONS.md).
 
 ### Run it
 
@@ -115,21 +115,21 @@ pnpm dev
 
 Open `https://console.lvh.me` and sign in with `admin@lvh.me` / `dsh-cloud-dev`.
 
-`pnpm dev` does the following in order, and stops with a clear reason if any step fails:
+`pnpm dev` performs the following steps in order. If any step fails, the script terminates and reports the cause:
 
 1. Preflight: dependencies, ports, Docker daemon.
-2. Generate `apps/server/.env.local` (if it already exists it is only validated, never modified) — both secrets are generated randomly and never printed.
-3. Start Postgres and the ingress ([docker/compose/local.yml](docker/compose/local.yml)) and wait until Postgres really accepts connections.
-4. Run migrations and create the first administrator.
-5. Start the server (reloads on code changes) and the console, and print the URL only once the console is up.
+2. Generate `apps/server/.env.local`. If the file already exists, validate it without modifying its contents. Both secrets are generated randomly and are never printed.
+3. Start PostgreSQL and the ingress ([docker/compose/local.yml](docker/compose/local.yml)), then wait for the database readiness check to pass.
+4. Run database migrations and create the first administrator account.
+5. Start the server with automatic reloads and the console, then print the URL after the console is ready.
 
-Ctrl-C stops the server and the console but **leaves the ingress and Postgres running**, so the next `pnpm dev` is instant. To stop them:
+`Ctrl-C` stops the server and console but **leaves the ingress and PostgreSQL running** so they can be reused by subsequent development sessions. To stop these services:
 
 ```bash
 pnpm dev:down
 ```
 
-To start completely fresh (drop the database, regenerate secrets):
+To reset the local development environment by dropping the database and regenerating secrets:
 
 ```bash
 docker compose -f docker/compose/local.yml down -v
@@ -137,15 +137,15 @@ docker compose -f docker/compose/local.yml down -v
 
 then delete `apps/server/.env.local`.
 
-### The browser certificate warning is expected
+### Handle the local certificate warning
 
-Traefik has no certificate configured, so it falls back to its built-in default self-signed certificate (`CN=TRAEFIK DEFAULT CERT`) and the browser shows a red lock — click "Advanced → Proceed". Rationale in [D26](docs/DECISIONS.md). For a green lock, sign a certificate whose SAN covers `DNS:lvh.me,DNS:*.lvh.me` and add it to your system trust store; the repository does not include this step.
+When no local certificate is configured, Traefik uses its built-in default certificate (`CN=TRAEFIK DEFAULT CERT`), which causes the browser to display a certificate warning. Select "Advanced → Proceed" to open the console. See [D26](docs/DECISIONS.md) for the rationale. To use a trusted certificate, issue one with a SAN that covers `DNS:lvh.me,DNS:*.lvh.me` and add it to the system trust store; this configuration is not included in the repository.
 
 ### Create a workspace
 
 You land on **Home** after signing in: recently used workspaces on top, quick actions and recent activity below.
 
-On the "Versions" page click "Check for updates" to read GHCR tags into the catalog, then "Publish" the version you want and "Set as default" if needed. For **users to be able to upgrade** to a version you must also "Pre-warm on this host" — the upgrade picker only lists versions already cached locally (rationale in [D23](docs/DECISIONS.md)); **creating a workspace is not affected**, missing images are pulled automatically.
+On the "Versions" page, select "Check for updates" to synchronize available versions from GHCR. Publish the required version and set it as the default if needed. Before **users can upgrade** to a version, select "Pre-warm on this host": the upgrade picker lists only versions already cached locally, as described in [D23](docs/DECISIONS.md). **Workspace creation is not subject to this restriction**; the platform automatically pulls images that are not yet cached.
 
 Build locally only if you changed `docker/instance-image/`:
 
@@ -153,17 +153,17 @@ Build locally only if you changed `docker/instance-image/`:
 ./docker/instance-image/build.sh
 ```
 
-The tag comes from [VERSION](docker/instance-image/VERSION) and reads `<dsh version>_<our revision>` (e.g. `0.1.2-rc.1_2`); local builds and CI use the same full name `ghcr.io/eskim2001/dsh-instance:<tag>`. See [D22](docs/DECISIONS.md).
+The image tag is defined by [VERSION](docker/instance-image/VERSION) and follows the format `<dsh version>_<revision>` (for example, `0.1.2-rc.1_2`). Local builds and CI use the same full image name: `ghcr.io/eskim2001/dsh-instance:<tag>`. See [D22](docs/DECISIONS.md).
 
-Then create one on the "Workspaces" page and open it.
+After configuring a version, create a workspace on the "Workspaces" page. Once created, it can be opened directly from its details page.
 
-> For the ingress topology, why `lvh.me`, and the pitfalls (Clash PAC, restarting the container after ingress config changes), see the [local ingress guide](docker/compose/README.md).
+> For the ingress topology, the rationale for using `lvh.me` and common issues such as Clash PAC or restarting the container after ingress configuration changes, see the [local ingress guide](docker/compose/README.md).
 
 ## Contributing
 
-Bug reports, documentation improvements and focused pull requests are welcome. Include reproduction steps and your environment when reporting a bug. For changes to authentication, isolation or the data model, discuss the design and security implications before implementation.
+Bug reports, documentation improvements and narrowly scoped pull requests are welcome. Include reproduction steps and environment details when reporting a bug. For changes to authentication, isolation or the data model, discuss the design and security implications before implementation.
 
-Read [AGENTS.md](AGENTS.md) for local development and repository conventions. Keep tests close to the behavior they cover, run the workspace checks, and update both README translations when changing shared documentation; after changing console UI, re-run `node scripts/readme-shots.mjs` so the screenshots do not age faster than the code.
+See [AGENTS.md](AGENTS.md) for the local development workflow and repository conventions. Keep tests next to the behavior they cover and run the workspace checks before submitting changes. Update both README translations when changing shared documentation. After modifying the console UI, run `node scripts/readme-shots.mjs` to regenerate screenshots and keep them consistent with the current interface.
 
 ## Documentation
 
