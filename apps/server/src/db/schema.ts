@@ -218,6 +218,26 @@ export const imageCatalog = pgTable('image_catalog', {
 })
 
 /**
+ * 平台自己的设置，**单行**（`id = 'singleton'`）。
+ *
+ * 眼下只有一样东西：域名。装机给了 `--domain` 就写在 env 里（**env 优先**），没给就是空 ——
+ * 操作者在引导态的 setup 页填，落到这张表；之后控制面每次启动都从这里读，读不到才是引导态。
+ *
+ * **为什么用固定主键而不是"唯一约束保证只有一行"**：单例就该在键上直说，别让读的人去
+ * 猜「会不会有两行、以哪一行为准」。
+ */
+export const platformSetting = pgTable('platform_setting', {
+  /** 永远是 `'singleton'`。 */
+  id: text('id').primaryKey(),
+  /** 父域（`<slug>.<base>`）。空串 = 还没配。 */
+  baseDomain: text('base_domain').notNull().default(''),
+  /** 控制台主机名，必须是父域的子域。 */
+  consoleDomain: text('console_domain').notNull().default(''),
+  /** 第一次配好域名的时刻（展示与排障用）。 */
+  configuredAt: timestamp('configured_at', { withTimezone: true }),
+})
+
+/**
  * 一次性邀请链接。owner 生成、复制，自己发给熟人——**平台不发邮件**，所以这里
  * 只有「链接」，没有投递状态。
  *
@@ -255,4 +275,5 @@ export type InstanceStatus = InstanceRow['status']
 export type InstanceMetricRow = typeof instanceMetric.$inferSelect
 export type ImageReleaseRow = typeof imageRelease.$inferSelect
 export type ImageCatalogRow = typeof imageCatalog.$inferSelect
+export type PlatformSettingRow = typeof platformSetting.$inferSelect
 export type InvitationRow = typeof invitation.$inferSelect

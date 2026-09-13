@@ -1,9 +1,8 @@
-import { mkdir, rename, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
 import { instanceHostname, machineName } from '@dsh-cloud/instance-spec'
 import type { InstanceRow } from '../db/schema.js'
+import { writeDynamicConfig } from './dynamic-config.js'
 import type { ContainerStates } from './runtime-status.js'
-import { renderTraefikConfig, type TraefikRoute } from './traefik.js'
+import { buildTraefikConfig, type TraefikRoute } from './traefik.js'
 
 export interface RoutesSyncOptions {
   /** Traefik file provider 监视的目录下的文件名。 */
@@ -78,18 +77,15 @@ export async function syncRoutesFromInstances(
     hostPort: row.hostPort as number,
   }))
 
-  const json = renderTraefikConfig(routes, {
-    forwardAuthAddress: opts.forwardAuthAddress,
-    ...(opts.upstreamHost === undefined ? {} : { upstreamHost: opts.upstreamHost }),
-    ...(opts.entryPoint === undefined ? {} : { entryPoint: opts.entryPoint }),
-    ...(opts.tls === undefined ? {} : { tls: opts.tls }),
-  })
-
-  await mkdir(dirname(opts.configPath), { recursive: true })
-  // 先写临时文件再 rename：Traefik 不会读到写了一半的配置
-  const tmp = `${opts.configPath}.tmp`
-  await writeFile(tmp, json, 'utf8')
-  await rename(tmp, opts.configPath)
+  await writeDynamicConfig(
+    opts.configPath,
+    buildTraefikConfig(routes, {
+      forwardAuthAddress: opts.forwardAuthAddress,
+      ...(opts.upstreamHost === undefined ? {} : { upstreamHost: opts.upstreamHost }),
+      ...(opts.entryPoint === undefined ? {} : { entryPoint: opts.entryPoint }),
+      ...(opts.tls === undefined ? {} : { tls: opts.tls }),
+    }),
+  )
 
   return routable.map((row) => row.slug)
 }

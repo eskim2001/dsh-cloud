@@ -41,8 +41,10 @@ import { registerAdminRoutes } from './http/admin-routes.js'
 import { registerForwardAuth } from './http/forward-auth-route.js'
 import { registerInvitationRoutes } from './http/invitation-routes.js'
 import { registerSessionRoutes } from './http/session-routes.js'
+import { registerSetupRoutes, type SetupDeps } from './http/setup-routes.js'
 import { registerInstanceRoutes } from './http/instance-routes.js'
 import type { DiskUsed } from './http/instance-routes.js'
+import { registerWebConsole } from './http/web-console.js'
 import { streamContainerLogs } from './http/log-stream.js'
 import type { DataStore } from './instance/data-store.js'
 import { syncImageCatalog } from './instance/image-sync.js'
@@ -59,6 +61,16 @@ export interface AppDeps {
   orchestrator: InstanceOrchestrator
   /** 实例数据在宿主上的目录（读用量、快照占用）。 */
   dataStore: DataStore
+  /**
+   * **还没配域名**（引导态，见 DECISIONS 的引导态装机）：只注册 token 门保护的 setup 端点 +
+   * 健康检查 + 管理台静态文件，其余一律不挂。
+   *
+   * **显式传进来，不从 env 猜**：调用方（`index.ts`）已经把 env 与 DB 合成过一次，
+   * 它才知道当前是不是引导态。
+   */
+  bootstrap?: boolean
+  /** setup 端点。省略 = 已配置（state 回 `true`、写端点 409）。 */
+  setup?: SetupDeps
   logger?: boolean
   /**
    * 测试用：观察**实际注册**的路由集合。Fastify 没有公开的路由枚举 API
@@ -73,6 +85,9 @@ interface SessionUser {
   role: string
 }
 
+/** 引导态唯一的写端点（见 `http/setup-routes.ts`）。 */
+const SETUP_PATH = '/api/setup'
+
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({
     logger: deps.logger ?? false,
@@ -86,10 +101,29 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const allowedOrigins = new Set(trustedOrigins(deps.env))
   app.addHook('onRequest', async (request, reply) => {
     if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return
+    // 引导态下 `/api/setup` 是**唯一**的写端点，而此刻还没有可信来源可配（域名正是在这里填的）——
+    // 所以对它跳过 Origin 检查。那条路的凭证是安装脚本打印的一次性 token，不是来源。
+    if (deps.bootstrap === true && (request.url === SETUP_PATH || request.url.startsWith(`${SETUP_PATH}?`))) {
+      return
+    }
     if (request.headers.origin === undefined || !allowedOrigins.has(request.headers.origin)) {
       return reply.code(403).send({ error: 'Untrusted request origin' })
     }
   })
+
+  // setup 端点：**两个模式都注册**（控制台启动时用它决定显示 setup 页还是正常界面）。
+  // 已配置时 `deps.setup` 缺省 ⇒ state 回 `true`、写端点 409，见 setup-routes.ts。
+  registerSetupRoutes(app, deps.setup ?? { configured: true, token: '' })
+
+  // 引导态到此为止：除了 setup 与健康检查，**什么都不挂**。早返回放在这里（所有业务路由之前），
+  // 是为了让「引导态的暴露面」在代码里一目了然 —— 下面那一整段都不属于引导态。
+  if (deps.bootstrap === true) {
+    app.get('/healthz', async () => ({ ok: true }))
+    if (deps.env.WEB_DIST_DIR) {
+      await registerWebConsole(app, deps.env.WEB_DIST_DIR)
+    }
+    return app
+  }
 
   const sessionUser = async (headers: FastifyRequest['headers']): Promise<SessionUser | undefined> => {
     const session = await deps.auth.api.getSession({ headers: fromNodeHeaders(headers) })
@@ -305,6 +339,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   })
 
   app.get('/healthz', async () => ({ ok: true }))
+
+  // ⑦ 管理台静态文件。**最后注册**：@fastify/static 与 notFoundHandler 会接管
+  // 未被前面路由匹配的请求，早注册会把接口的 404 变成一张 HTML。
+  if (deps.env.WEB_DIST_DIR) {
+    await registerWebConsole(app, deps.env.WEB_DIST_DIR)
+  }
 
   return app
 }

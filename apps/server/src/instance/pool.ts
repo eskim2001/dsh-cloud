@@ -40,6 +40,13 @@ export interface PoolOptions {
   sizeMb?: number
   /** 测试用。默认取 `process.platform`。 */
   platform?: NodeJS.Platform
+  /**
+   * 控制面**跑在容器里**（平台镜像，见 D32）。默认 false。
+   *
+   * 只影响一件事：**禁止容器内建池**——容器命名空间里 `mount` 出来的块设备，宿主和
+   * Docker daemon 都看不见。池子由安装脚本在**宿主**上预置（见 D35）。
+   */
+  containerized?: boolean
   /** 测试用：把命令执行换掉。 */
   exec?: (cmd: string, args: string[]) => Promise<string>
 }
@@ -52,9 +59,11 @@ export interface PoolOptions {
  * 1. 根目录所在文件系统是 **XFS** → 真设一次限额再读回来（探针）。成了就是合格池子；
  *    不成（没开 `pquota`、或缺 `CAP_SYS_ADMIN`）→ **抛错**，因为路径上已经是一块 XFS 了，
  *    再套一层 loopback 只会更难查。
- * 2. 不是 XFS → 在用一块 **loopback XFS 镜像**当池子：镜像在 `"<root>.img"`，
+ * 2. 不是 XFS 且**控制面跑在容器里**（`containerized`）→ **抛错**，不建池：容器里建的东西
+ *    宿主看不见（见 D35）。
+ * 3. 不是 XFS → 在用一块 **loopback XFS 镜像**当池子：镜像在 `"<root>.img"`，
  *    幂等（已挂载就直接用；镜像存在但没挂 = 半成品，**抛错，绝不重新 mkfs**）。
- * 3. macOS → **不做硬配额**，返回 `enforced: false`（它的 linuxkit 内核没编配额）。
+ * 4. macOS → **不做硬配额**，返回 `enforced: false`（它的 linuxkit 内核没编配额）。
  */
 export async function ensureStoragePool(opts: PoolOptions): Promise<StoragePool> {
   const platform = opts.platform ?? process.platform
@@ -74,11 +83,18 @@ export async function ensureStoragePool(opts: PoolOptions): Promise<StoragePool>
   }
 
   const fsType = await superblockMagic(root)
-  if (fsType === undefined) {
-    return await buildLoopbackPool({ ...opts, root, platform })
-  }
+  // 不是 XFS（含"路径还不存在"）→ 本该走 loopback 兜底。但**平台容器里不能建池**：
+  // 容器命名空间里 `mount` 出来的块设备，宿主和 Docker daemon 都看不见，实例 bind
+  // `${HOST_STORAGE_ROOT}/<key>` 时会解析到空目录 —— D18 那种静默失效的翻版，而且更隐蔽
+  // （探针在容器里还是会成功）。池子由安装脚本在**宿主**上预置，见 D35。
   if (fsType !== XFS_SUPER_MAGIC) {
-    // 路径在别的文件系统上（ext4 之类）→ 走 loopback 兜底。
+    if (opts.containerized === true) {
+      throw new StoragePoolError(
+        `HOST_STORAGE_ROOT（${root}）不是一块以 pquota 挂载的 XFS，而控制面跑在容器里 —— ` +
+          `容器内建的池子宿主看不见，所以这里直接拒绝。` +
+          `重跑安装脚本让它在宿主上建池，或自己把 ${root} 挂成 XFS + pquota。`,
+      )
+    }
     return await buildLoopbackPool({ ...opts, root, platform })
   }
 

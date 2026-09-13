@@ -10,11 +10,17 @@ import { trustedOrigins, type Env } from './env.js'
  *
  * cookie 必须覆盖父域，否则 forward-auth 在实例子域上读不到 → 数据面无法认证
  * （见 docs/ARCHITECTURE.md §七，那里的 CSRF 要求同样成立）。
+ *
+ * `opts.bootstrap`：**还没配域名**时（引导态）用它。此时不能用 `CONSOLE_DOMAIN` 拼 baseURL
+ * —— 空域名会拼出 `"https://"`，better-auth 建上下文时 `new URL()` **直接抛**，进程起不来。
+ * 引导态也不该有跨子域 cookie（还没有父域），所以关掉。这个实例在引导态**不接任何认证请求**
+ * （`buildApp` 只注册 setup 端点）。
  */
-export function createAuth(env: Env, db: Db) {
+export function createAuth(env: Env, db: Db, opts: { bootstrap?: boolean } = {}) {
+  const bootstrap = opts.bootstrap === true
   return betterAuth({
     secret: env.BETTER_AUTH_SECRET,
-    baseURL: `${env.PUBLIC_SCHEME}://${env.CONSOLE_DOMAIN}`,
+    baseURL: bootstrap ? `http://127.0.0.1:${env.PORT}` : `${env.PUBLIC_SCHEME}://${env.CONSOLE_DOMAIN}`,
     basePath: '/api/auth',
     database: drizzleAdapter(db, { provider: 'pg' }),
     trustedOrigins: trustedOrigins(env),
@@ -36,8 +42,8 @@ export function createAuth(env: Env, db: Db) {
       // 显式指定，别让 better-auth 按请求 Host 猜（实例子域上的请求也会打到它）
       cookiePrefix: 'dsh_cloud',
       // 必须覆盖**父域**（控制台 + 所有实例子域），否则 forward-auth 在
-      // `<slug>.<BASE_DOMAIN>` 上读不到会话（§七）
-      crossSubDomainCookies: { enabled: true, domain: `.${env.BASE_DOMAIN}` },
+      // `<slug>.<BASE_DOMAIN>` 上读不到会话（§七）。引导态还没有父域，关掉。
+      crossSubDomainCookies: bootstrap ? { enabled: false } : { enabled: true, domain: `.${env.BASE_DOMAIN}` },
       defaultCookieAttributes: {
         httpOnly: true,
         secure: env.PUBLIC_SCHEME === 'https',

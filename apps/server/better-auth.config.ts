@@ -12,6 +12,7 @@ const env: Env = {
   BETTER_AUTH_SECRET: 'y'.repeat(32),
   PORT: 3000,
   PUBLIC_SCHEME: 'https',
+  WEB_DIST_DIR: '',
   EXTRA_TRUSTED_ORIGINS: '',
   TRAEFIK_ENTRYPOINT: 'websecure',
   TRAEFIK_CERT_RESOLVER: '',
@@ -21,6 +22,8 @@ const env: Env = {
   INSTANCE_IMAGE_REPO: 'ghcr.io/eskim2001/dsh-instance',
   INSTANCE_IMAGE_REGISTRY_USER: '',
   INSTANCE_IMAGE_REGISTRY_TOKEN: '',
+  SETUP_TOKEN: '',
+  SELF_CONTAINER: '',
 }
 
 const { db } = createDb(env.DATABASE_URL)

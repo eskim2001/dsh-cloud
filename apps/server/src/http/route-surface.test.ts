@@ -12,6 +12,7 @@ const ALLOWED_GET_ROUTES = [
   'GET /auth/verify', // 入口调它判定数据面（Traefik forward-auth）
   'GET /api/auth/*', // better-auth 自己的端点（登录 / 登出 / 会话）
   'GET /healthz', // 存活探针，无数据
+  'GET /api/setup/state', // 公开：只回一行「配好没」，不含任何令牌（见 setup-routes.ts）
   'GET /api/sessions', // 自己的会话列表
   // 实例面：全部带 owner 维度
   'GET /api/instances',
@@ -33,7 +34,16 @@ const ALLOWED_GET_ROUTES = [
   'GET /api/admin/images/pull',
 ]
 
-function dependencies(onRoute: AppDeps['onRoute']): AppDeps {
+/**
+ * **引导态**（还没配域名）的注册面：只有 setup 与存活探针。
+ *
+ * 这份清单比上面那份更要紧：那时平台在 `:80` 上明文对公网开着（靠一次性 token 挡），
+ * 所以**往里加任何一条都是一次显式决定** —— "多一条路由"在这里等于"多一个域名配好之前
+ * 对外的口子"。业务路由一概不挂（`buildApp` 在那之前就返回了）。
+ */
+const BOOTSTRAP_ALLOWED_GET_ROUTES = ['GET /api/setup/state', 'GET /healthz']
+
+function dependencies(onRoute: AppDeps['onRoute'], bootstrap = false): AppDeps {
   return {
     env: {
       BASE_DOMAIN: 'app.example.com',
@@ -54,10 +64,11 @@ function dependencies(onRoute: AppDeps['onRoute']): AppDeps {
     orchestrator: {},
     storage: {},
     onRoute,
+    ...(bootstrap ? { bootstrap: true } : {}),
   } as unknown as AppDeps
 }
 
-async function collect(): Promise<Array<{ method: string; url: string }>> {
+async function collect(bootstrap = false): Promise<Array<{ method: string; url: string }>> {
   const routes: Array<{ method: string; url: string }> = []
   const app = await buildApp(
     dependencies((route) => {
@@ -66,7 +77,7 @@ async function collect(): Promise<Array<{ method: string; url: string }>> {
         // HEAD 是 Fastify 给每条 GET 自动挂的，不是独立的路由面
         if (method !== 'HEAD') routes.push({ method, url: route.url })
       }
-    }),
+    }, bootstrap),
   )
   await app.ready()
   await app.close()
@@ -85,5 +96,23 @@ describe('注册面：GET 必须逐一交代清楚', () => {
   it('写操作只用 POST / PATCH / DELETE（没有把副作用藏在别的动词里）', async () => {
     const methods = new Set((await collect()).map((r) => r.method))
     expect([...methods].sort()).toEqual(['DELETE', 'GET', 'PATCH', 'POST'])
+  })
+})
+
+describe('引导态的注册面：只该有 setup 与存活探针', () => {
+  it('GET 面就是那两条', async () => {
+    const actual = (await collect(true))
+      .filter((r) => r.method === 'GET')
+      .map((r) => `${r.method} ${r.url}`)
+      .sort()
+    expect(actual).toEqual([...BOOTSTRAP_ALLOWED_GET_ROUTES].sort())
+  })
+
+  it('写操作只有 POST /api/setup 一条 —— 其余业务路由一概不挂', async () => {
+    const writes = (await collect(true))
+      .filter((r) => r.method !== 'GET')
+      .map((r) => `${r.method} ${r.url}`)
+      .sort()
+    expect(writes).toEqual(['POST /api/setup'])
   })
 })

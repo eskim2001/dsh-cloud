@@ -79,7 +79,8 @@ export interface TraefikConfig {
  * 宿主回环监听与别的容器发布的回环端口，经 `host.docker.internal` / 网桥网关全部 ECONNREFUSED）。
  * 所以这条结论**依附于宿主平台**，换环境必须重验，别继承。
  *
- * 返回结构化对象（测试直接断言它，不经过序列化）；落盘用 `renderTraefikConfig`。
+ * 返回结构化对象（测试直接断言它，不经过序列化）；落盘交给 `dynamic-config.ts` 的
+ * `writeDynamicConfig` —— 原子写与 YAML 序列化都在那儿，别在这里再做一遍。
  */
 export function buildTraefikConfig(routes: TraefikRoute[], opts: TraefikOptions): TraefikConfig {
   const authName = opts.authMiddlewareName ?? 'platform-auth'

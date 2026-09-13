@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": ".",
+    "outDir": "./dist",
+    "sourceMap": true,
+    // 覆盖 base 里的 paths：构建时只认 instance-spec 的**编译产物**，不认它的源码 ——
+    // 认源码会让 tsc 把 packages/ 下的文件拉进程序，而它们不在 rootDir 里（TS6059）。
+    // 所以构建顺序有依赖：先 build instance-spec，再 build 本包。
+    "paths": {
+      "@dsh-cloud/instance-spec": ["../../packages/instance-spec/dist/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}

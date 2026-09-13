@@ -78,6 +78,13 @@
       "when": 1789273648135,
       "tag": "0010_thick_proemial_gods",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789286145941,
+      "tag": "0011_platform_settings",
+      "breakpoints": true
     }
   ]
 }

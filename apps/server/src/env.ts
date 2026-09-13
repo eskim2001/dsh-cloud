@@ -11,22 +11,26 @@ const EnvSchema = z.object({
 
   /**
    * **父域**：实例子域挂在它下面（`<slug>.<BASE_DOMAIN>`），会话 cookie 也种在它上面
-   * （`Domain=.<BASE_DOMAIN>`），所以它必须同时覆盖控制台和实例。本地 `lvh.me`。
+   * （`Domain=.<BASE_DOMAIN>`），所以它必须同时覆盖控制台和实例。
+   *
+   * **可以为空**：空 = 还没配域名（**引导态**）—— 那时控制面只暴露 token 门保护的 setup 页，
+   * 操作者在面板里填域名、写进 `platform_setting` 后重启。域名优先取这里（装机时给了
+   * `--domain`），否则取 DB。见 DECISIONS 的引导态装机那条。
    */
   BASE_DOMAIN: z
     .string()
-    .min(1, '缺 BASE_DOMAIN')
-    .regex(/^[a-z0-9.-]+$/, 'BASE_DOMAIN 只能是小写主机名'),
+    .regex(/^$|^[a-z0-9.-]+$/, 'BASE_DOMAIN 只能是小写主机名')
+    .default(''),
 
   /**
    * 控制台自己的主机名，必须是 `BASE_DOMAIN` 的**子域**（`console.lvh.me`）。
    * 父域本身不当主机名用——`<父域>` 这一层留给实例命名空间（`<slug>.<父域>`）。
-   * 它决定 better-auth 的 baseURL、受信 Origin 和未登录时的跳转目标。
+   * 它决定 better-auth 的 baseURL、受信 Origin 和未登录时的跳转目标。与 `BASE_DOMAIN` 同为空。
    */
   CONSOLE_DOMAIN: z
     .string()
-    .min(1, '缺 CONSOLE_DOMAIN')
-    .regex(/^[a-z0-9.-]+$/, 'CONSOLE_DOMAIN 只能是小写主机名'),
+    .regex(/^$|^[a-z0-9.-]+$/, 'CONSOLE_DOMAIN 只能是小写主机名')
+    .default(''),
 
   /** 派生实例 gate token。轮换后**必须重建实例容器**，否则桥 403。 */
   PLATFORM_SECRET: z.string().min(32, 'PLATFORM_SECRET 至少 32 字符'),
@@ -38,6 +42,15 @@ const EnvSchema = z.object({
 
   /** 生成对外 URL 用（本地开发是 http，线上是 https）。 */
   PUBLIC_SCHEME: z.enum(['http', 'https']).default('https'),
+
+  /**
+   * 管理台静态文件目录。**留空 = 不 serve** —— 本地开发由 Vite dev server 提供，
+   * 这条路根本不注册（路由面测试因此不受影响）。
+   *
+   * 平台镜像里设成 `/app/web`：控制面同源提供管理台，不需要第二个容器或 nginx，
+   * 也就没有了 dev 里那个 `/api` 反向代理。
+   */
+  WEB_DIST_DIR: z.string().default(''),
 
   /**
    * 额外受信来源，逗号分隔。better-auth 会校验请求的 Origin；
@@ -101,7 +114,30 @@ const EnvSchema = z.object({
    */
   INSTANCE_IMAGE_REGISTRY_USER: z.string().default(''),
   INSTANCE_IMAGE_REGISTRY_TOKEN: z.string().default(''),
+
+  /**
+   * **引导态的唯一凭证**。装机没给域名时由安装脚本生成并打印，操作者带着它打开
+   * `http://<ip>/setup?token=…`。配好域名后它自然失效（引导态结束，那个端点不再注册）。
+   */
+  SETUP_TOKEN: z.string().default(''),
+
+  /**
+   * 控制面**自己的容器名**。配完域名要重启自己一次（cookie 域与 baseURL 都是启动期配置），
+   * 重启靠它定位容器 —— 不依赖 `os.hostname()` 恰好等于容器短 ID 这种事。
+   */
+  SELF_CONTAINER: z.string().default(''),
 }).superRefine((env, ctx) => {
+  // 引导态：两个都空是**合法**的（域名还没配）。只填一个才是配置错误。
+  if (env.BASE_DOMAIN === '' || env.CONSOLE_DOMAIN === '') {
+    if (env.BASE_DOMAIN !== env.CONSOLE_DOMAIN) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['CONSOLE_DOMAIN'],
+        message: 'BASE_DOMAIN 与 CONSOLE_DOMAIN 要么都填、要么都空（都空 = 引导态，域名稍后在面板里配）',
+      })
+    }
+    return
+  }
   // 控制台是父域的专属子域（console.<父域>）；父域本身不当主机名用。
   // 用 label 边界判定（`endsWith('.lvh.me')`），别让 `evil-lvh.me` 混过去。
   if (!env.CONSOLE_DOMAIN.endsWith(`.${env.BASE_DOMAIN}`)) {
@@ -126,14 +162,48 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
 
 /** better-auth 的受信来源：**控制台**自己的 origin + 额外放行项。实例子域不在其中。 */
 export function trustedOrigins(env: Env): string[] {
-  const base = `${env.PUBLIC_SCHEME}://${env.CONSOLE_DOMAIN}`
+  // 引导态没有控制台域名，也就**没有**可信来源 —— 返回空表，别造一个 `https://` 出来
+  // （那会让 Origin 钩子永远不匹配，看起来像"配好了也写不进东西"）。
+  const base = env.CONSOLE_DOMAIN === '' ? [] : [`${env.PUBLIC_SCHEME}://${env.CONSOLE_DOMAIN}`]
   const extra = env.EXTRA_TRUSTED_ORIGINS.split(',')
     .map((s) => s.trim())
     .filter((s) => s !== '')
-  return [base, ...extra]
+  return [...base, ...extra]
 }
 
-/** 控制台主机名的首段（`console.lvh.me` → `console`）。实例不能占用它，见 instance-routes 的创建校验。 */
+/**
+ * 控制台主机名的**首段**（`console`），引导态里由操作者填的父域推出控制台地址时要用。
+ *
+ * 这个字面量在**三处**出现，改一处就得改另两处：这里、`RESERVED_SLUGS`（租户不能抢它，
+ * 见 `packages/instance-spec`）、安装脚本的 `CONSOLE_LABEL`。前两者的关系有测试盯着
+ * （`env.test.ts`），第三方（bash）只能靠注释和 review。
+ */
+export const CONSOLE_LABEL = 'console'
+
+/** 控制台主机名的首段（`console.lvh.me` → `console`；引导态是空串）。实例不能占用它。 */
 export function consoleLabel(env: Env): string {
   return env.CONSOLE_DOMAIN.split('.')[0]!
+}
+
+/**
+ * 把「env 里写的域名」与「DB 里存的域名」合成一份**生效的** Env，并说明当前是不是引导态。
+ *
+ * 优先级：**env 优先**（装机时给了 `--domain` 就是这档，保持老行为），env 空才用 DB；
+ * 都没有 ⇒ 引导态（只暴露 token 门保护的 setup 页，见 DECISIONS 的引导态装机）。
+ *
+ * 用法：**在 `createAuth` 和 `buildApp` 之前解析一次**，之后全用它 —— 否则
+ * `trustedOrigins` 之类会拿空域名算出废值。
+ */
+export function withPlatformDomains(
+  env: Env,
+  stored?: { baseDomain: string; consoleDomain: string },
+): { env: Env; bootstrap: boolean } {
+  if (env.BASE_DOMAIN !== '') return { env, bootstrap: false }
+  const baseDomain = stored?.baseDomain ?? ''
+  const consoleDomain = stored?.consoleDomain ?? ''
+  // 存的这一对也要过同一道规则；不过就当没配（fail closed，宁可停在引导态也不要拿它拼 URL）
+  if (baseDomain === '' || !consoleDomain.endsWith(`.${baseDomain}`)) {
+    return { env, bootstrap: true }
+  }
+  return { env: { ...env, BASE_DOMAIN: baseDomain, CONSOLE_DOMAIN: consoleDomain }, bootstrap: false }
 }

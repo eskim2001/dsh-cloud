@@ -176,6 +176,23 @@ describe('ensureStoragePool：判定分支', () => {
     expect(flat).toContain(`xfs_quota -x -c limit -p bhard=1m ihard=10 4294967294 ${root}`)
   })
 
+  it('容器里：不是 XFS 就**拒绝**，不建池 —— 建了宿主也看不见（D35）', async () => {
+    const root = await tempDir()
+    const { exec, calls } = stubExec((cmd) => {
+      if (cmd === 'findmnt') throw new Error('not a mountpoint')
+      return ''
+    })
+
+    await expect(
+      ensureStoragePool({ root, platform: 'linux', containerized: true, exec }),
+    ).rejects.toThrow(/容器/)
+
+    // 一条建池命令都不许发出去：容器里 mount 出来的块设备，宿主和 Docker daemon 都看不见
+    expect(calls.filter((c) => ['truncate', 'losetup', 'mkfs.xfs', 'mount'].includes(c.cmd))).toEqual(
+      [],
+    )
+  })
+
   it('镜像在、但没挂上 → **拒绝重新 mkfs**（那会抹掉已有数据）', async () => {
     const root = await tempDir()
     await writeFile(`${root}.img`, 'fake image')
