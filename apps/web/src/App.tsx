@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AppLayout } from './layouts/app-layout.js'
 import { useSession } from './lib/use-session.js'
+import { useSetupState } from './lib/use-setup.js'
 import AdminInstancesPage from './pages/admin/AdminInstancesPage.js'
 import AdminOverviewPage from './pages/admin/AdminOverviewPage.js'
 import AdminUsersPage from './pages/admin/AdminUsersPage.js'
@@ -18,8 +19,24 @@ import AcceptInvitePage from './pages/AcceptInvitePage.js'
 import InstanceDetailPage from './pages/InstanceDetailPage.js'
 import InstancesPage from './pages/InstancesPage.js'
 import AccountPage from './pages/settings/AccountPage.js'
+import SetupPage from './pages/SetupPage.js'
 
 export default function App() {
+  const { t } = useTranslation()
+  const setup = useSetupState()
+
+  // 引导态：平台还没配域名 —— 这时**只有** setup 页是有意义的，业务页面全都会打到 403 的 API 上。
+  // 挂在这里（`<Routes>` 之上）是因为它是唯一能看到全部路由的地方。
+  // 探针失败（`data` 拿不到）按"已配置"走：一次网络抖动不该让整个控制台变成白屏。
+  if (setup.isPending) {
+    return (
+      <div className="grid h-svh place-items-center text-sm text-muted-foreground">
+        {t('common.loading')}
+      </div>
+    )
+  }
+  if (setup.data?.configured === false) return <SetupPage />
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />

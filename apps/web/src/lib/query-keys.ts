@@ -9,6 +9,11 @@ import type { QueryClient } from '@tanstack/react-query'
  */
 export const keys = {
   session: ['session'] as const,
+  /**
+   * 平台配好域名没有（装机引导）。**进程活着的期间不会变**（配完域名平台要重启），
+   * 所以它不需要失效策略 —— 真配好了，页面也已经跳到新域名去了。
+   */
+  setup: ['setup'] as const,
   /** 存活探针（侧栏那颗指示灯）。 */
   health: ['health'] as const,
   /** 自己已登录的设备（账号页里那一张表）。 */

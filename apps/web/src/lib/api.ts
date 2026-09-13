@@ -551,3 +551,35 @@ export async function unpublishAdminImage(ref: string): Promise<void> {
 export async function setDefaultAdminImage(ref: string): Promise<void> {
   await request('/api/admin/images/default', { method: 'PATCH', body: JSON.stringify({ ref }) })
 }
+
+// ─── 装机引导（平台还没配域名时）────────────────────────────────────────────
+
+/**
+ * 平台配好域名没有。控制台启动时问一次，决定显示 setup 页还是正常界面。
+ *
+ * 这个端点在**两个模式都注册**：已配置时它就是一句 `{ configured: true }`，
+ * 控制台据此走正常界面，不必去猜 404 的含义。
+ */
+export async function getSetupState(): Promise<{ configured: boolean }> {
+  return request<{ configured: boolean }>('/api/setup/state')
+}
+
+/**
+ * 提交父域。凭证是安装脚本打印的**一次性 token**（在 URL 里带过来的）。
+ *
+ * 服务端会算 `console.<父域>`、落库、**立刻摘掉 :80 上的明文引导口**，然后重启自己。
+ * `dns` 是一次粗检的结果（随机子域解不解得出来）—— **只作提示，不拦**：解析可能是反代、
+ * 也可能还在生效，平台判不了。文案由 UI 组（这里只回事实）。
+ */
+export async function submitSetup(
+  token: string,
+  baseDomain: string,
+): Promise<{ consoleDomain: string; dns: { probe: string; resolved: boolean } }> {
+  return request<{ consoleDomain: string; dns: { probe: string; resolved: boolean } }>(
+    '/api/setup',
+    {
+      method: 'POST',
+      body: JSON.stringify({ token, baseDomain }),
+    },
+  )
+}
