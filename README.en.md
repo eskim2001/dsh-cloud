@@ -90,16 +90,12 @@ After deploying the platform, administrators can add users through invitation li
 
 ## Getting Started
 
-The local development environment uses `lvh.me`. Its public wildcard DNS entry, `*.lvh.me`, resolves to `127.0.0.1`, so no local DNS configuration is required and it does not conflict with applications such as Clash that use port `53`.
-
-The Compose stacks in this repository target local development, not a production installation.
-
 ### Prerequisites
 
-- Node.js 22 or later and pnpm 10.10.0, as specified in [package.json](package.json).
-- Docker Desktop with Linux container support and Compose v2. The control plane connects to the Docker daemon **at startup**, rather than only when creating workspaces.
-- Host ports `80` / `443` / `3000` / `5173` / `55432` free.
-- **Hard disk quotas depend on the host filesystem:** workspace data is stored under `HOST_STORAGE_ROOT` (`~/dsh-data` by default with `pnpm dev`). On Linux, this path must reside on **XFS mounted with `pquota`**. If the current filesystem is not XFS, the platform creates and mounts a loopback XFS image, which requires `CAP_SYS_ADMIN`. The platform **refuses to start** if neither option is available. The macOS and Docker Desktop kernels do not provide the required quota support, so disk quotas are not enforced in development and the console reports them as "no limit." See [D18](docs/DECISIONS.md).
+- Node.js 22+ and pnpm 10.10.0; see [package.json](package.json).
+- Docker Desktop with Linux container support and Compose v2. The control plane connects to the Docker daemon at startup.
+- Host ports `80`, `443`, `3000`, `5173`, `55432` free.
+- Hard disk quotas need the host on XFS mounted with `pquota`. Otherwise the platform mounts a loopback XFS image, which requires `CAP_SYS_ADMIN`; if neither works it refuses to start. macOS and Docker Desktop support neither, so quotas are not enforced in development and the console shows "no limit". Workspace data lives under `HOST_STORAGE_ROOT`, `~/dsh-data` by default with `pnpm dev`. See [D18](docs/DECISIONS.md).
 
 ### Run it
 
@@ -115,37 +111,31 @@ pnpm dev
 
 Open `https://console.lvh.me` and sign in with `admin@lvh.me` / `dsh-cloud-dev`.
 
-`pnpm dev` performs the following steps in order. If any step fails, the script terminates and reports the cause:
+`pnpm dev` runs: preflight (dependencies, ports, Docker daemon) → generate `apps/server/.env.local` (validated only if it already exists) → start PostgreSQL and the ingress ([docker/compose/local.yml](docker/compose/local.yml)) → migrate the database and create the first administrator → start the server and console, then print the URL.
 
-1. Preflight: dependencies, ports, Docker daemon.
-2. Generate `apps/server/.env.local`. If the file already exists, validate it without modifying its contents. Both secrets are generated randomly and are never printed.
-3. Start PostgreSQL and the ingress ([docker/compose/local.yml](docker/compose/local.yml)), then wait for the database readiness check to pass.
-4. Run database migrations and create the first administrator account.
-5. Start the server with automatic reloads and the console, then print the URL after the console is ready.
-
-`Ctrl-C` stops the server and console but **leaves the ingress and PostgreSQL running** so they can be reused by subsequent development sessions. To stop these services:
+`Ctrl-C` stops the server and console; the ingress and PostgreSQL keep running, so the next start is fast. To stop them too:
 
 ```bash
 pnpm dev:down
 ```
 
-To reset the local development environment by dropping the database and regenerating secrets:
+To reset the local environment (drops the database, regenerates secrets):
 
 ```bash
 docker compose -f docker/compose/local.yml down -v
 ```
 
-then delete `apps/server/.env.local`.
+Then delete `apps/server/.env.local`.
 
-### Handle the local certificate warning
+### Local ingress and certificates
 
-When no local certificate is configured, Traefik uses its built-in default certificate (`CN=TRAEFIK DEFAULT CERT`), which causes the browser to display a certificate warning. Select "Advanced → Proceed" to open the console. See [D26](docs/DECISIONS.md) for the rationale. To use a trusted certificate, issue one with a SAN that covers `DNS:lvh.me,DNS:*.lvh.me` and add it to the system trust store; this configuration is not included in the repository.
+Everything local goes through `*.lvh.me`, which resolves to `127.0.0.1` everywhere, so there is nothing to add to your hosts file. The cost is HTTPS only, and the repository ships no trusted certificate: Traefik uses its built-in `CN=TRAEFIK DEFAULT CERT`, so the browser shows a certificate warning — select "Advanced → Proceed". For a green lock, issue a certificate with a SAN covering `DNS:lvh.me,DNS:*.lvh.me` and add it to the system trust store. See [D26](docs/DECISIONS.md).
 
 ### Create a workspace
 
 You land on **Home** after signing in: recently used workspaces on top, quick actions and recent activity below.
 
-On the "Versions" page, select "Check for updates" to synchronize available versions from GHCR. Publish the required version and set it as the default if needed. Before **users can upgrade** to a version, select "Pre-warm on this host": the upgrade picker lists only versions already cached locally, as described in [D23](docs/DECISIONS.md). **Workspace creation is not subject to this restriction**; the platform automatically pulls images that are not yet cached.
+On the "Versions" page, select "Check for updates" to sync the versions available in GHCR, then publish the ones you need (and set a default). To let **users** upgrade to a version, first "Pre-warm on this host" — the upgrade picker lists only versions cached locally. Workspace creation is not subject to this; the platform pulls what it needs. See [D23](docs/DECISIONS.md).
 
 Build locally only if you changed `docker/instance-image/`:
 
@@ -153,11 +143,11 @@ Build locally only if you changed `docker/instance-image/`:
 ./docker/instance-image/build.sh
 ```
 
-The image tag is defined by [VERSION](docker/instance-image/VERSION) and follows the format `<dsh version>_<revision>` (for example, `0.1.2-rc.1_2`). Local builds and CI use the same full image name: `ghcr.io/eskim2001/dsh-instance:<tag>`. See [D22](docs/DECISIONS.md).
+The tag comes from [VERSION](docker/instance-image/VERSION) and follows `<dsh version>_<revision>` (for example, `0.1.2-rc.1_2`). Local and CI builds produce the same image name: `ghcr.io/eskim2001/dsh-instance:<tag>`. See [D22](docs/DECISIONS.md).
 
-After configuring a version, create a workspace on the "Workspaces" page. Once created, it can be opened directly from its details page.
+With a version configured, create a workspace on the "Workspaces" page and open it from its details page.
 
-> For the ingress topology, the rationale for using `lvh.me` and common issues such as Clash PAC or restarting the container after ingress configuration changes, see the [local ingress guide](docker/compose/README.md).
+> For the ingress topology, the trade-offs of `lvh.me`, and issues such as Clash PAC or needing to restart the container after ingress config changes, see the [local ingress guide](docker/compose/README.md).
 
 ## Contributing
 

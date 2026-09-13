@@ -91,16 +91,12 @@
 
 ## 快速开始
 
-本地开发环境使用 `lvh.me`：`*.lvh.me` 是解析至 `127.0.0.1` 的公共通配 DNS，因此无需配置本地 DNS，也不会与 Clash 等占用 `:53` 的程序冲突。
-
-仓库内的 Compose 栈只面向本地开发，不是生产安装方案。
-
 ### 前置条件
 
-- Node.js 22 或更新版本，以及 pnpm 10.10.0，版本要求见 [package.json](package.json)。
-- 已安装 Docker Desktop，能够运行 Linux 容器并提供 Compose v2。控制面在**启动时**即需连接 Docker daemon，而非仅在创建工作空间时连接。
-- 宿主端口 `80` / `443` / `3000` / `5173` / `55432` 空闲。
-- **磁盘硬配额依赖宿主文件系统**：工作空间数据存储在 `HOST_STORAGE_ROOT` 下（`pnpm dev` 默认为 `~/dsh-data`）。在 Linux 上，该路径须位于以 `pquota` 挂载的 **XFS** 文件系统中；若当前文件系统不是 XFS，平台将创建并挂载 loopback XFS 镜像，此操作需要 `CAP_SYS_ADMIN`。两种方式均不可用时，平台将**拒绝启动**。macOS 与 Docker Desktop 的内核不支持所需的配额能力，因此开发环境不会强制磁盘配额，并会在界面中将其标记为「无上限」。见 [D18](docs/DECISIONS.md)。
+- Node.js 22+，pnpm 10.10.0。版本见 [package.json](package.json)。
+- Docker Desktop，能跑 Linux 容器，带 Compose v2。控制面启动时就要连 Docker daemon。
+- 端口 `80`、`443`、`3000`、`5173`、`55432` 空闲。
+- 磁盘硬配额要求宿主是挂载了 `pquota` 的 XFS。不是的话，平台会挂一个 loopback XFS 镜像（需 `CAP_SYS_ADMIN`）；两样都不行就拒绝启动。macOS 和 Docker Desktop 不支持，所以本地不强制配额，界面写「无上限」。工作空间数据放在 `HOST_STORAGE_ROOT`，`pnpm dev` 默认 `~/dsh-data`。见 [D18](docs/DECISIONS.md)。
 
 ### 启动开发环境
 
@@ -116,37 +112,31 @@ pnpm dev
 
 打开 `https://console.lvh.me`，用 `admin@lvh.me` / `dsh-cloud-dev` 登录。
 
-`pnpm dev` 依次执行以下流程；任一步骤失败时，脚本都会终止并输出错误原因：
+`pnpm dev` 依次做：预检依赖、端口、Docker daemon → 生成 `apps/server/.env.local`（已存在就只校验，不改）→ 起 PostgreSQL 和入口服务（[docker/compose/local.yml](docker/compose/local.yml)）→ 迁移数据库、建首个管理员 → 起控制面和管理台，就绪后打印地址。
 
-1. 预检依赖、端口、Docker daemon。
-2. 生成 `apps/server/.env.local`；若文件已存在，则仅执行校验，不修改现有内容。两个 secret 均随机生成且不会输出至终端。
-3. 启动 PostgreSQL 和入口服务（[docker/compose/local.yml](docker/compose/local.yml)），并等待数据库通过就绪检查。
-4. 执行数据库迁移并创建首个管理员账号。
-5. 启动支持代码变更自动重启的控制面和管理台；管理台就绪后输出访问地址。
-
-`Ctrl-C` 仅停止控制面和管理台，**入口服务与 PostgreSQL 将继续运行**，以便后续启动时复用。停止这些服务请运行：
+`Ctrl-C` 只停控制面和管理台，入口服务和 PostgreSQL 留着，下次秒起。要一起停：
 
 ```bash
 pnpm dev:down
 ```
 
-重置本地开发环境（清空数据库并重新生成 secret）：
+重置本地环境（清空数据库、重发 secret）：
 
 ```bash
 docker compose -f docker/compose/local.yml down -v
 ```
 
-随后删除 `apps/server/.env.local`。
+再删 `apps/server/.env.local`。
 
-### 处理本地证书警告
+### 本地入口与证书
 
-Traefik 未配置本地证书时，会使用内置的默认证书（`CN=TRAEFIK DEFAULT CERT`），因此浏览器将显示证书安全警告。选择「高级 → 继续访问」即可进入管理台，相关决策见 [D26](docs/DECISIONS.md)。如需使用受系统信任的证书，请签发一张 SAN 覆盖 `DNS:lvh.me,DNS:*.lvh.me` 的证书，并将其加入系统信任库；仓库默认不包含此配置。
+本地走 `*.lvh.me`，全网解析到 `127.0.0.1`，不用改 hosts。代价是只能走 HTTPS，而仓库不给受信任的证书：Traefik 用自带的 `CN=TRAEFIK DEFAULT CERT`，浏览器会报红锁，点「高级 → 继续访问」即可。想绿锁就自己签一张 SAN 覆盖 `DNS:lvh.me,DNS:*.lvh.me` 的证书装进系统信任库。见 [D26](docs/DECISIONS.md)。
 
 ### 创建工作空间
 
 登录后落在「主页」：最近用过的空间在最上面，下面是快捷操作和最近活动。
 
-在「版本管理」页面选择「检查更新」，同步 GHCR 中的可用版本；随后发布所需版本，并可将其设为默认版本。若要允许**用户升级**至某一版本，还须先执行「预热到本机」：用户端的升级列表仅显示本机已缓存的版本，相关决策见 [D23](docs/DECISIONS.md)。**创建工作空间不受此限制**，平台会自动拉取尚未缓存的镜像。
+在「版本管理」页点「检查更新」，同步 GHCR 的可用版本，再发布需要的版本（可设为默认）。要让**用户**能升级到某个版本，得先把它「预热到本机」——用户端的升级列表只列本机已缓存的版本；创建工作空间不受此限，平台会自己拉。见 [D23](docs/DECISIONS.md)。
 
 只有改了 `docker/instance-image/` 才需要本地构建：
 
@@ -154,11 +144,11 @@ Traefik 未配置本地证书时，会使用内置的默认证书（`CN=TRAEFIK 
 ./docker/instance-image/build.sh
 ```
 
-镜像 tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式为 `<dsh版本>_<修订号>`（如 `0.1.2-rc.1_2`）。本地构建与 CI 使用相同的完整镜像名称：`ghcr.io/eskim2001/dsh-instance:<tag>`。见 [D22](docs/DECISIONS.md)。
+tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式 `<dsh版本>_<修订号>`（如 `0.1.2-rc.1_2`）。本地和 CI 构建出的镜像名一致：`ghcr.io/eskim2001/dsh-instance:<tag>`。见 [D22](docs/DECISIONS.md)。
 
-完成版本配置后，在「工作空间」页面创建工作空间。创建完成后，可直接从详情页在浏览器中打开。
+配好版本后，在「工作空间」页创建工作空间，建好后从详情页直接在浏览器打开。
 
-> 入口栈拓扑、`lvh.me` 的选用原因及常见问题（Clash PAC、修改入口配置后重启容器）见[本地入口指南](docker/compose/README.md)。
+> 入口拓扑、`lvh.me` 的取舍，以及 Clash PAC、改完入口配置要重启容器这类问题，见[本地入口指南](docker/compose/README.md)。
 
 ## 参与贡献
 
