@@ -25,6 +25,8 @@ export const keys = {
   instanceImage: (id: string) => ['instance-image', id] as const,
 
   adminUsers: ['admin', 'users'] as const,
+  /** 待接受 / 已接受的邀请链接（不含链接本身——服务端只有哈希）。 */
+  adminInvitations: ['admin', 'invitations'] as const,
   adminInstances: ['admin', 'instances'] as const,
   adminInstanceImage: (id: string) => ['admin', 'instance-image', id] as const,
 } as const

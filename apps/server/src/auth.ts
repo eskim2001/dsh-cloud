@@ -18,7 +18,11 @@ export function createAuth(env: Env, db: Db) {
     basePath: '/api/auth',
     database: drizzleAdapter(db, { provider: 'pg' }),
     trustedOrigins: trustedOrigins(env),
-    emailAndPassword: { enabled: true },
+    // 公开注册**关闭**。装平台的人 = 用平台的人，「谁能进来」是 owner 自己的事：
+    // 开着注册等于让陌生人到你服务器上开号、建容器、吃 CPU 和磁盘。
+    // 账号只有两条路产生——seed 的第一个 owner，和 owner 发的邀请链接；
+    // 两条都走 createUserWithPassword（src/account.ts），绕过这个开关。
+    emailAndPassword: { enabled: true, disableSignUp: true },
     plugins: [
       // 平台管理员（运营方）。它带来 role / banned 字段，并让 better-auth
       // 在建会话时**拒绝**被封禁的用户——封禁因此是真的封禁，不只是标记。

@@ -27,6 +27,8 @@ const ALLOWED_GET_ROUTES = [
   'GET /api/admin/instances/:id/image',
   'GET /api/admin/instances/:id/logs',
   'GET /api/admin/images',
+  // 邀请列表：要 admin。**不含链接**——库里只存哈希，明文早就不存在了
+  'GET /api/admin/invitations',
   // 有副作用的 GET：EventSource 只能 GET，起 docker pull 的那一下靠 admin 鉴权兜底
   'GET /api/admin/images/pull',
 ]

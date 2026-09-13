@@ -14,6 +14,7 @@ import HomePage from './pages/HomePage.js'
 import OpenWorkspacePage from './pages/OpenWorkspacePage.js'
 import WorkspaceSettingsPage from './pages/WorkspaceSettingsPage.js'
 import LoginPage from './pages/LoginPage.js'
+import AcceptInvitePage from './pages/AcceptInvitePage.js'
 import InstanceDetailPage from './pages/InstanceDetailPage.js'
 import InstancesPage from './pages/InstancesPage.js'
 import AccountPage from './pages/settings/AccountPage.js'
@@ -22,6 +23,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/* 兑换邀请：**未登录可达**——公开注册关掉之后，这是新账号唯一的入口 */}
+      <Route path="/invite/:token" element={<AcceptInvitePage />} />
 
       {/* 管理台：所有需要登录的页面都套在 AppLayout 里 */}
       <Route

@@ -14,6 +14,7 @@ import { listImageCatalog } from './db/image-catalog-repo.js'
 import { listRecentMetrics } from './db/metric-repo.js'
 import {
   countAdmins,
+  findUserByEmail,
   findUserById,
   listInstancesWithOwner,
   listUsersWithInstanceCount,
@@ -22,9 +23,23 @@ import {
   setUserQuota,
   setUserRole,
 } from './db/user-repo.js'
+import {
+  createInvitation,
+  deleteInvitation,
+  findPendingInvitationByEmail,
+  listInvitations,
+} from './db/invitation-repo.js'
+import {
+  acceptInvitation,
+  hashInviteToken,
+  inviteExpiry,
+  inviteUrl,
+  newInviteToken,
+} from './invitation.js'
 import { trustedOrigins, type Env } from './env.js'
 import { registerAdminRoutes } from './http/admin-routes.js'
 import { registerForwardAuth } from './http/forward-auth-route.js'
+import { registerInvitationRoutes } from './http/invitation-routes.js'
 import { registerSessionRoutes } from './http/session-routes.js'
 import { registerInstanceRoutes } from './http/instance-routes.js'
 import type { DiskUsed } from './http/instance-routes.js'
@@ -255,6 +270,38 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     },
     streamLogs,
     getSessionUser: (req) => sessionUser(req.headers),
+
+    // 邀请：明文 token 只在这个函数里存在过一次——库里存的是哈希，返回给 owner
+    // 之后再也要不回来（见 db/invitation-repo.ts）。
+    createInvite: async (email, createdBy) => {
+      const address = email.trim().toLowerCase()
+      if ((await findUserByEmail(deps.db, address)) !== undefined) {
+        return { ok: false, reason: 'exists' }
+      }
+      if ((await findPendingInvitationByEmail(deps.db, address)) !== undefined) {
+        return { ok: false, reason: 'pending' }
+      }
+      const token = newInviteToken()
+      const expiresAt = inviteExpiry()
+      await createInvitation(deps.db, {
+        tokenHash: hashInviteToken(token),
+        email: address,
+        createdBy,
+        expiresAt,
+      })
+      return {
+        ok: true,
+        url: inviteUrl(deps.env.PUBLIC_SCHEME, deps.env.CONSOLE_DOMAIN, token),
+        expiresAt,
+      }
+    },
+    listInvites: () => listInvitations(deps.db),
+    revokeInvite: (id) => deleteInvitation(deps.db, id),
+  })
+
+  // ⑥ 邀请兑换：全平台唯一一个不认证的写端点（认证方式见 http/invitation-routes.ts）
+  await registerInvitationRoutes(app, {
+    acceptInvite: (input) => acceptInvitation(deps.db, deps.auth, input),
   })
 
   app.get('/healthz', async () => ({ ok: true }))

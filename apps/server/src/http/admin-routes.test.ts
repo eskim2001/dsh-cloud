@@ -41,6 +41,9 @@ const EXPECTED_ROUTES = [
   { method: 'POST', url: '/api/admin/images/sync' },
   { method: 'DELETE', url: '/api/admin/images' },
   { method: 'PATCH', url: '/api/admin/images/default' },
+  { method: 'GET', url: '/api/admin/invitations' },
+  { method: 'POST', url: '/api/admin/invitations' },
+  { method: 'DELETE', url: '/api/admin/invitations/:id' },
 ]
 
 const ATTACKS = EXPECTED_ROUTES.map((r) => ({ ...r, url: r.url.replace(':id', 'user-1') }))
@@ -101,6 +104,14 @@ async function build(
     rollbackInstanceImage: async () => true,
     streamLogs: async () => {},
     getSessionUser: async () => session,
+    // 邀请：默认能生成。用例自己覆盖「邮箱已存在 / 已有待接受邀请」
+    createInvite: async () => ({
+      ok: true as const,
+      url: 'https://console.test/invite/tok',
+      expiresAt: new Date(0),
+    }),
+    listInvites: async () => [],
+    revokeInvite: async () => true,
     ...over,
   })
   return { app, routes }

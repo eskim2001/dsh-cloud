@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <b>DSH as a Service</b> — a self-hosted or cloud-hosted, multi-tenant platform for deploying and hosting DeepSeek Harness (dsh) instances.
+  <b>dsh-aaS</b> — your own dsh cloud: a workspace for you, and one for each person you invite.
 </p>
 
 <p align="center">
@@ -22,19 +22,30 @@
   <a href="#contributing">Contributing</a>
 </p>
 
-**dshcloud** adds account management, workspace provisioning and access control to [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`). Each workspace is a dsh instance plus the persistent storage that follows it: the container runs on its own Docker network, and the data under `/data` is still there after a rebuild or an image change. Users reach their workspaces through an authenticated subdomain; operators manage accounts, capacity and available versions from a web console.
+**dshcloud** moves [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) onto a machine you own and keeps it running. You and the people you invite each get a workspace — its own container, its own `/data`, no interference between them. Open any browser on a phone, a tablet or another computer and you are in; closing the laptop does not stop it. Upgrading dsh is an image swap: workspaces, sessions, plugins and configuration stay where they are.
+
+Install the platform once, then send invite links: each person sets their own password and creates workspaces within their quota.
 
 > **Early development.** Use this project for evaluation and development. It is not production-ready; deployment validation and security work remain open. See the permission boundaries and operational limits in the [architecture and security model](docs/ARCHITECTURE.md) before exposing it to the internet.
 
+## Why not just run it locally
+
+| Running dsh locally | On dshcloud |
+| --- | --- |
+| Closing the laptop stops it | Runs on a server you own, up while your laptop is shut |
+| Only that one machine can reach it | Phone, tablet, work computer — any browser gets in |
+| One dsh, and a second person has to fight over it | **Multi-user:** you and the people you invite each get one, isolated |
+| Splitting by project means installing again | **Multiple workspaces:** one person can have several |
+| Upgrading means reinstalling; configuration and plugins start over | Swap the image and it is done; workspaces, sessions, plugins and configuration stay under `/data` |
+
 ## Features
 
-- **Workspace management:** Create, start, stop, rebuild and delete workspaces. Per-user limits allow multiple workspaces within an assigned quota.
-- **Resource controls:** CPU, memory and process limits, plus a hard capacity limit on each workspace's `/data` filesystem. Administrators can adjust resource quotas after creation.
-- **Authenticated access:** Per-workspace subdomains behind Traefik, owner authorization and an HMAC-derived entry token unique to each workspace. Workspaces publish ports on the host loopback only, never on a public interface.
-- **Persistent data:** Files, configuration and installed user packages all live under `/data` — its own subdirectory in the storage pool, under an XFS project quota — so they survive rebuilds and image changes. Image changes take a pre-upgrade snapshot for rollback.
-- **Operations:** Account bans, quota management, version publishing, runtime-backed status, usage sampling and workspace log streaming. See the role boundaries below.
-- **Console entry points:** Home answers "what was I doing", with workspaces, files and activity as separate entry points and a ⌘K command menu to search or jump; administration has its own navigation.
-- **Bilingual console:** English and Simplified Chinese, light and dark themes, email/password sign-in and session management.
+- **Workspaces:** create, start, stop, rebuild and delete; each has its own container and `/data`, with limits on CPU, memory, process count and disk capacity.
+- **Multi-user:** the owner sends invite links; each person sets their own password and only sees their own workspaces.
+- **Access control:** workspace ports are published on the host loopback only; the public path goes through Traefik authentication and an owner check, plus a per-workspace signature gate.
+- **Versions:** read versions from GHCR, publish, set a default; upgrades swap the image and take a rollback-capable snapshot first.
+- **Console:** account status, resource quotas, usage sampling and workspace log streaming.
+- **Interface:** English and Simplified Chinese, light and dark themes, ⌘K command menu.
 
 ## Screenshots
 
@@ -64,9 +75,9 @@
 </details>
 
 <details>
-  <summary>Administration · All instances</summary>
+  <summary>Administration · All workspaces</summary>
   <p>
-    <a href="docs/screenshots/en/admin-instances.png"><img src="docs/screenshots/en/admin-instances.png" alt="Administration · All instances" width="100%"></a>
+    <a href="docs/screenshots/en/admin-instances.png"><img src="docs/screenshots/en/admin-instances.png" alt="Administration · All workspaces" width="100%"></a>
   </p>
 </details>
 

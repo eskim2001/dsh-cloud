@@ -217,8 +217,42 @@ export const imageCatalog = pgTable('image_catalog', {
   syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
+/**
+ * 一次性邀请链接。owner 生成、复制，自己发给熟人——**平台不发邮件**，所以这里
+ * 只有「链接」，没有投递状态。
+ *
+ * **只存 token 的哈希**：明文只在生成那一刻返回一次，之后谁也恢复不出来，包括
+ * 拿到库的人。兑换成功写 `acceptedAt`，同一条链接不能再用。
+ */
+export const invitation = pgTable(
+  'invitation',
+  {
+    id: text('id').primaryKey(),
+    /** SHA-256(token)。明文不落库。 */
+    tokenHash: text('token_hash').notNull().unique(),
+    /**
+     * 被邀者的邮箱。**必填**——生成时先查有没有账号，有就直接拒绝。
+     * 链接因此不是「谁捡到谁能用」，捡到的人还得知道是发给哪个邮箱的。
+     */
+    email: text('email').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    /** 兑换后指向新账号。账号被删就置空，但这一行留着——token 不能复活。 */
+    acceptedBy: text('accepted_by').references(() => user.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('invitation_email_idx').on(t.email),
+    index('invitation_created_by_idx').on(t.createdBy),
+  ],
+)
+
 export type InstanceRow = typeof instance.$inferSelect
 export type InstanceStatus = InstanceRow['status']
 export type InstanceMetricRow = typeof instanceMetric.$inferSelect
 export type ImageReleaseRow = typeof imageRelease.$inferSelect
 export type ImageCatalogRow = typeof imageCatalog.$inferSelect
+export type InvitationRow = typeof invitation.$inferSelect

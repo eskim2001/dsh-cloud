@@ -44,18 +44,18 @@
     "activity": "Recent activity",
     "viewActivity": "View all",
     "emptyTitle": "Your workspace is waiting.",
-    "emptyBody": "Create your first workspace and start using DSH."
+    "emptyBody": "Create your first workspace and start using dsh."
   },
   "workspaceCreate": {
     "back": "Back to workspaces",
     "title": "Create workspace",
-    "subtitle": "Give your DSH workspace a name. We will take care of the rest.",
+    "subtitle": "Give your dsh workspace a name. We will take care of the rest.",
     "name": "Name",
     "namePlaceholder": "personal-dsh",
     "nameHint": "Use lowercase letters, numbers, and hyphens. This also becomes its private address.",
     "advanced": "Use advanced settings",
     "ready": "Workspace ready.",
-    "readyBody": "Your DSH environment is prepared and waiting for you.",
+    "readyBody": "Your dsh environment is prepared and waiting for you.",
     "open": "Open workspace"
   },
   "files": {
@@ -66,7 +66,7 @@
     "open": "Open files",
     "empty": "No matching workspaces",
     "emptyBody": "Create a workspace to start working with files.",
-    "boundary": "Files remain inside each isolated workspace. Open a workspace to upload, create, move, preview, or delete files in DSH."
+    "boundary": "Files remain inside each isolated workspace. Open a workspace to upload, create, move, preview, or delete files in dsh."
   },
   "activity": {
     "title": "Activity",
@@ -95,9 +95,9 @@
     "attention": "This workspace needs attention",
     "workspace": "Workspace",
     "files": "Files",
-    "openFiles": "Open in DSH",
+    "openFiles": "Open in dsh",
     "storage": "Storage used",
-    "version": "DSH version",
+    "version": "dsh version",
     "recent": "Recent activity",
     "available": "Workspace is ready"
   },
@@ -105,7 +105,7 @@
     "preparing": "Preparing your workspace",
     "moment": "This usually takes a moment.",
     "ready": "Workspace ready.",
-    "redirecting": "Opening DSH…",
+    "redirecting": "Opening dsh…",
     "offline": "This workspace is offline.",
     "offlineBody": "Start it when you are ready to continue.",
     "start": "Start workspace",
@@ -135,20 +135,26 @@
     "system": "System"
   },
   "login": {
-    "subtitle": "Multi-workspace DeepSeek Harness console",
-    "tabSignIn": "Sign in",
-    "tabSignUp": "Sign up",
-    "name": "Name",
-    "namePlaceholder": "Optional",
+    "subtitle": "Your own dsh cloud",
     "email": "Email",
     "password": "Password",
     "pending": "Working…",
-    "submitSignIn": "Sign in",
-    "submitSignUp": "Create account"
+    "submitSignIn": "Sign in"
+  },
+  "invite": {
+    "subtitle": "You have been invited",
+    "intro": "Set a password and you are in.",
+    "name": "Name",
+    "namePlaceholder": "Optional",
+    "password": "Password",
+    "submit": "Set password and continue",
+    "pending": "Working…",
+    "alreadyAccepted": "The account was created, but signing in automatically did not work. Go back to the sign-in page and use the password you just set.",
+    "backToLogin": "Go to sign-in"
   },
   "instances": {
     "title": "Workspaces",
-    "subtitle": "Your personal DSH spaces, ready when you are.",
+    "subtitle": "Your personal dsh spaces, ready when you are.",
     "slug": "Identifier (subdomain)",
     "slugPlaceholder": "alice",
     "slugHint": "Lowercase letters, digits and hyphens, 3–32 characters.",
@@ -172,7 +178,7 @@
     "newDescription": "Pick a subdomain — that becomes its address.",
     "loadFailed": "Failed to load workspaces",
     "emptyTitle": "Your workspace is waiting",
-    "emptyHint": "Create your first workspace to start using DSH.",
+    "emptyHint": "Create your first workspace to start using dsh.",
     "emptyAction": "Create workspace",
     "lastUsed": "Last used {{time}}",
     "createdAt": "Created",
@@ -300,7 +306,7 @@
       "operations": "Operations",
       "manageWorkspaces": "Runtime state, resources, logs, and recovery",
       "manageUsers": "Access, roles, and workspace allowances",
-      "manageVersions": "Published DSH releases and host availability"
+      "manageVersions": "Published dsh releases and host availability"
     },
     "actionFailed": "Action failed, please retry",
     "users": {
@@ -326,6 +332,20 @@
       "grantAdminConfirm": "Make {{email}} a platform admin? Admins can ban accounts, change quotas, and see every workspace and container log.",
       "revokeAdminConfirm": "Revoke admin access for {{email}}?",
       "selfDemoteHint": "This is your own account: you will lose admin access immediately and be sent back to the home page.",
+      "inviteTitle": "Invite someone",
+      "inviteDescription": "Generate a link and send it yourself. Single use, expires after {{hours}} hours.",
+      "inviteEmailPlaceholder": "Their email",
+      "inviteCreate": "Generate invite link",
+      "inviteCreating": "Generating…",
+      "inviteCopyHint": "Copy it and send it yourself — once you leave this page the link is gone for good.",
+      "invitePending": "Pending",
+      "inviteAccepted": "Joined",
+      "inviteExpired": "Expired",
+      "inviteExpiresAt": "Valid until {{time}}",
+      "inviteRevoke": "Revoke",
+      "inviteEmpty": "No invitations sent yet.",
+      "inviteFailed": "Invitation action failed. Try again.",
+      "inviteLoadFailed": "Failed to load invitations",
       "loadFailed": "Failed to load users"
     },
     "instances": {

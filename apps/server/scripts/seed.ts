@@ -14,14 +14,10 @@
  *
  * 用法：pnpm --filter @dsh-cloud/server db:seed
  */
+import { createUserWithPassword } from '../src/account.js'
 import { createAuth } from '../src/auth.js'
 import { createDb, type Db } from '../src/db/client.js'
-import {
-  countAdmins,
-  findUserByEmail,
-  revokeUserSessions,
-  setUserRole,
-} from '../src/db/user-repo.js'
+import { countAdmins, findUserByEmail, setUserRole } from '../src/db/user-repo.js'
 import { loadEnv, type Env } from '../src/env.js'
 
 function usage(message: string): never {
@@ -59,14 +55,10 @@ async function seedAdmin(db: Db, env: Env): Promise<void> {
     return
   }
 
-  // 不用 auth.api.createUser：admin 插件那个端点要求调用者是 admin 会话，这时还没有
+  // 走平台的建号入口：公开注册已关闭（auth.ts 的 disableSignUp），而且这里没有
+  // admin 会话可用。createUserWithPassword 直接调内部适配器，两条都不挡。
   const auth = createAuth(env, db)
-  await auth.api.signUpEmail({ body: { email, password, name } })
-  const created = await findUserByEmail(db, email)
-  if (created === undefined) throw new Error(`建号后找不到 ${email}，seed 中止`)
-  await setUserRole(db, created.id, 'admin')
-  // signUpEmail 顺带建了一条没人持有的会话，清掉
-  await revokeUserSessions(db, created.id)
+  await createUserWithPassword(auth, { email, password, name, role: 'admin' })
   console.log(`已创建管理员 ${email}`)
 }
 

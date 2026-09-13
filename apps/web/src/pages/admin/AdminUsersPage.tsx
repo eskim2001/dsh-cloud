@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { CircleCheckIcon, ShieldCheckIcon, UsersIcon } from 'lucide-react'
 import { AdminMetricStrip, AdminPage, AdminTableSection } from '@/components/admin/admin-page.js'
 import { BanButton } from '@/components/admin/ban-button.js'
+import { InvitePanel } from '@/components/admin/invite-panel.js'
 import { RoleButton } from '@/components/admin/role-button.js'
 import { UserQuotaEditor } from '@/components/admin/user-quota-editor.js'
 import { Badge } from '@/components/ui/badge.js'
@@ -172,6 +173,9 @@ export default function AdminUsersPage() {
             </Table>
           )}
       </AdminTableSection>
+
+      {/* 邀请：公开注册关掉之后，熟人**只能**从这里进来（兑换页见 AcceptInvitePage） */}
+      <InvitePanel />
     </AdminPage>
   )
 }

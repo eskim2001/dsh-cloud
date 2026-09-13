@@ -8,8 +8,8 @@
 </p>
 
 <p align="center">
-  <b>DSH as a Service</b> —— 面向 DeepSeek Harness 的多租户托管平台。<br>
-  <sub>DSH as a Service: a self-hosted or cloud-hosted, multi-tenant platform for deploying and hosting DeepSeek Harness (dsh) instances.</sub>
+  <b>dsh-aaS</b> —— 你自己的 dsh 云，给你和你邀请的人各一份工作空间。<br>
+  <sub>dsh as a Service, on your own hardware: run DeepSeek Harness yourself and give each person you invite a workspace of their own.</sub>
 </p>
 
 <p align="center">
@@ -23,19 +23,30 @@
   <a href="#参与贡献">参与贡献</a>
 </p>
 
-**dshcloud** 为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）提供账号管理、工作空间创建和访问控制。每个工作空间是一个独立的 dsh 实例，外带一份跟着它走的持久化存储：容器跑在自己的 Docker 网络里，`/data` 里的数据在重建、换镜像之后都还在。用户通过经过认证的子域进入自己的工作空间，运营者通过 Web 管理台管理账号、资源容量和可用版本。
+**dshcloud** 把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）搬到你自己的一台机器上，让它一直跑着。你和你邀请的人各有一个工作空间——独立的容器、独立的 `/data`，互不干扰；手机、平板、任意一台电脑打开浏览器就能进，合上笔记本它也不会停。升级 dsh 只是换一次镜像，工作区、会话、插件和配置都留在原处。
+
+平台装一次，然后发邀请链接：对方自己设密码进来，各自在配额内建自己的工作空间。
 
 > **项目处于早期开发阶段。** 当前适合评估与开发，尚不具备生产可用性；部署验证和安全工作仍有未决项。暴露到公网前，请先阅读[架构与安全模型](docs/ARCHITECTURE.md)里的权限边界与运行限制。
 
+## 为什么不是本地跑
+
+| 本地跑 dsh | 在 dshcloud 上 |
+| --- | --- |
+| 合上笔记本就停了 | 跑在你自己的服务器上，合上笔记本它也不会停 |
+| 只有这一台机器能开 | 手机、平板、公司电脑，任意浏览器打开就进 |
+| 一份 dsh，第二个人要用就得打架 | **多用户**：你和你邀请的人各一份，互不干扰 |
+| 想按项目分开，只能重装一份 | **多实例**：一个人也能开好几个工作空间 |
+| 升级要重装，配置和插件得重来 | 换镜像就升完，工作区、会话、插件和配置都留在 `/data` |
+
 ## 功能
 
-- **工作空间管理：** 创建、启动、停止、重建和删除工作空间。通过每用户数量上限，允许用户在分配的额度内拥有多个。
-- **资源控制：** CPU、内存、进程数限制，以及每工作空间 `/data` 文件系统的容量硬限制。管理员可以在创建后调整资源配额。
-- **认证访问：** Traefik 后的工作空间独立子域、所有者授权，以及通过 HMAC 派生的专属入口令牌。工作空间只在宿主回环上发布端口，不对公网暴露。
-- **持久化数据：** 文件、配置和用户安装的软件包都落在 `/data`（池子里的独立子目录，带 XFS project quota 硬配额），重建与镜像切换都不丢。镜像切换前先打一份数据快照，失败可回滚。
-- **运维管理：** 账号封禁、配额管理、版本上架、基于运行时的状态查询、用量采样和工作空间日志流。各角色的权限边界见下文。
-- **控制台入口：** 主页回答「接着做什么」，工作空间、文件、活动三个入口各司其职，⌘K 命令面板随时搜索或跳转。管理面另有一套导航。
-- **双语管理台：** 英文与简体中文、明暗主题、邮箱密码登录和会话管理。
+- **工作空间：** 创建、启动、停止、重建、删除；每个有独立的容器和 `/data`，CPU、内存、进程数和磁盘容量都可设限。
+- **多用户：** 管理员发邀请链接，对方自己设密码进来，各管各的工作空间，看不到别人的。
+- **访问控制：** 工作空间的端口只发布到宿主回环；对外经 Traefik 前置认证与所有者校验，外加一道每工作空间独立的签名门。
+- **版本：** 从 GHCR 读版本、上架、设为默认；升级换镜像，升级前自动打一份可回滚的数据快照。
+- **管理台：** 账号状态、资源配额、用量采样、工作空间日志流。
+- **界面：** 英文与简体中文、明暗主题、⌘K 命令面板。
 
 ## 截图
 
@@ -65,9 +76,9 @@
 </details>
 
 <details>
-  <summary>平台管理 · 全部实例</summary>
+  <summary>平台管理 · 全部工作空间</summary>
   <p>
-    <a href="docs/screenshots/zh-CN/admin-instances.png"><img src="docs/screenshots/zh-CN/admin-instances.png" alt="平台管理 · 全部实例" width="100%"></a>
+    <a href="docs/screenshots/zh-CN/admin-instances.png"><img src="docs/screenshots/zh-CN/admin-instances.png" alt="平台管理 · 全部工作空间" width="100%"></a>
   </p>
 </details>
 

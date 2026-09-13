@@ -10,27 +10,24 @@ import { Button } from '@/components/ui/button.js'
 import { Card, CardContent } from '@/components/ui/card.js'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field.js'
 import { Input } from '@/components/ui/input.js'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.js'
-import { ApiError, signIn, signUp } from '../lib/api.js'
+import { ApiError, signIn } from '../lib/api.js'
 import { sessionKey } from '../lib/use-session.js'
 
-type Mode = 'signin' | 'signup'
-
+/**
+ * 登录。**没有注册入口**——公开注册已经关掉（服务端 `disableSignUp`），
+ * 账号只有两条路产生：seed 的第一个 owner，和 owner 发出的邀请链接
+ * （兑换页见 AcceptInvitePage）。所以这里一个表单就够。
+ */
 export default function LoginPage() {
-  const [mode, setMode] = useState<Mode>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [name, setName] = useState('')
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { t } = useTranslation()
 
   const mutation = useMutation({
-    mutationFn: async () => {
-      if (mode === 'signup') return await signUp(email, password, name === '' ? email : name)
-      return await signIn(email, password)
-    },
+    mutationFn: () => signIn(email, password),
     onSuccess: (user) => {
       // 直接写进缓存再跳转：否则 RequireAuth 会先看到旧的 null 把人弹回来
       queryClient.setQueryData(sessionKey, user)
@@ -68,36 +65,7 @@ export default function LoginPage() {
         <Card>
           <CardContent>
             <form onSubmit={submit} className="flex flex-col gap-4">
-              <ToggleGroup
-                value={[mode]}
-                onValueChange={(value) => {
-                  const next = value[0]
-                  if (next === 'signin' || next === 'signup') setMode(next)
-                }}
-                className="w-full"
-              >
-                <ToggleGroupItem value="signin" className="flex-1">
-                  {t('login.tabSignIn')}
-                </ToggleGroupItem>
-                <ToggleGroupItem value="signup" className="flex-1">
-                  {t('login.tabSignUp')}
-                </ToggleGroupItem>
-              </ToggleGroup>
-
               <FieldGroup>
-                {mode === 'signup' && (
-                  <Field>
-                    <FieldLabel htmlFor="name">{t('login.name')}</FieldLabel>
-                    <Input
-                      id="name"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder={t('login.namePlaceholder')}
-                      autoComplete="name"
-                    />
-                  </Field>
-                )}
-
                 <Field>
                   <FieldLabel htmlFor="email">{t('login.email')}</FieldLabel>
                   <Input
@@ -119,7 +87,7 @@ export default function LoginPage() {
                     minLength={8}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                    autoComplete="current-password"
                   />
                 </Field>
               </FieldGroup>
@@ -135,11 +103,7 @@ export default function LoginPage() {
               )}
 
               <Button type="submit" disabled={mutation.isPending}>
-                {mutation.isPending
-                  ? t('login.pending')
-                  : mode === 'signin'
-                    ? t('login.submitSignIn')
-                    : t('login.submitSignUp')}
+                {mutation.isPending ? t('login.pending') : t('login.submitSignIn')}
               </Button>
             </form>
           </CardContent>

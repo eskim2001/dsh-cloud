@@ -138,16 +138,21 @@ export async function signIn(email: string, password: string): Promise<SessionUs
   return res.user
 }
 
-export async function signUp(
-  email: string,
-  password: string,
-  name: string,
-): Promise<SessionUser> {
-  const res = await request<{ user: SessionUser }>('/api/auth/sign-up/email', {
+/**
+ * 兑换一条邀请：设密码、把账号建出来。**这一步不建会话**——拿到 email 之后
+ * 走正常的 `signIn`，认证路径只保留一条。
+ *
+ * 公开注册已关闭（服务端 `disableSignUp`），所以这是除 seed 外唯一的建号入口。
+ */
+export async function acceptInvitation(input: {
+  token: string
+  password: string
+  name?: string
+}): Promise<{ email: string }> {
+  return request('/api/invitations/accept', {
     method: 'POST',
-    body: JSON.stringify({ email, password, name }),
+    body: JSON.stringify(input),
   })
-  return res.user
 }
 
 export async function signOut(): Promise<void> {
@@ -405,6 +410,45 @@ export async function setUserRole(id: string, role: 'user' | 'admin'): Promise<v
     method: 'PATCH',
     body: JSON.stringify({ role }),
   })
+}
+
+// ─── 邀请（owner 生成 → 熟人兑换）─────────────────────────────────────────
+
+export interface Invitation {
+  id: string
+  email: string
+  createdAt: string
+  expiresAt: string
+  /** 非空 = 已经兑换过了。 */
+  acceptedAt: string | null
+}
+
+export async function listInvitations(): Promise<{
+  invitations: Invitation[]
+  /** 有效期（小时）。界面要告诉 owner「这条链接多久失效」。 */
+  ttlHours: number
+}> {
+  return request('/api/admin/invitations')
+}
+
+/**
+ * 生成一条邀请链接。
+ *
+ * ⚠️ **返回的 `url` 只出现这一次**——服务端只存 token 的哈希，关掉弹窗就再也拿不回来了。
+ */
+export async function createInvitation(email: string): Promise<{
+  url: string
+  expiresAt: string
+}> {
+  return request('/api/admin/invitations', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
+}
+
+/** 撤销一条**还没被兑换**的邀请。已兑换的删不掉（后端 404）。 */
+export async function revokeInvitation(id: string): Promise<void> {
+  await request(`/api/admin/invitations/${id}`, { method: 'DELETE' })
 }
 
 /**

@@ -3,6 +3,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { ImageRefSchema } from '@dsh-cloud/instance-spec'
 import { z } from 'zod'
 import type { ImageCatalogRow, ImageReleaseRow } from '../db/schema.js'
+import type { InvitationRow } from '../db/invitation-repo.js'
+import { INVITE_TTL_HOURS } from '../invitation.js'
 import type { AdminInstanceRow, AdminUserRow } from '../db/user-repo.js'
 import type { DiskUsed } from './instance-routes.js'
 import type { Env } from '../env.js'
@@ -23,6 +25,8 @@ import { streamImagePull } from './pull-stream.js'
 const BanBodySchema = z.object({ reason: z.string().max(200).optional() })
 const QuotaBodySchema = z.object({ quota: z.number().int().min(0).max(100).nullable() })
 const RoleBodySchema = z.object({ role: z.enum(['user', 'admin']) })
+/** 邀请只按邮箱发：链接捡到了也得知道是发给谁的（见 db/invitation-repo.ts）。 */
+const InviteBodySchema = z.object({ email: z.string().trim().email().max(254) })
 const ImageBodySchema = z.object({ image: z.string().min(1).max(255) })
 /** 镜像版本用 body 传 ref：tag 里的 `:` / registry 里的 `/` 进 path 会被编码坑。 */
 const ImageRefBodySchema = z.object({ ref: z.string().min(1).max(255) })
@@ -151,6 +155,22 @@ export interface AdminRouteDeps {
   ): Promise<void>
   /** 从请求解析登录者（含 role）；未登录返回 undefined。 */
   getSessionUser(req: FastifyRequest): Promise<{ id: string; role: string } | undefined>
+
+  /**
+   * 生成一条邀请链接。**明文 token 只在这一刻存在**——库里存的是哈希，
+   * 调用方（路由）必须当场把它返回给 owner，之后再也要不回来。
+   *
+   * `exists` = 这个邮箱已经有账号；`pending` = 已经有一条还没被接受的邀请。
+   */
+  createInvite(
+    email: string,
+    createdBy: string,
+  ): Promise<
+    { ok: true; url: string; expiresAt: Date } | { ok: false; reason: 'exists' | 'pending' }
+  >
+  listInvites(): Promise<InvitationRow[]>
+  /** 撤销一条**还没被接受**的邀请。已接受 / 不存在 → false。 */
+  revokeInvite(id: string): Promise<boolean>
 }
 
 interface AuthedRequest extends FastifyRequest {
@@ -264,6 +284,44 @@ export async function registerAdminRoutes(
       const result = await deps.setRole(id, parsed.data.role)
       if (result === 'missing') return reply.code(404).send({ error: '用户不存在' })
       if (result === 'last-admin') return reply.code(400).send({ error: '不能降级最后一名管理员' })
+      return { ok: true }
+    })
+
+    /**
+     * 邀请列表。**不回显链接**——明文 token 早就不在库里了（只存哈希），
+     * owner 只能在生成那一刻复制走；这里能看到的是「发给谁、什么时候过期、接受了没」。
+     */
+    scope.get('/api/admin/invitations', async () => ({
+      invitations: await deps.listInvites(),
+      ttlHours: INVITE_TTL_HOURS,
+    }))
+
+    scope.post('/api/admin/invitations', async (req: AuthedRequest, reply) => {
+      const adminId = req.adminId
+      if (adminId === undefined) return reply.code(401).send({ error: '未登录' })
+
+      const parsed = InviteBodySchema.safeParse(req.body)
+      if (!parsed.success) return reply.code(400).send({ error: '邮箱不合法' })
+
+      const result = await deps.createInvite(parsed.data.email, adminId)
+      if (!result.ok) {
+        return reply.code(409).send({
+          error:
+            result.reason === 'exists'
+              ? '这个邮箱已经有账号了'
+              : '这个邮箱已经有一条待接受的邀请',
+        })
+      }
+      // 明文链接**只在这里**出现一次
+      return { url: result.url, expiresAt: result.expiresAt }
+    })
+
+    scope.delete('/api/admin/invitations/:id', async (req, reply) => {
+      const { id } = req.params as { id: string }
+      // 只撤销还没被接受的。已接受的那条是历史记录，删掉返回 404
+      if (!(await deps.revokeInvite(id))) {
+        return reply.code(404).send({ error: '邀请不存在，或者已经被接受' })
+      }
       return { ok: true }
     })
 

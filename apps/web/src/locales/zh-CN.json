@@ -44,18 +44,18 @@
     "activity": "最近活动",
     "viewActivity": "查看全部",
     "emptyTitle": "你的工作空间正在等待。",
-    "emptyBody": "创建第一个工作空间，开始使用 DSH。"
+    "emptyBody": "创建第一个工作空间，开始使用 dsh。"
   },
   "workspaceCreate": {
     "back": "返回工作空间",
     "title": "创建工作空间",
-    "subtitle": "给你的 DSH 工作空间起个名字，剩下的交给我们。",
+    "subtitle": "给你的 dsh 工作空间起个名字，剩下的交给我们。",
     "name": "名称",
     "namePlaceholder": "personal-dsh",
     "nameHint": "使用小写字母、数字和连字符；它也会成为空间的专属地址。",
     "advanced": "使用高级设置",
     "ready": "工作空间已准备好。",
-    "readyBody": "你的 DSH 环境已经就绪。",
+    "readyBody": "你的 dsh 环境已经就绪。",
     "open": "打开工作空间"
   },
   "files": {
@@ -66,7 +66,7 @@
     "open": "打开文件",
     "empty": "没有匹配的工作空间",
     "emptyBody": "创建工作空间后即可开始处理文件。",
-    "boundary": "文件始终留在各自隔离的工作空间内。打开工作空间后，可在 DSH 中上传、创建、移动、预览或删除文件。"
+    "boundary": "文件始终留在各自隔离的工作空间内。打开工作空间后，可在 dsh 中上传、创建、移动、预览或删除文件。"
   },
   "activity": {
     "title": "活动",
@@ -95,9 +95,9 @@
     "attention": "这个工作空间需要处理",
     "workspace": "工作空间",
     "files": "文件",
-    "openFiles": "在 DSH 中打开",
+    "openFiles": "在 dsh 中打开",
     "storage": "已用存储",
-    "version": "DSH 版本",
+    "version": "dsh 版本",
     "recent": "最近活动",
     "available": "工作空间已就绪"
   },
@@ -105,7 +105,7 @@
     "preparing": "正在准备你的工作空间",
     "moment": "通常只需要片刻。",
     "ready": "工作空间已准备好。",
-    "redirecting": "正在打开 DSH…",
+    "redirecting": "正在打开 dsh…",
     "offline": "这个工作空间已离线。",
     "offlineBody": "准备继续工作时再启动它。",
     "start": "启动工作空间",
@@ -135,20 +135,26 @@
     "system": "跟随系统"
   },
   "login": {
-    "subtitle": "多租户 DeepSeek Harness 控制台",
-    "tabSignIn": "登录",
-    "tabSignUp": "注册",
-    "name": "昵称",
-    "namePlaceholder": "可选",
+    "subtitle": "你自己的 dsh 云",
     "email": "邮箱",
     "password": "密码",
     "pending": "处理中…",
-    "submitSignIn": "登录",
-    "submitSignUp": "创建账号"
+    "submitSignIn": "登录"
+  },
+  "invite": {
+    "subtitle": "你被邀请加入",
+    "intro": "设一个密码就能开始用。",
+    "name": "昵称",
+    "namePlaceholder": "可选",
+    "password": "密码",
+    "submit": "设置密码并进入",
+    "pending": "处理中…",
+    "alreadyAccepted": "账号已经建好了，但自动登录没成功。回到登录页，用你刚设的密码登录。",
+    "backToLogin": "去登录"
   },
   "instances": {
     "title": "工作空间",
-    "subtitle": "属于你的 DSH 空间，随时可以继续工作。",
+    "subtitle": "属于你的 dsh 空间，随时可以继续工作。",
     "slug": "标识（子域名）",
     "slugPlaceholder": "alice",
     "slugHint": "小写字母、数字和连字符，3–32 位。",
@@ -171,7 +177,7 @@
     "newDescription": "给工作空间起一个子域名，它就是访问地址。",
     "loadFailed": "加载工作空间列表失败",
     "emptyTitle": "你的工作空间正在等待",
-    "emptyHint": "创建第一个工作空间，开始使用 DSH。",
+    "emptyHint": "创建第一个工作空间，开始使用 dsh。",
     "emptyAction": "创建工作空间",
     "lastUsed": "上次使用于 {{time}}",
     "createdAt": "创建于",
@@ -299,7 +305,7 @@
       "operations": "运营管理",
       "manageWorkspaces": "运行状态、资源、日志与恢复",
       "manageUsers": "访问、角色与工作空间额度",
-      "manageVersions": "已发布 DSH 版本与主机可用性"
+      "manageVersions": "已发布 dsh 版本与主机可用性"
     },
     "actionFailed": "操作失败，请重试",
     "users": {
@@ -325,6 +331,20 @@
       "grantAdminConfirm": "把 {{email}} 设为平台管理员？管理员能封禁账号、改配额、看全站工作空间与容器日志。",
       "revokeAdminConfirm": "取消 {{email}} 的管理员权限？",
       "selfDemoteHint": "这是你自己的账号：确认后会立刻失去管理台权限，并回到首页。",
+      "inviteTitle": "邀请成员",
+      "inviteDescription": "生成一条链接，自己发给对方。一次性，{{hours}} 小时后失效。",
+      "inviteEmailPlaceholder": "对方的邮箱",
+      "inviteCreate": "生成邀请链接",
+      "inviteCreating": "生成中…",
+      "inviteCopyHint": "复制下来发给对方——关掉这一页，这条链接就再也看不到了。",
+      "invitePending": "待接受",
+      "inviteAccepted": "已加入",
+      "inviteExpired": "已过期",
+      "inviteExpiresAt": "{{time}} 前有效",
+      "inviteRevoke": "撤销",
+      "inviteEmpty": "还没有发出过邀请。",
+      "inviteFailed": "邀请操作失败，请重试",
+      "inviteLoadFailed": "加载邀请列表失败",
       "loadFailed": "加载用户列表失败"
     },
     "instances": {

@@ -5,6 +5,7 @@ import type Docker from 'dockerode'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createDocker } from '../docker/client.js'
+import { createUserWithPassword } from '../account.js'
 import { createAuth } from '../auth.js'
 import { loadEnv } from '../env.js'
 import { createDb } from './client.js'
@@ -108,8 +109,9 @@ describe.runIf(process.env.DSH_SECURITY_INTEGRATION === '1')('instance storage a
     }), database!.db)
     const email = `${randomUUID()}@example.test`
     const password = randomUUID()
-    const registration = await auth.api.signUpEmail({ body: { name: 'Operator', email, password } })
-    await database!.db.update(user).set({ role: 'admin' }).where(eq(user.id, registration.user.id))
+    // 公开注册已关闭（auth.ts 的 disableSignUp），建号走平台自己的入口。
+    // 这里顺带把那条入口也覆盖上——它能建出可正常登录的账号。
+    await createUserWithPassword(auth, { email, password, name: 'Operator', role: 'admin' })
     const login = await auth.handler(new Request('https://console.app.example.com/api/auth/sign-in/email', {
       method: 'POST', headers: { origin: 'https://console.app.example.com', 'content-type': 'application/json' },
       body: JSON.stringify({ email, password }),

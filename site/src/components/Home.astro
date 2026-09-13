@@ -1,5 +1,5 @@
 ---
-import { ArrowUpRight, ArrowRight, ArrowDown, ArrowUp, Box, HardDrive, SlidersHorizontal, ShieldCheck, Earth, Menu, Plus, Check, GitBranch, Terminal } from '@lucide/astro'
+import { ArrowUpRight, ArrowRight, ArrowDown, ArrowUp, Server, Users, Boxes, RefreshCw, ShieldCheck, Earth, Menu, Plus, Check, GitBranch, Terminal } from '@lucide/astro'
 import Layout from '../layouts/Layout.astro'
 import CodeBlock from './CodeBlock.astro'
 import WhaleAnimation from './WhaleAnimation.astro'
@@ -9,7 +9,7 @@ const { locale } = Astro.props
 const text = dictionaries[locale]
 const other: Locale = locale === 'zh' ? 'en' : 'zh'
 const repository = import.meta.env.PUBLIC_REPOSITORY_URL || 'https://github.com/eskim2001/dsh-cloud'
-const icons = [Box, HardDrive, SlidersHorizontal, ShieldCheck]
+const icons = [Server, Users, Boxes, RefreshCw]
 const sections = ['capabilities', 'isolation', 'start']
 ---
 <Layout locale={locale}>

@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "pnpm --filter @dsh-cloud/instance-spec build",
     "test": "vitest run",
-    "test:security": "DSH_SECURITY_INTEGRATION=1 vitest run src/db/instance-repo.integration.test.ts src/instance/traefik.integration.test.ts",
+    "test:security": "DSH_SECURITY_INTEGRATION=1 vitest run src/db/instance-repo.integration.test.ts src/db/invitation-repo.integration.test.ts src/instance/traefik.integration.test.ts",
     "db:generate": "node --env-file-if-exists=.env.local node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "node --env-file-if-exists=.env.local node_modules/drizzle-kit/bin.cjs migrate",
     "db:seed": "node --env-file-if-exists=.env.local --import tsx scripts/seed.ts"

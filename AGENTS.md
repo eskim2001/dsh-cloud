@@ -91,6 +91,7 @@ pnpm --filter @dsh-cloud/server test:security
 ## 五、约定
 
 - **叫「实例」不叫「租户」**：代码、DB、资源名一律用 instance / slug；`tenant` 一词留给「用户 / 企业」。
+- **「工作空间」= 一个容器 + 它绑定的存储**：用户界面一律说「工作空间」，代码 / DB / 资源名一律用 `instance` / `slug`——同一个东西的两层叫法，不是父子概念。这层换算**不在产品里体现**：界面不解释「工作空间是什么」，也不出现容器 / 卷 / 实例这类词。
 - **`BASE_DOMAIN` 是父域，不是控制台域名**：实例是 `<slug>.<BASE_DOMAIN>`，控制台是 `CONSOLE_DOMAIN`（必须是父域的子域，`console.<BASE_DOMAIN>`）；父域本身不当主机名用。
 - **TS 全 ESM**：相对导入带 `.js` 后缀（`import { x } from './foo.js'`）。
 - **测试与源码同目录**（`*.test.ts`），vitest；改行为就补测试。
