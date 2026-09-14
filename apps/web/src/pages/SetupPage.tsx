@@ -15,18 +15,23 @@ import { ApiError, submitSetup } from '../lib/api.js'
 /**
  * 装机引导：**平台还没配域名时唯一能用的界面**。
  *
- * 装机没给 `--domain`，安装脚本会把 `http://<ip>/setup?token=…` 打印出来。那枚 token 是
- * **一次性**凭证（服务端拿它换域名）；填完域名之后服务端落库 → **立刻摘掉 :80 上的明文
- * 引导口** → 重启自己换身份。所以这里最后说的是「稍后去 `console.<域>` 登录」，不是「已就绪」。
+ * 装机没给 `--domain`，安装脚本会把 `http://<机器>:<端口>/setup?token=…` 打印出来。那枚 token 是
+ * **一次性**凭证。在这里一次把两件事做完：建首个管理员账号、配父域。提交后服务端建号 → 落库 →
+ * **立刻摘掉引导口** → 重启自己换身份。
+ *
+ * 所以完成页说的是「账号建好了，等证书签好去 `console.<域>` 登录」，**不是**「已就绪」：
+ * 证书是 ACME 现签的，DNS 没生效时那个域名这会儿还打不开。
  */
 export default function SetupPage() {
   const [params] = useSearchParams()
   const token = params.get('token') ?? ''
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [baseDomain, setBaseDomain] = useState('')
   const { t } = useTranslation()
 
   const mutation = useMutation({
-    mutationFn: () => submitSetup(token, baseDomain),
+    mutationFn: () => submitSetup({ token, baseDomain, email, password }),
   })
 
   const submit = (e: FormEvent) => {
@@ -42,7 +47,7 @@ export default function SetupPage() {
           <CardContent className="flex flex-col gap-4">
             <h2 className="font-heading text-base font-semibold">{t('setup.doneTitle')}</h2>
             <p className="text-sm text-muted-foreground">
-              {t('setup.doneBody', { domain: consoleDomain })}
+              {t('setup.doneBody', { domain: consoleDomain, email: mutation.data.email })}
             </p>
             {!dns.resolved && (
               <Alert>
@@ -65,6 +70,35 @@ export default function SetupPage() {
 
             <FieldGroup>
               <Field>
+                <FieldLabel htmlFor="email">{t('setup.email')}</FieldLabel>
+                <Input
+                  id="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                />
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="password">{t('setup.password')}</FieldLabel>
+                <Input
+                  id="password"
+                  type="password"
+                  required
+                  minLength={8}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="new-password"
+                />
+                <FieldDescription>{t('setup.passwordHint')}</FieldDescription>
+              </Field>
+
+              <Field>
                 <FieldLabel htmlFor="baseDomain">{t('setup.domain')}</FieldLabel>
                 <Input
                   id="baseDomain"
@@ -79,6 +113,9 @@ export default function SetupPage() {
                 <FieldDescription>{t('setup.domainHint')}</FieldDescription>
               </Field>
             </FieldGroup>
+
+            {/* 这一刻还没有证书，这个页面是明文 HTTP —— 界面有义务说出来，别让人以为在安全通道上 */}
+            <p className="text-xs text-muted-foreground">{t('setup.plaintext')}</p>
 
             {token === '' && (
               <Alert variant="destructive">
@@ -124,14 +161,19 @@ function Shell({ children }: { children: ReactNode }) {
 }
 
 /**
- * 服务端只回状态码（它不知道 UI 用什么语言），文案在这一层翻。
- * 三个码各说一件事：凭证不对 / 已经配过了 / 域名写法不对。
+ * 服务端只回状态码和机器可读的 `error`（它不知道 UI 用什么语言），文案在这一层翻。
+ * 409 和 400 各有两个含义，靠 `error` 字段区分 —— 它落在 `ApiError.message` 上
+ * （`request` 把 body 的 `error` 当消息，见 api.ts）。
  */
 function errorText(error: unknown, t: (key: string) => string): string {
   if (error instanceof ApiError) {
     if (error.status === 401) return t('setup.errToken')
-    if (error.status === 409) return t('setup.errConfigured')
-    if (error.status === 400) return t('setup.errDomain')
+    if (error.status === 409) {
+      return error.message === 'account-exists' ? t('setup.errAccountExists') : t('setup.errConfigured')
+    }
+    if (error.status === 400) {
+      return error.message === 'invalid-account' ? t('setup.errAccount') : t('setup.errDomain')
+    }
   }
   return t('common.requestFailed')
 }

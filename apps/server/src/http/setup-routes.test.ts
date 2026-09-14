@@ -1,16 +1,19 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { AccountExistsError } from '../account.js'
 import { registerSetupRoutes, type SetupDeps } from './setup-routes.js'
 
 /**
- * 引导态的 setup 端点：**平台在配好域名之前唯一对公网开着的写口**。
+ * 引导态的 setup 端点：**平台在配域名之前唯一对公网开着的写口**。
  *
- * 盯四件事：token 是硬门（错就拒、没配就谁也别想配）、域名形状、DNS 只警告不拦、
- * 以及「重启必须在响应刷完之后」—— 顺序倒了浏览器那边会看到提交失败。
+ * 盯五件事：token 是硬门（错就拒、没配就谁也别想配）、**验 token 在验表单之前**、
+ * 域名与账号的形状、DNS 只警告不拦、以及顺序——**先建号再落域名**（反过来会留下
+ * "域名配好了但没有任何账号"的死局，那个状态连界面都进不去）。
  */
 describe('setup 端点', () => {
   let app: FastifyInstance
   const saved: Array<{ baseDomain: string; consoleDomain: string }> = []
+  const created: Array<{ email: string; password: string }> = []
   let restarts = 0
 
   const deps = (over: Partial<SetupDeps> = {}): SetupDeps => ({
@@ -18,6 +21,9 @@ describe('setup 端点', () => {
     token: 'tok',
     saveDomains: async (domains) => {
       saved.push(domains)
+    },
+    createAdmin: async (account) => {
+      created.push(account)
     },
     restart: () => {
       restarts++
@@ -28,6 +34,7 @@ describe('setup 端点', () => {
 
   beforeEach(() => {
     saved.length = 0
+    created.length = 0
     restarts = 0
   })
 
@@ -37,6 +44,18 @@ describe('setup 端点', () => {
     await instance.ready()
     return instance
   }
+
+  /** 一份合格的请求体。用例只覆盖自己关心的字段。 */
+  const body = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+    token: 'tok',
+    baseDomain: 'example.com',
+    email: 'admin@example.com',
+    password: 'correct-horse',
+    ...over,
+  })
+
+  const post = (payload: Record<string, unknown>) =>
+    app.inject({ method: 'POST', url: '/api/setup', payload })
 
   afterEach(async () => {
     await app?.close()
@@ -55,67 +74,92 @@ describe('setup 端点', () => {
     })
   })
 
-  it('token 不对 → 401，且**什么都没写**', async () => {
+  it('token 不对 → 401，且**什么都没写**（没建号、没落域名、没重启）', async () => {
     app = await build()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/setup',
-      payload: { token: 'wrong', baseDomain: 'example.com' },
-    })
+    const res = await post(body({ token: 'wrong' }))
     expect(res.statusCode).toBe(401)
     expect(res.json()).toEqual({ error: 'invalid-token' })
+    expect(created).toEqual([])
     expect(saved).toEqual([])
     expect(restarts).toBe(0)
   })
 
   it('没配 token（空串）→ 一样拒：别让「没开 setup」变成「谁都能配」', async () => {
     app = await build({ token: '' })
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/setup',
-      payload: { token: '', baseDomain: 'example.com' },
-    })
+    const res = await post(body({ token: '' }))
     expect(res.statusCode).toBe(401)
+    expect(created).toEqual([])
     expect(saved).toEqual([])
   })
 
-  it('已配置 → 409，不再接受改域名', async () => {
+  it('**先验 token、再验表单**：token 不对时，表单再烂也只回 401（不是 400）', async () => {
+    app = await build()
+    // 邮箱和密码都不合格，但凭证也是错的 —— 该说的是"你不是操作者"，不是"你格式写错了"
+    const res = await post({ token: 'wrong', baseDomain: 'nope', email: 'x', password: 'y' })
+    expect(res.statusCode).toBe(401)
+    expect(res.json()).toEqual({ error: 'invalid-token' })
+  })
+
+  it('已配置 → 409，不再接受改动', async () => {
     app = await build({ configured: true })
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/setup',
-      payload: { token: 'tok', baseDomain: 'example.com' },
-    })
+    const res = await post(body())
     expect(res.statusCode).toBe(409)
     expect(res.json()).toEqual({ error: 'already-configured' })
     expect(saved).toEqual([])
+    expect(created).toEqual([])
   })
 
-  it('域名形状不对 → 400（没有点、大写、带路径都拒）', async () => {
+  it('没接 createAdmin（接线缺了）→ 409，不落域名：宁可不配，也别造出「有域名没账号」的死局', async () => {
+    // 真把键删掉，而不是传 undefined —— tsconfig 开了 exactOptionalPropertyTypes，
+    // 而且「没接」这个状态本来就该用"键不存在"表达
+    const wired = deps()
+    delete wired.createAdmin
+    const instance = Fastify()
+    registerSetupRoutes(instance, wired)
+    await instance.ready()
+    app = instance
+
+    const res = await post(body())
+    expect(res.statusCode).toBe(409)
+    expect(saved).toEqual([])
+  })
+
+  it('域名形状不对 → 400 invalid-domain（没有点、大写、带路径都拒）', async () => {
     app = await build()
     for (const baseDomain of ['localhost', 'Example.com', 'example.com/evil', '']) {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/setup',
-        payload: { token: 'tok', baseDomain },
-      })
+      const res = await post(body({ baseDomain }))
       expect(res.statusCode, baseDomain).toBe(400)
       expect(res.json().error, baseDomain).toBe('invalid-domain')
     }
     expect(saved).toEqual([])
+    expect(created).toEqual([])
   })
 
-  it('通过：算出 console.<父域>、落库、并安排重启', async () => {
+  it('账号字段不合格 → 400 invalid-account（邮箱形状、密码长度），且不建号', async () => {
     app = await build()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/setup',
-      payload: { token: 'tok', baseDomain: 'example.com' },
-    })
+    const bad = [
+      { email: 'not-an-email' },
+      { email: 'admin@example.com', password: 'short' },
+      { email: '' },
+    ]
+    for (const over of bad) {
+      const res = await post(body(over))
+      expect(res.statusCode, JSON.stringify(over)).toBe(400)
+      expect(res.json().error, JSON.stringify(over)).toBe('invalid-account')
+    }
+    expect(created).toEqual([])
+    expect(saved).toEqual([])
+  })
+
+  it('通过：建号 → 算 console.<父域> → 落库 → 安排重启', async () => {
+    app = await build()
+    const res = await post(body())
     expect(res.statusCode).toBe(200)
     expect(res.json().consoleDomain).toBe('console.example.com')
+    expect(res.json().email).toBe('admin@example.com')
     // 回结构化结果（不是一句中文）：文案归双语的 UI 组
     expect(res.json().dns).toEqual({ probe: expect.stringContaining('.example.com'), resolved: true })
+    expect(created).toEqual([{ email: 'admin@example.com', password: 'correct-horse' }])
     expect(saved).toEqual([{ baseDomain: 'example.com', consoleDomain: 'console.example.com' }])
 
     // 重启挂在响应的 finish 上 —— 注入的响应跑完，回调应当已经触发
@@ -123,13 +167,22 @@ describe('setup 端点', () => {
     expect(restarts).toBe(1)
   })
 
+  it('邮箱已被占 → 409 account-exists，且**域名没落库**（先建号、后落域名的意义就在这）', async () => {
+    app = await build({
+      createAdmin: async () => {
+        throw new AccountExistsError('admin@example.com')
+      },
+    })
+    const res = await post(body())
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'account-exists' })
+    expect(saved).toEqual([])
+    expect(restarts).toBe(0)
+  })
+
   it('泛解析查不到 → **只警告不拦**（解析可能是反代 / 生效中，平台判不了）', async () => {
     app = await build({ resolveSubdomain: async () => [] })
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/setup',
-      payload: { token: 'tok', baseDomain: 'example.com' },
-    })
+    const res = await post(body())
     expect(res.statusCode).toBe(200)
     expect(res.json().dns.resolved).toBe(false)
     // 只回事实、不拦：域名照样落库 —— 否则操作者会被卡在一个他无法从面板里修的状态

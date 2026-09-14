@@ -565,21 +565,26 @@ export async function getSetupState(): Promise<{ configured: boolean }> {
 }
 
 /**
- * 提交父域。凭证是安装脚本打印的**一次性 token**（在 URL 里带过来的）。
+ * 提交**首个管理员账号**和父域。凭证是安装脚本打印的**一次性 token**（在 URL 里带过来的）。
  *
- * 服务端会算 `console.<父域>`、落库、**立刻摘掉 :80 上的明文引导口**，然后重启自己。
+ * 服务端会建号 → 算 `console.<父域>` → 落库 → **立刻摘掉引导口**，然后重启自己。
+ * 建号在落域名**之前**：邮箱被占时回 409 `account-exists`，此时什么都没改，换个邮箱重来即可。
+ *
  * `dns` 是一次粗检的结果（随机子域解不解得出来）—— **只作提示，不拦**：解析可能是反代、
  * 也可能还在生效，平台判不了。文案由 UI 组（这里只回事实）。
  */
-export async function submitSetup(
-  token: string,
-  baseDomain: string,
-): Promise<{ consoleDomain: string; dns: { probe: string; resolved: boolean } }> {
-  return request<{ consoleDomain: string; dns: { probe: string; resolved: boolean } }>(
-    '/api/setup',
-    {
-      method: 'POST',
-      body: JSON.stringify({ token, baseDomain }),
-    },
-  )
+export async function submitSetup(body: {
+  token: string
+  baseDomain: string
+  email: string
+  password: string
+}): Promise<{ consoleDomain: string; email: string; dns: { probe: string; resolved: boolean } }> {
+  return request<{
+    consoleDomain: string
+    email: string
+    dns: { probe: string; resolved: boolean }
+  }>('/api/setup', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
 }

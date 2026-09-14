@@ -142,19 +142,25 @@
     "submitSignIn": "Sign in"
   },
   "setup": {
-    "intro": "This platform has no domain yet. Enter a parent domain: the console will live on its console subdomain, and each workspace gets a subdomain of its own.",
+    "intro": "This platform has no domain yet. Create the administrator account (you will use it to sign in), then enter a parent domain: the console will live on its console subdomain, and each workspace gets a subdomain of its own.",
+    "email": "Administrator email",
+    "password": "Administrator password",
+    "passwordHint": "At least 8 characters. You will sign in to the console with it.",
     "domain": "Parent domain",
     "domainHint": "Point the wildcard record *.<domain> at this machine first — certificates cannot be issued before it resolves.",
+    "plaintext": "There is no certificate yet, so this submission travels over a plaintext connection. It is used once, during first-time setup.",
     "noToken": "This link is incomplete (the token is missing). Open this page with the full link the installer printed.",
-    "submit": "Save and restart",
+    "submit": "Create and restart",
     "pending": "Submitting…",
     "errToken": "That token is wrong, or it has already been used. Reopen the link the installer printed.",
     "errConfigured": "The platform already has a domain; changes are not accepted here.",
+    "errAccountExists": "That email already has an account. Use another one — the existing account's password and role are left untouched.",
+    "errAccount": "The email or password does not qualify: the email must look like name@example.com and the password must be at least 8 characters.",
     "errDomain": "That does not look like a domain: lowercase letters, digits, dots and dashes only, and at least two labels (for example example.com).",
-    "doneTitle": "Domain saved",
-    "doneBody": "The platform is restarting (a few seconds). Then open {{domain}} and sign in with the administrator email and password printed during the install.",
+    "doneTitle": "Configured",
+    "doneBody": "The administrator account {{email}} has been created and the platform is restarting (a few seconds). Then open {{domain}} and sign in with it — on the first visit the certificate may still be issuing (seconds to a minute), so wait and reload if you see a certificate error.",
     "doneClose": "This page's entry point has been closed — you can close this tab.",
-    "doneDns": "Note: {{probe}} does not resolve — the wildcard record has not taken effect yet. The domain is saved, but until it resolves **you cannot reach `console.<the domain you entered>` either** (and certificates cannot be issued). To get in meanwhile, add a hosts entry or send the Host header yourself."
+    "doneDns": "Note: {{probe}} does not resolve — the wildcard record has not taken effect yet. The account and domain are saved, but until it resolves **you cannot reach `console.<the domain you entered>` either** (and certificates cannot be issued). To get in meanwhile, add a hosts entry or send the Host header yourself."
   },
   "invite": {
     "subtitle": "You have been invited",

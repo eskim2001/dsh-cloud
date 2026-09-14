@@ -1,4 +1,5 @@
 import { dirname } from 'node:path'
+import { createUserWithPassword } from './account.js'
 import { buildApp } from './app.js'
 import { createAuth } from './auth.js'
 import { createDb } from './db/client.js'
@@ -182,6 +183,11 @@ const app = await buildApp({
             // **先关暴露**：投影会把 `:80` 上的明文引导口摘掉。即使下面那次重启失败，
             // 暴露也已经关了 —— 顺序不能倒过来。
             await projectPlatform(domains.consoleDomain)
+          },
+          // 首个管理员由**向导**建（装机时不再问邮箱/密码）。走的是平台建号的唯一入口，
+          // 与邀请兑换同一条路：绕过注册开关，也不需要已有会话。
+          createAdmin: async ({ email, password }: { email: string; password: string }) => {
+            await createUserWithPassword(auth, { email, password, role: 'admin' })
           },
           restart: restartSelf,
         },

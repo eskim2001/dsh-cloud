@@ -11,7 +11,7 @@
 #   ① 预检（环境 / 端口 / **存储能力**）
 #   ② 在**宿主上**预置存储池并写持久化 —— 容器里建池宿主看不见（见 D35）
 #   ③ 从镜像里取部署资产到 /opt/dsh-cloud，渲染 Traefik 配置
-#   ④ 起 Postgres → 迁移 → 建管理员 → 起控制面与入口
+#   ④ 起 Postgres → 迁移 →（只在装机给了域名时）建管理员 → 起控制面与入口
 #
 # **幂等**：/opt/dsh-cloud/.env 存在时 install 等价于 update，且**绝不重新生成 secret**
 #     —— 换了 PLATFORM_SECRET，所有实例的门 token 立刻全废（桥 403）。
@@ -80,7 +80,8 @@ usage() {
                      操作者在浏览器里填域名。在已有安装上再跑一次并带上它，可以**补配或改配**域名
                      （那时以 env 为准；面板里存的那份 DB 记录不跟着变）。
   --email <邮箱>     ACME 账户邮箱，会收到证书过期提醒。**可选**：不给就没有提醒（证书照签）
-  --admin-email <邮箱>  首个管理员的登录邮箱
+  --admin-email <邮箱>  首个管理员的登录邮箱。**只有和 --domain 一起给时才需要**：
+                     不带 --domain 是引导态，管理员在 setup 页里建（装机不碰账号）
   --pool-root <路径> 存储池根，默认 /var/lib/dsh
   --pool-size-mb <MB> 需要自动建 loopback 池时用；省略取该文件系统的 80%
   --wizard-port <端口> 引导页（也就是控制面自己）的端口。省略 = 从 3000 起试 3000-3003，
@@ -472,12 +473,16 @@ domain_setup() {
   pick_control_port
   POSTGRES_PORT=$POSTGRES_PORT_DEFAULT
 
-  if [ -z "$ADMIN_EMAIL" ]; then
-    ADMIN_EMAIL=$(ask "首个管理员的登录邮箱")
+  # 管理员账号在**引导态**是由向导建的（操作者在 setup 页里填邮箱和密码），所以这里不问、也不要求。
+  # 只有「装机时就给了域名」那条路没有向导可走 —— 号必须现在建出来，那时才强制。
+  if [ -n "$DOMAIN" ]; then
+    if [ -z "$ADMIN_EMAIL" ]; then
+      ADMIN_EMAIL=$(ask "首个管理员的登录邮箱")
+    fi
+    [ -n "$ADMIN_EMAIL" ] || die "装机时给了域名（没有向导可走），必须给 --admin-email。"
   fi
-  [ -n "$ADMIN_EMAIL" ] || die "没给管理员邮箱。"
 
-  # 邮箱是**可选**的（Traefik 的 ACME 块不带 email 也通过校验）：不给就收不到证书过期提醒。
+  # ACME 邮箱是**可选**的（Traefik 的 ACME 块不带 email 也通过校验）：不给就收不到证书过期提醒。
   # 所以这里不走 ask() —— 它在 --non-interactive 下没有默认值就会直接 die。
   if [ "$ACME" = 1 ] && [ -z "$ACME_EMAIL" ] && [ "$NONINTERACTIVE" != 1 ] && can_prompt; then
     read -r -p "ACME 账户邮箱（可留空 —— 留空就收不到证书过期提醒）: " ACME_EMAIL </dev/tty || ACME_EMAIL=
@@ -527,7 +532,8 @@ start_services() {
   if [ -n "$ADMIN_EMAIL" ]; then
     seed_admin
   else
-    log "没给 --admin-email，跳过 seed（已有管理员就不需要；要补建就带上这个参数）"
+    # 引导态走的就是这条：账号由 setup 页建（那里收邮箱和密码），装机不碰账号
+    log "没给 --admin-email：跳过 seed（引导态下管理员在 setup 页里建）"
   fi
 
   STEP='起控制面与入口'
@@ -547,14 +553,16 @@ start_services() {
   elif [ "$configured" = 1 ]; then
     printf '  域名　　　：已配置（存在平台的库里，控制台在 console.<你当初填的那个域名>）\n'
   else
-    printf '  \033[1m下一步：用浏览器打开下面这条链接，把域名填进去。\033[0m\n\n'
+    printf '  \033[1m下一步：用浏览器打开下面这条链接，在那里建管理员账号、填域名。\033[0m\n\n'
     printf '    http://%s:%s/setup?token=%s\n' "$(machine_address)" "$CONTROL_PORT" "$SETUP_TOKEN"
     printf '\n'
     printf '  现在是**引导态**：平台只开着这一个 setup 页，那枚 token 即是它的唯一凭证（一次性）。\n'
-    printf '  填完域名它会立刻关掉这个入口并重启，控制台就落在 console.<你填的域名>。\n'
+    printf '  账号和域名都在那一页里填。填完它会立刻关掉这个入口并重启，控制台落在 console.<你填的域名>。\n'
     printf '  填之前先把泛解析 *.<你填的域名> 指向这台机器 —— 否则证书签不下来。\n'
   fi
-  printf '  管理员　　：%s\n' "$ADMIN_EMAIL"
+  if [ -n "$ADMIN_EMAIL" ]; then
+    printf '  管理员　　：%s\n' "$ADMIN_EMAIL"
+  fi
   if [ "$ADMIN_CREATED" = 1 ]; then
     printf '  一次性密码：%s\n' "$ADMIN_PASSWORD"
     printf '\n'
