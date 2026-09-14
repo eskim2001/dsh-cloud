@@ -6,21 +6,33 @@ import type { Db } from './db/client.js'
 import { trustedOrigins, type Env } from './env.js'
 
 /**
+ * better-auth 的 baseURL。
+ *
+ * **域名空的时候必须是占位值**：`${PUBLIC_SCHEME}://` 拼出来就是 `"https://"`，better-auth
+ * 建上下文时 `new URL()` 直接抛（实测：引导态下 `seed` 就死在这儿）。所以这不是调用方的
+ * 策略选择，而是**前置条件** —— 一律兜到这里，别指望每个调用点都记得传 `bootstrap`。
+ */
+export function authBaseUrl(env: Env): string {
+  return env.CONSOLE_DOMAIN === ''
+    ? `http://127.0.0.1:${env.PORT}`
+    : `${env.PUBLIC_SCHEME}://${env.CONSOLE_DOMAIN}`
+}
+
+/**
  * 平台账号体系。**只服务控制面**（`CONSOLE_DOMAIN`）。
  *
  * cookie 必须覆盖父域，否则 forward-auth 在实例子域上读不到 → 数据面无法认证
  * （见 docs/ARCHITECTURE.md §七，那里的 CSRF 要求同样成立）。
  *
- * `opts.bootstrap`：**还没配域名**时（引导态）用它。此时不能用 `CONSOLE_DOMAIN` 拼 baseURL
- * —— 空域名会拼出 `"https://"`，better-auth 建上下文时 `new URL()` **直接抛**，进程起不来。
- * 引导态也不该有跨子域 cookie（还没有父域），所以关掉。这个实例在引导态**不接任何认证请求**
- * （`buildApp` 只注册 setup 端点）。
+ * `opts.bootstrap`：调用方明确知道"还没配域名"。**但它只是把意图说清楚** ——
+ * 真正决定"要不要用占位 baseURL / 关掉跨子域 cookie"的是 `CONSOLE_DOMAIN` 是否为空
+ * （两者在引导态必须同时成立，否则构造出来的上下文不可用）。
  */
 export function createAuth(env: Env, db: Db, opts: { bootstrap?: boolean } = {}) {
-  const bootstrap = opts.bootstrap === true
+  const bootstrap = opts.bootstrap === true || env.CONSOLE_DOMAIN === ''
   return betterAuth({
     secret: env.BETTER_AUTH_SECRET,
-    baseURL: bootstrap ? `http://127.0.0.1:${env.PORT}` : `${env.PUBLIC_SCHEME}://${env.CONSOLE_DOMAIN}`,
+    baseURL: authBaseUrl(env),
     basePath: '/api/auth',
     database: drizzleAdapter(db, { provider: 'pg' }),
     trustedOrigins: trustedOrigins(env),
