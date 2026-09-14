@@ -12,6 +12,12 @@
 </p>
 
 <p align="center">
+  <b>Live demo</b> · <a href="https://console.demo.dshcloud.app/">console.demo.dshcloud.app</a><br>
+  <sub>Shared demo account <code>demo-user@dshcloud.app</code> · password <code>demo-user</code></sub><br>
+  <sub>Workspace · <a href="https://demo-user.demo.dshcloud.app/">demo-user.demo.dshcloud.app</a></sub>
+</p>
+
+<p align="center">
   <a href="README.md">简体中文</a> · <b>English</b>
 </p>
 

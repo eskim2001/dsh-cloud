@@ -13,6 +13,12 @@
 </p>
 
 <p align="center">
+  <b>在线演示</b> · <a href="https://console.demo.dshcloud.app/">console.demo.dshcloud.app</a><br>
+  <sub>共享演示账号 <code>demo-user@dshcloud.app</code> · 密码 <code>demo-user</code></sub><br>
+  <sub>工作空间直达 · <a href="https://demo-user.demo.dshcloud.app/">demo-user.demo.dshcloud.app</a></sub>
+</p>
+
+<p align="center">
   <b>简体中文</b> · <a href="README.en.md">English</a>
 </p>
 
