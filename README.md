@@ -142,7 +142,7 @@ git show v0.1.7:scripts/install.sh | sha256sum
 **升级**（保留数据与密钥）：
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.7/scripts/install.sh" | sudo bash -s -- update --version 0.1.6
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.7/scripts/install.sh" | sudo bash -s -- update --version 0.1.7
 ```
 
 **卸载**（默认保留数据库卷与存储池；加 `--purge` 连数据一起删，不可恢复）：

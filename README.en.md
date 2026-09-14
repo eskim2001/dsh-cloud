@@ -141,7 +141,7 @@ git show v0.1.7:scripts/install.sh | sha256sum
 **Upgrade** (keeps data and secrets):
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.7/scripts/install.sh" | sudo bash -s -- update --version 0.1.6
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.7/scripts/install.sh" | sudo bash -s -- update --version 0.1.7
 ```
 
 **Uninstall** (keeps the database volume and storage pool; add `--purge` to delete data irrecoverably):
