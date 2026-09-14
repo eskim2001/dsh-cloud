@@ -77,6 +77,37 @@ export function registerSetupRoutes(app: FastifyInstance, deps: SetupDeps): void
    */
   app.get('/api/setup/state', async () => ({ configured: deps.configured }))
 
+  /**
+   * 向导页边打字边问：「这个父域的泛解析配好了没」。
+   *
+   * 存在的理由：**提交这一步是危险的** —— 域名一旦落库，控制面就带着它重启，解析不了的话
+   * 控制台进不去，只能上 SSH 救。而解析对不对，操作者在提交之前完全看不见。
+   * 这条只读端点把这件事**提前到提交之前**：没通就不让他提交（想硬来可以，但要显式点一下）。
+   *
+   * 凭证仍是那枚 token —— 这条端点会让服务器去查 DNS，不能匿名开放。
+   */
+  app.get('/api/setup/probe', async (request, reply) => {
+    const query = request.query as { token?: unknown; baseDomain?: unknown }
+    const given = typeof query.token === 'string' ? query.token : ''
+    if (!tokenMatches(deps.token, given)) {
+      return reply.code(401).send({ error: 'invalid-token' })
+    }
+    const parsed = BaseDomainSchema.safeParse(query.baseDomain)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'invalid-domain' })
+    }
+
+    const resolve = deps.resolveSubdomain ?? defaultResolve
+    const probe = `dsh-check-${randomBytes(4).toString('hex')}.${parsed.data}`
+    const addresses = await resolve(probe)
+    // 控制台主机名由**服务端**算并回给界面 —— 那个字面量（`console`）已经有三处副本，
+    // 别让 UI 变成第四处
+    return {
+      resolved: addresses.length > 0,
+      consoleDomain: `${CONSOLE_LABEL}.${parsed.data}`,
+    }
+  })
+
   app.post('/api/setup', async (request, reply) => {
     const saveDomains = deps.saveDomains
     const createAdmin = deps.createAdmin

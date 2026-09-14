@@ -45,13 +45,16 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-full items-center justify-center p-6">
+    // 内容比视口高时**必须能滚**：`items-center` 会把超出的部分顶到容器外面，
+    // 那截就再也滚不回来了（按钮会够不着）。改成「容器滚 + 子元素 my-auto 居中」——
+    // 装得下就居中，装不下就变成一条从顶开始的可滚动流。
+    <div className="relative flex h-full justify-center overflow-y-auto p-6">
       <div className="absolute top-4 right-4 flex items-center gap-1">
         <LanguageSwitcher />
         <ThemeSwitcher />
       </div>
 
-      <div className="flex w-full max-w-sm flex-col gap-6">
+      <div className="my-auto flex w-full max-w-sm flex-col gap-6">
         <div className="flex flex-col items-center gap-3">
           <BrandMark className="size-12" />
           <div className="flex flex-col items-center gap-1">

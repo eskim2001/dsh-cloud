@@ -26,7 +26,7 @@ Dockerfile。根目录的 `.dockerignore` 排掉了 `node_modules` / `**/dist` /
 |---|---|
 | `/app/server` | 控制面：`dist/`（编译产物）、`drizzle/`（迁移）、`node_modules`（`pnpm deploy --prod`） |
 | `/app/web` | 管理台静态文件（`WEB_DIST_DIR`，控制面自己 serve） |
-| `/usr/local/bin/entrypoint.sh` | 子命令分发：`migrate` / `seed` / `serve`（默认） |
+| `/usr/local/bin/entrypoint.sh` | 子命令分发：`migrate` / `seed` / `domain` / `serve`（默认） |
 
 `apt` 装了 `xfsprogs` 与 `util-linux` 与 `tini`：`instance/pool.ts` 直接 shell 出
 `xfs_quota` / `mkfs.xfs` / `losetup` / `findmnt` / `mount`，缺一个配额就设不上，而那是
@@ -49,6 +49,22 @@ docker run --rm --env-file /opt/dsh-cloud/.env ghcr.io/eskim2001/dsh-cloud:0.1.0
 
 `serve` 起不来的常见原因不是镜像，是存储池：容器里**不建池**，`HOST_STORAGE_ROOT`
 必须是宿主上已经挂好的 XFS + `pquota`（见下）。
+
+## 改域名
+
+域名存在平台的库里（`platform_setting` 那一行），装机**不写**环境变量。所以只有一个入口：
+
+```bash
+docker compose -f /opt/dsh-cloud/prod.yml run --rm control-plane domain example.com
+```
+
+它写库 → 重启控制面自己。新域名是**启动期**配置（会话 cookie 的 `Domain`、better-auth 的
+baseURL 都在启动时按域名定死），所以必须重启；重启之后**旧域名上的会话会失效**，要在新域名下
+重新登录。命令会先探一次泛解析，解不到只**警告**，不拦。
+
+父域填错会怎样：控制面带着错的域名重启，那个域名解析不到 —— **界面进不去了**。但你能从 SSH 修：
+把对的域名再跑一次这条命令。**这就是为什么改域名现在只开这个入口、没放进控制台** —— 界面上改，
+写错的代价是把自己关在门外，而那时界面已经没了。
 
 ## 装机之后（引导态）
 

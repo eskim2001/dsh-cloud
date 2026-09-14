@@ -59,13 +59,14 @@ export default function AcceptInvitePage() {
   }
 
   return (
-    <div className="relative flex min-h-full items-center justify-center p-6">
+    // 同 LoginPage：内容比视口高时靠容器滚动，别用 items-center 把顶上那截顶出可见区
+    <div className="relative flex h-full justify-center overflow-y-auto p-6">
       <div className="absolute top-4 right-4 flex items-center gap-1">
         <LanguageSwitcher />
         <ThemeSwitcher />
       </div>
 
-      <div className="flex w-full max-w-sm flex-col gap-6">
+      <div className="my-auto flex w-full max-w-sm flex-col gap-6">
         <div className="flex flex-col items-center gap-3">
           <BrandMark className="size-12" />
           <div className="flex flex-col items-center gap-1">

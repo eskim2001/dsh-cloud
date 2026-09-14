@@ -3,6 +3,7 @@
 # 平台镜像的入口。子命令：
 #   migrate   跑数据库迁移
 #   seed      建第一个管理员（只在「还没有管理员」时生效，可重复跑）
+#   domain    改平台域名（写 DB，然后重启控制面自己）
 #   serve     起控制面（默认）
 #
 # compose 里 postgres 有 healthcheck，但那只保证「容器起来了」，不保证「现在能连」——
@@ -46,12 +47,17 @@ case "${1:-serve}" in
     wait_for_db
     exec node "$APP_DIR/dist/scripts/seed.js"
     ;;
+  domain)
+    wait_for_db
+    shift
+    exec node "$APP_DIR/dist/scripts/domain.js" "$@"
+    ;;
   serve)
     wait_for_db
     exec node "$APP_DIR/dist/src/index.js"
     ;;
   *)
-    echo "未知子命令：$1（可用：migrate / seed / serve）" >&2
+    echo "未知子命令：$1（可用：migrate / seed / domain / serve）" >&2
     exit 1
     ;;
 esac

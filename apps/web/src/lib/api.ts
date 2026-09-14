@@ -565,6 +565,20 @@ export async function getSetupState(): Promise<{ configured: boolean }> {
 }
 
 /**
+ * 向导页边打字边问：这个父域的泛解析配好了没。
+ *
+ * **只读**，不改任何状态。存在的理由是提交那一步有风险：域名一旦落库，控制面就带着它重启，
+ * 解析不了的话控制台就进不去了。所以要在提交**之前**把这件事摆出来，而不是之后再报错。
+ */
+export async function probeSetupDomain(
+  token: string,
+  baseDomain: string,
+): Promise<{ resolved: boolean; consoleDomain: string }> {
+  const query = new URLSearchParams({ token, baseDomain })
+  return request<{ resolved: boolean; consoleDomain: string }>(`/api/setup/probe?${query}`)
+}
+
+/**
  * 提交**首个管理员账号**和父域。凭证是安装脚本打印的**一次性 token**（在 URL 里带过来的）。
  *
  * 服务端会建号 → 算 `console.<父域>` → 落库 → **立刻摘掉引导口**，然后重启自己。

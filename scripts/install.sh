@@ -361,10 +361,10 @@ DATABASE_URL=postgres://dshcloud:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_PORT=${POSTGRES_PORT}
 
-# 域名两项**恒为空**：装机不配域名，控制面以引导态起来，域名由操作者在引导页里填、写进
-# platform_setting。非空会**压过**那份 DB 记录 —— 那条路留给本地开发和手工覆盖（见 env.ts）。
-BASE_DOMAIN=
-CONSOLE_DOMAIN=
+# 域名**不在这里**。装机不配域名：控制面以引导态起来，域名由操作者在引导页里填、写进
+# platform_setting；之后要改也是写那张表（镜像里的 `domain` 子命令）。所以这份 .env 里
+# 刻意**不留** BASE_DOMAIN / CONSOLE_DOMAIN 两个键 —— env 有值会压过 DB（见 env.ts），
+# 而这个脚本每次都会整份重写 .env，留一个"看着能改、一重跑就被抹平"的旋钮只会误导人。
 PUBLIC_SCHEME=https
 
 # 引导页的一次性凭证。配好域名后引导口被摘掉，它自然失效（见 control-plane 的 setup-routes）。
@@ -485,10 +485,6 @@ cmd_install() {
     POOL_ROOT=$(env_get HOST_STORAGE_ROOT)
     POSTGRES_PORT=$(env_get POSTGRES_PORT)
     CONTROL_PORT=$(env_get PORT)
-    # 域名两项在 .env 里**恒为空**（装机不配域名），所以这里只判键在不在 ——
-    # 键没了说明 .env 被截断或手工改过，拼出来的配置会缺东西。
-    grep -q '^BASE_DOMAIN=' "$STATE_DIR/.env" ||
-      die "已有 .env 里没有 BASE_DOMAIN 这一行。修好它，或删掉 $STATE_DIR/.env 重装。"
   fi
 
   preflight

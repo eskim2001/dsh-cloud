@@ -13,6 +13,9 @@ const ALLOWED_GET_ROUTES = [
   'GET /api/auth/*', // better-auth 自己的端点（登录 / 登出 / 会话）
   'GET /healthz', // 存活探针，无数据
   'GET /api/setup/state', // 公开：只回一行「配好没」，不含任何令牌（见 setup-routes.ts）
+  // 引导页边打字边问「这个父域解析通了没」。凭证是 URL 里那枚一次性 token（**不是**公开的
+  // —— 它会让服务器去查 DNS），只读、不改任何状态。
+  'GET /api/setup/probe',
   'GET /api/sessions', // 自己的会话列表
   // 实例面：全部带 owner 维度
   'GET /api/instances',
@@ -37,11 +40,19 @@ const ALLOWED_GET_ROUTES = [
 /**
  * **引导态**（还没配域名）的注册面：只有 setup 与存活探针。
  *
- * 这份清单比上面那份更要紧：那时平台在 `:80` 上明文对公网开着（靠一次性 token 挡），
+ * 这份清单比上面那份更要紧：那时平台**直接对外开着一个端口**（靠一次性 token 挡），
  * 所以**往里加任何一条都是一次显式决定** —— "多一条路由"在这里等于"多一个域名配好之前
  * 对外的口子"。业务路由一概不挂（`buildApp` 在那之前就返回了）。
+ *
+ * `probe` 是 2026-09-14 加的，理由记在这儿：提交域名那一步**不可逆**（落库 → 带着它重启），
+ * 解析配错就把操作者关在门外。要把「解析通没通」提前到提交之前，只能让服务器代查一次 DNS。
+ * 这条端点就是那个代价，范围卡在「**只读** + 要 token + 只回一个布尔和控制台主机名」。
  */
-const BOOTSTRAP_ALLOWED_GET_ROUTES = ['GET /api/setup/state', 'GET /healthz']
+const BOOTSTRAP_ALLOWED_GET_ROUTES = [
+  'GET /api/setup/state',
+  'GET /api/setup/probe',
+  'GET /healthz',
+]
 
 function dependencies(onRoute: AppDeps['onRoute'], bootstrap = false): AppDeps {
   return {
@@ -100,7 +111,7 @@ describe('注册面：GET 必须逐一交代清楚', () => {
 })
 
 describe('引导态的注册面：只该有 setup 与存活探针', () => {
-  it('GET 面就是那两条', async () => {
+  it('GET 面就是那三条', async () => {
     const actual = (await collect(true))
       .filter((r) => r.method === 'GET')
       .map((r) => `${r.method} ${r.url}`)

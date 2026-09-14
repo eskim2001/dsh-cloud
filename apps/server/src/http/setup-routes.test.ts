@@ -188,4 +188,45 @@ describe('setup 端点', () => {
     // 只回事实、不拦：域名照样落库 —— 否则操作者会被卡在一个他无法从面板里修的状态
     expect(saved).toHaveLength(1)
   })
+
+  /**
+   * 探测端点：让向导页在**提交之前**就能显示解析通没通。
+   * 提交那一步是有代价的（域名落库 → 带着它重启 → 解析错就进不去），所以这条只读端点
+   * 必须：① 凭证照样是那枚 token；② 什么都不改。
+   */
+  describe('GET /api/setup/probe', () => {
+    const probe = (query: string) => app.inject({ method: 'GET', url: `/api/setup/probe?${query}` })
+
+    it('token 不对 → 401', async () => {
+      app = await build()
+      expect((await probe('token=wrong&baseDomain=example.com')).statusCode).toBe(401)
+    })
+
+    it('域名形状不对 → 400', async () => {
+      app = await build()
+      const res = await probe('token=tok&baseDomain=localhost')
+      expect(res.statusCode).toBe(400)
+      expect(res.json()).toEqual({ error: 'invalid-domain' })
+    })
+
+    it('解析得到 → resolved: true，并把控制台主机名一并算好回给界面（别让 UI 变成第三处副本）', async () => {
+      app = await build()
+      const res = await probe('token=tok&baseDomain=example.com')
+      expect(res.statusCode).toBe(200)
+      expect(res.json()).toEqual({ resolved: true, consoleDomain: 'console.example.com' })
+    })
+
+    it('解析不到 → resolved: false（界面据此挡住提交）', async () => {
+      app = await build({ resolveSubdomain: async () => [] })
+      expect((await probe('token=tok&baseDomain=example.com')).json().resolved).toBe(false)
+    })
+
+    it('**什么都没改**：没建号、没落域名、没重启', async () => {
+      app = await build()
+      await probe('token=tok&baseDomain=example.com')
+      expect(created).toEqual([])
+      expect(saved).toEqual([])
+      expect(restarts).toBe(0)
+    })
+  })
 })
