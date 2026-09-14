@@ -72,6 +72,27 @@ docker run --rm --env-file /opt/dsh-cloud/.env ghcr.io/eskim2001/dsh-cloud:0.1.0
 - 那条 catch-all 只该在引导期存在。三个动态文件**每次启动按数据库状态幂等对齐**，所以即使
   上一轮半途挂了，也不会把明文入口留在 `:80` 上。
 
+## 实例镜像要和平台同期
+
+实例镜像里的 Caddy 负责把 dsh 的入口 token 注进去（在**无 cookie 的 `GET /`** 上，见 D14），
+这条约定**平台与镜像是一起改的**。镜像落后时症状极具误导性：
+
+> 登录 → 打开实例 → **401**，正文 `dsh web authentication required; reopen the URL printed by dsh web.`
+
+看起来像平台坏了，其实只是那台机器上的实例镜像旧了。实测（2026-09-14）：一个 **2026-09-11**
+构建的镜像（Caddyfile 还是旧的 `@open` 精确路径）配上 2026-09-12 之后的平台，正好是这个症状 ——
+平台侧的门（403）、forward-auth 的 cookie 过滤、dsh 的 token 全都没问题，**唯一错的是镜像**。
+
+升级时**平台和实例镜像一起升**；实例打不开先看它的版本：
+
+```bash
+docker image inspect ghcr.io/eskim2001/dsh-instance:<tag> \
+  --format '{{index .Config.Labels "org.opencontainers.image.version"}}'
+```
+
+平台与镜像之间的完整契约（入口 token、cookie 名、门 header）在
+[docker/instance-image/AGENTS.md](../instance-image/AGENTS.md) 顶部那张表。
+
 ## 两条要说明白的边界
 
 1. **`cap_add: [SYS_ADMIN]` 叠加 `docker.sock` 等于宿主 root。** 这**不新增**信任面 ——
