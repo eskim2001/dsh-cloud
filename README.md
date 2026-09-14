@@ -99,6 +99,8 @@
 curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh | sudo bash
 ```
 
+（**已经是 root 就去掉 `sudo`** —— 很多 VPS 默认给你的就是 root shell，而那些系统往往根本没装 sudo。）
+
 脚本按序做：预检（环境 / 端口 / 存储能力）→ 在宿主上准备好存储池 → 起 PostgreSQL → 迁移数据库 → 建第一个管理员 → 起控制面与入口，最后打印控制台地址和**只显示一次**的管理员密码。中间它会问域名和管理员邮箱，照答即可 —— 没有域名也能装。
 
 自备证书、升级回滚、以及**为什么控制面持有 Docker socket 与 `CAP_SYS_ADMIN` 是预期内的**，见[部署说明](docker/platform/README.md)。

@@ -98,6 +98,8 @@ A Linux host with Docker (Compose v2), ports `80` / `443` free, and a disk that 
 curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh | sudo bash
 ```
 
+(Drop `sudo` if you are already root -- many VPS providers hand you a root shell, and those images often do not ship `sudo` at all.)
+
 The script runs, in order: preflight (environment, ports, storage capability) → provision the storage pool → start PostgreSQL → migrate the database → create the first administrator → start the control plane and ingress. It ends by printing the console URL and an administrator password **shown once**. It asks for a domain and an administrator email along the way; answering is enough, and installing without a domain works too.
 
 For bring-your-own certificates, upgrades and rollbacks, and **why it is expected for the control plane to hold the Docker socket and `CAP_SYS_ADMIN`**, see the [deployment guide](docker/platform/README.md).
