@@ -88,9 +88,36 @@ interface SessionUser {
 /** 引导态唯一的写端点（见 `http/setup-routes.ts`）。 */
 const SETUP_PATH = '/api/setup'
 
+/**
+ * 记日志之前把 URL 里的**一次性 token** 抹掉。
+ *
+ * 引导期那枚 setup token 是那个页面的**唯一**凭证，而它只能走 URL（操作者从终端把链接粘过来）。
+ * Fastify 默认把整条 `req.url` 记进日志 —— 那等于把凭证抄进 `docker logs`：谁能看日志，
+ * 谁就能赶在操作者之前把域名配掉。
+ *
+ * 这是**兜底**（那条页面 URL 躲不掉）。能不放 URL 的地方就别放 —— 探测端点因此改用了 header，
+ * 见 `http/setup-routes.ts`。
+ */
+const TOKEN_IN_QUERY = /([?&]token=)[^&\s]*/giu
+
+export function redactToken(url: string): string {
+  return url.replace(TOKEN_IN_QUERY, '$1<redacted>')
+}
+
+/** 照着 Fastify 默认那份写，只把 url 换掉 —— 其余字段（host、来源）排障要用。 */
+function logRequest(request: FastifyRequest): Record<string, unknown> {
+  return {
+    method: request.method,
+    url: redactToken(request.url),
+    host: request.headers.host,
+    remoteAddress: request.ip,
+    remotePort: request.socket.remotePort,
+  }
+}
+
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: deps.logger ?? false,
+    logger: deps.logger === true ? { serializers: { req: logRequest } } : false,
     // Traefik 在前面：X-Forwarded-* 是可信的，登录回跳和 cookie 都靠它
     trustProxy: true,
   })

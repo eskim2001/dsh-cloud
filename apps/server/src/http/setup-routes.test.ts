@@ -195,35 +195,46 @@ describe('setup 端点', () => {
    * 必须：① 凭证照样是那枚 token；② 什么都不改。
    */
   describe('GET /api/setup/probe', () => {
-    const probe = (query: string) => app.inject({ method: 'GET', url: `/api/setup/probe?${query}` })
+    // token 走 **header**：放 query 里会被原样记进访问日志，而这枚 token 引导期就是唯一凭证
+    const probe = (query: string, token = 'tok') =>
+      app.inject({
+        method: 'GET',
+        url: `/api/setup/probe?${query}`,
+        headers: { 'x-setup-token': token },
+      })
 
     it('token 不对 → 401', async () => {
       app = await build()
-      expect((await probe('token=wrong&baseDomain=example.com')).statusCode).toBe(401)
+      expect((await probe('baseDomain=example.com', 'wrong')).statusCode).toBe(401)
+    })
+
+    it('没带 token → 一样拒', async () => {
+      app = await build()
+      expect((await probe('baseDomain=example.com', '')).statusCode).toBe(401)
     })
 
     it('域名形状不对 → 400', async () => {
       app = await build()
-      const res = await probe('token=tok&baseDomain=localhost')
+      const res = await probe('baseDomain=localhost')
       expect(res.statusCode).toBe(400)
       expect(res.json()).toEqual({ error: 'invalid-domain' })
     })
 
-    it('解析得到 → resolved: true，并把控制台主机名一并算好回给界面（别让 UI 变成第三处副本）', async () => {
+    it('解析得到 → resolved: true，并把控制台主机名一并算好回给界面（别让 UI 变成第四处副本）', async () => {
       app = await build()
-      const res = await probe('token=tok&baseDomain=example.com')
+      const res = await probe('baseDomain=example.com')
       expect(res.statusCode).toBe(200)
       expect(res.json()).toEqual({ resolved: true, consoleDomain: 'console.example.com' })
     })
 
     it('解析不到 → resolved: false（界面据此挡住提交）', async () => {
       app = await build({ resolveSubdomain: async () => [] })
-      expect((await probe('token=tok&baseDomain=example.com')).json().resolved).toBe(false)
+      expect((await probe('baseDomain=example.com')).json().resolved).toBe(false)
     })
 
     it('**什么都没改**：没建号、没落域名、没重启', async () => {
       app = await build()
-      await probe('token=tok&baseDomain=example.com')
+      await probe('baseDomain=example.com')
       expect(created).toEqual([])
       expect(saved).toEqual([])
       expect(restarts).toBe(0)

@@ -87,11 +87,13 @@ export function registerSetupRoutes(app: FastifyInstance, deps: SetupDeps): void
    * 凭证仍是那枚 token —— 这条端点会让服务器去查 DNS，不能匿名开放。
    */
   app.get('/api/setup/probe', async (request, reply) => {
-    const query = request.query as { token?: unknown; baseDomain?: unknown }
-    const given = typeof query.token === 'string' ? query.token : ''
-    if (!tokenMatches(deps.token, given)) {
+    // token 走 **header**，不走 query —— query 会被原样记进访问日志，而这枚 token 在引导期
+    // 就是唯一凭证。页面那条 URL 里的 token 躲不掉（见 `app.ts` 的 redactToken），但这条能躲。
+    const given = request.headers['x-setup-token']
+    if (!tokenMatches(deps.token, typeof given === 'string' ? given : '')) {
       return reply.code(401).send({ error: 'invalid-token' })
     }
+    const query = request.query as { baseDomain?: unknown }
     const parsed = BaseDomainSchema.safeParse(query.baseDomain)
     if (!parsed.success) {
       return reply.code(400).send({ error: 'invalid-domain' })

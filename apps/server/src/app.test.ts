@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildApp, type AppDeps } from './app.js'
+import { buildApp, redactToken, type AppDeps } from './app.js'
 import { countAdmins, findUserById, setUserRole } from './db/user-repo.js'
 
 /**
@@ -207,5 +207,28 @@ describe('platform admin role guard', () => {
     } finally {
       await app.close()
     }
+  })
+})
+
+/**
+ * 引导期那枚 setup token 只能走 URL，而 Fastify 默认把整条 `req.url` 记进日志 ——
+ * 那等于把页面的唯一凭证抄进 `docker logs`。实测踩到过（2026-09-14，真机日志里
+ * `"url":"/setup?token=…"` 出现了三次），所以记之前必须抹掉。
+ */
+describe('日志里的 token', () => {
+  it('query 里的 token 被抹掉，其余 query 保留', () => {
+    expect(redactToken('/setup?token=deadbeef&x=1')).toBe('/setup?token=<redacted>&x=1')
+    expect(redactToken('/api/setup/probe?baseDomain=example.com&token=deadbeef')).toBe(
+      '/api/setup/probe?baseDomain=example.com&token=<redacted>',
+    )
+  })
+
+  it('没有 token 的 URL 原样保留', () => {
+    expect(redactToken('/api/setup/state')).toBe('/api/setup/state')
+    expect(redactToken('/api/instances?page=2')).toBe('/api/instances?page=2')
+  })
+
+  it('大小写都认（URL 里的参数名不保证小写）', () => {
+    expect(redactToken('/setup?Token=deadbeef')).toBe('/setup?Token=<redacted>')
   })
 })
