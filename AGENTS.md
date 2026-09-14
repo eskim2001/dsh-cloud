@@ -132,4 +132,4 @@ pnpm --filter @dsh-cloud/server test:security
 | 改 UI 前必读的视觉约束 | [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) |
 | 生产部署怎么装（镜像 / 拓扑 / 权限） | [docker/platform/README.md](docker/platform/README.md) |
 | 本地入口栈怎么起 | [docker/compose/README.md](docker/compose/README.md) |
-| 项目概览 / 快速开始 | [README.md](README.md) · [README.en.md](README.en.md) |
+| 项目概览 / 快速开始 | [README.md](README.md) · [README.zh-CN.md](README.zh-CN.md) |
