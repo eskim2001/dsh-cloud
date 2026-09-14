@@ -46,27 +46,28 @@ export function InvitePanel() {
   const failed = create.isError || revoke.isError
 
   return (
-    <section className="flex flex-col gap-4 border-t pt-8">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium">{t('admin.users.inviteTitle')}</h2>
-        <p className="text-xs text-muted-foreground">
+    <section className="flex flex-col mt-8 rounded-xl border border-border/80 bg-card shadow-sm overflow-hidden">
+      <div className="border-b border-border/60 bg-muted/30 px-6 py-5">
+        <h2 className="text-sm font-medium tracking-tight text-foreground">{t('admin.users.inviteTitle')}</h2>
+        <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
           {t('admin.users.inviteDescription', { hours: invites.data?.ttlHours ?? 0 })}
         </p>
       </div>
 
-      <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row">
-        <Input
-          type="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder={t('admin.users.inviteEmailPlaceholder')}
-          className="sm:max-w-xs"
-        />
-        <Button type="submit" disabled={create.isPending}>
-          {create.isPending ? t('admin.users.inviteCreating') : t('admin.users.inviteCreate')}
-        </Button>
-      </form>
+      <div className="p-6 relative z-10 flex flex-col gap-6">
+        <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder={t('admin.users.inviteEmailPlaceholder')}
+            className="sm:max-w-xs h-10"
+          />
+          <Button type="submit" className="h-10 px-6 text-[14px] shadow-sm" disabled={create.isPending}>
+            {create.isPending ? t('admin.users.inviteCreating') : t('admin.users.inviteCreate')}
+          </Button>
+        </form>
 
       {freshUrl !== null && (
         <div className="flex flex-col gap-1 border border-dashed p-3">
@@ -134,6 +135,7 @@ export function InvitePanel() {
           })}
         </ul>
       )}
+      </div>
     </section>
   )
 }

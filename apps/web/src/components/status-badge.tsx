@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { cn } from '@/lib/utils.js'
 
 /**
  * 实例状态徽章。状态由服务端**查询时从 Docker 现算**（见 docs/DECISIONS.md D16），
@@ -8,9 +9,11 @@ import { useTranslation } from 'react-i18next'
 export function StatusBadge({
   status,
   statusText,
+  className,
 }: {
   status: string
   statusText?: string | null | undefined
+  className?: string
 }) {
   const { t } = useTranslation()
   const dot =
@@ -23,7 +26,7 @@ export function StatusBadge({
           : 'bg-muted-foreground/45'
 
   return (
-    <span className="inline-flex items-center gap-2 text-xs text-muted-foreground" title={statusText ?? undefined}>
+    <span className={cn('inline-flex items-center gap-2 text-xs text-muted-foreground', className)} title={statusText ?? undefined}>
       <span className={`size-1.5 rounded-full ${dot}`} aria-hidden="true" />
       {t(`status.${status}`, { defaultValue: status })}
     </span>

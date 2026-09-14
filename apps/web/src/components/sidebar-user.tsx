@@ -72,34 +72,8 @@ export function SidebarUser() {
             side={isMobile ? 'bottom' : 'right'}
             sideOffset={4}
           >
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>{t('language.label')}</DropdownMenuLabel>
-              {SUPPORTED_LOCALES.map((locale) => (
-                <DropdownMenuCheckboxItem
-                  key={locale}
-                  checked={i18n.language === locale}
-                  onCheckedChange={() => void i18n.changeLanguage(locale)}
-                >
-                  {t(`language.${locale}`)}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>{t('theme.label')}</DropdownMenuLabel>
-              {THEMES.map((value) => (
-                <DropdownMenuCheckboxItem
-                  key={value}
-                  checked={theme === value}
-                  onCheckedChange={() => setTheme(value)}
-                >
-                  {t(`theme.${value}`)}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => logout.mutate()} disabled={logout.isPending}>
-              <LogOutIcon />
+              <LogOutIcon className="mr-2 size-4" />
               {t('common.signOut')}
             </DropdownMenuItem>
           </DropdownMenuContent>

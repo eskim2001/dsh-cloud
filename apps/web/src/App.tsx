@@ -8,9 +8,7 @@ import AdminInstancesPage from './pages/admin/AdminInstancesPage.js'
 import AdminOverviewPage from './pages/admin/AdminOverviewPage.js'
 import AdminUsersPage from './pages/admin/AdminUsersPage.js'
 import AdminVersionsPage from './pages/AdminVersionsPage.js'
-import ActivityPage from './pages/ActivityPage.js'
 import CreateWorkspacePage from './pages/CreateWorkspacePage.js'
-import FilesPage from './pages/FilesPage.js'
 import HomePage from './pages/HomePage.js'
 import OpenWorkspacePage from './pages/OpenWorkspacePage.js'
 import WorkspaceSettingsPage from './pages/WorkspaceSettingsPage.js'
@@ -58,8 +56,6 @@ export default function App() {
         <Route path="/workspaces/:id" element={<InstanceDetailPage />} />
         <Route path="/workspaces/:id/open" element={<OpenWorkspacePage />} />
         <Route path="/workspaces/:id/settings" element={<WorkspaceSettingsPage />} />
-        <Route path="/files" element={<FilesPage />} />
-        <Route path="/activity" element={<ActivityPage />} />
         <Route path="/instances" element={<Navigate to="/workspaces" replace />} />
         <Route path="/instances/:id" element={<InstanceDetailPage />} />
         <Route path="/settings/account" element={<AccountPage />} />

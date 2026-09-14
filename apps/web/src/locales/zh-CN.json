@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "DSH Cloud"
+    "title": "dshcloud"
   },
   "common": {
     "loading": "加载中…",
@@ -19,10 +19,8 @@
     "instances": "工作空间",
     "home": "主页",
     "workspaces": "工作空间",
-    "files": "文件",
-    "activity": "活动",
     "help": "帮助",
-    "backToWorkspace": "返回工作空间",
+    "backToWorkspace": "返回平台",
     "admin": "平台管理",
     "adminOverview": "概览",
     "adminVersions": "版本管理",
@@ -36,13 +34,9 @@
     "evening": "晚上好，{{name}}。",
     "subtitle": "继续上次的工作。",
     "continue": "继续工作",
-    "recent": "最近使用的工作空间",
-    "allWorkspaces": "查看全部",
     "create": "新建工作空间",
     "quickActions": "快捷操作",
-    "browseFiles": "浏览文件",
     "activity": "最近活动",
-    "viewActivity": "查看全部",
     "emptyTitle": "你的工作空间正在等待。",
     "emptyBody": "创建第一个工作空间，开始使用 dsh。"
   },
@@ -58,44 +52,25 @@
     "readyBody": "你的 dsh 环境已经就绪。",
     "open": "打开工作空间"
   },
-  "files": {
-    "title": "文件",
-    "subtitle": "打开任一工作空间的文件环境。",
-    "search": "搜索工作空间…",
-    "updated": "创建于 {{time}}",
-    "open": "打开文件",
-    "empty": "没有匹配的工作空间",
-    "emptyBody": "创建工作空间后即可开始处理文件。",
-    "boundary": "文件始终留在各自隔离的工作空间内。打开工作空间后，可在 dsh 中上传、创建、移动、预览或删除文件。"
-  },
   "activity": {
-    "title": "活动",
-    "subtitle": "安静地记录各个工作空间中发生的事情。",
-    "created": "创建了工作空间",
     "stopped": "停止了工作空间",
-    "error": "工作空间需要处理",
-    "empty": "这里还没有内容",
-    "emptyBody": "使用工作空间后，活动会出现在这里。"
+    "empty": "这里还没有内容"
   },
   "command": {
     "title": "快捷操作",
     "search": "搜索或前往…",
     "placeholder": "搜索工作空间和操作…",
     "create": "创建工作空间",
-    "files": "搜索文件",
     "settings": "打开设置"
   },
   "workspaceDetail": {
-    "back": "返回工作空间",
-    "backToWorkspace": "返回工作空间",
+    "back": "返回列表",
+    "backToWorkspace": "返回详情页",
     "notFound": "找不到这个工作空间。",
     "created": "创建于 {{time}}",
     "settings": "设置",
     "open": "打开工作空间",
     "attention": "这个工作空间需要处理",
-    "workspace": "工作空间",
-    "files": "文件",
-    "openFiles": "在 dsh 中打开",
     "storage": "已用存储",
     "version": "dsh 版本",
     "recent": "最近活动",
@@ -105,7 +80,9 @@
     "preparing": "正在准备你的工作空间",
     "moment": "通常只需要片刻。",
     "ready": "工作空间已准备好。",
+    "readyHint": "引擎已就绪，随时可以开始工作。",
     "redirecting": "正在打开 dsh…",
+    "launch": "进入工作空间",
     "offline": "这个工作空间已离线。",
     "offlineBody": "准备继续工作时再启动它。",
     "start": "启动工作空间",
@@ -135,11 +112,14 @@
     "system": "跟随系统"
   },
   "login": {
-    "subtitle": "你自己的 dsh 云",
+    "title": "登录",
+    "subtitle": "DeepSeek Harness 的开源自托管平台",
     "email": "邮箱",
     "password": "密码",
-    "pending": "处理中…",
-    "submitSignIn": "登录"
+    "showPassword": "显示密码",
+    "hidePassword": "隐藏密码",
+    "pending": "验证中…",
+    "submitSignIn": "进入控制台"
   },
   "setup": {
     "title": "初始化",
@@ -276,7 +256,7 @@
   "settings": {
     "profile": {
       "title": "个人资料",
-      "description": "用于在 DSH Cloud 中识别你的账号。"
+      "description": "用于在 dshcloud 中识别你的账号。"
     },
     "sessions": {
       "title": "会话",

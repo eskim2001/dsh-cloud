@@ -28,13 +28,12 @@ export function BrandMark({ className }: BrandProps) {
     <svg
       viewBox={VIEW_BOX}
       className={className}
-      fill="currentColor"
       aria-hidden="true"
       focusable="false"
     >
       <g transform={CENTER}>
-        <path fillRule="evenodd" d={WHALE} />
-        <path d={CLOUDS} />
+        <path fillRule="evenodd" d={WHALE} className="fill-foreground transition-colors duration-300" />
+        <path d={CLOUDS} className="fill-[#087f71]/90 dark:fill-[#087f71] transition-colors duration-300" />
       </g>
     </svg>
   )

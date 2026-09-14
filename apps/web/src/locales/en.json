@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "DSH Cloud"
+    "title": "dshcloud"
   },
   "common": {
     "loading": "Loading…",
@@ -19,10 +19,8 @@
     "instances": "Workspaces",
     "home": "Home",
     "workspaces": "Workspaces",
-    "files": "Files",
-    "activity": "Activity",
     "help": "Help",
-    "backToWorkspace": "Back to workspace",
+    "backToWorkspace": "Back to platform",
     "admin": "Platform admin",
     "adminOverview": "Overview",
     "adminVersions": "Versions",
@@ -36,13 +34,9 @@
     "evening": "Good evening, {{name}}.",
     "subtitle": "Pick up where you left off.",
     "continue": "Continue working",
-    "recent": "Recent workspaces",
-    "allWorkspaces": "View all",
     "create": "New workspace",
     "quickActions": "Quick actions",
-    "browseFiles": "Browse files",
     "activity": "Recent activity",
-    "viewActivity": "View all",
     "emptyTitle": "Your workspace is waiting.",
     "emptyBody": "Create your first workspace and start using dsh."
   },
@@ -58,44 +52,25 @@
     "readyBody": "Your dsh environment is prepared and waiting for you.",
     "open": "Open workspace"
   },
-  "files": {
-    "title": "Files",
-    "subtitle": "Open the file environment for any of your workspaces.",
-    "search": "Search workspaces…",
-    "updated": "Created {{time}}",
-    "open": "Open files",
-    "empty": "No matching workspaces",
-    "emptyBody": "Create a workspace to start working with files.",
-    "boundary": "Files remain inside each isolated workspace. Open a workspace to upload, create, move, preview, or delete files in dsh."
-  },
   "activity": {
-    "title": "Activity",
-    "subtitle": "A quiet record of what happened across your workspaces.",
-    "created": "Workspace created",
     "stopped": "Workspace stopped",
-    "error": "Workspace needs attention",
-    "empty": "Nothing here yet",
-    "emptyBody": "Workspace activity will appear here as you work."
+    "empty": "Nothing here yet"
   },
   "command": {
     "title": "Quick actions",
     "search": "Search or jump to…",
     "placeholder": "Search workspaces and actions…",
     "create": "Create workspace",
-    "files": "Search files",
     "settings": "Open settings"
   },
   "workspaceDetail": {
-    "back": "Back to workspaces",
-    "backToWorkspace": "Back to workspace",
+    "back": "Back to list",
+    "backToWorkspace": "Back to details",
     "notFound": "This workspace could not be found.",
     "created": "Created {{time}}",
     "settings": "Settings",
     "open": "Open workspace",
     "attention": "This workspace needs attention",
-    "workspace": "Workspace",
-    "files": "Files",
-    "openFiles": "Open in dsh",
     "storage": "Storage used",
     "version": "dsh version",
     "recent": "Recent activity",
@@ -105,7 +80,9 @@
     "preparing": "Preparing your workspace",
     "moment": "This usually takes a moment.",
     "ready": "Workspace ready.",
+    "readyHint": "Your workspace is running and ready to use.",
     "redirecting": "Opening dsh…",
+    "launch": "Launch Workspace",
     "offline": "This workspace is offline.",
     "offlineBody": "Start it when you are ready to continue.",
     "start": "Start workspace",
@@ -135,11 +112,14 @@
     "system": "System"
   },
   "login": {
-    "subtitle": "Your own dsh cloud",
+    "title": "Sign in",
+    "subtitle": "An open source, self-hosted platform for DeepSeek Harness.",
     "email": "Email",
     "password": "Password",
-    "pending": "Working…",
-    "submitSignIn": "Sign in"
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "pending": "Verifying…",
+    "submitSignIn": "Enter Console"
   },
   "setup": {
     "title": "Set up",
@@ -277,7 +257,7 @@
   "settings": {
     "profile": {
       "title": "Profile",
-      "description": "How your account is identified across DSH Cloud."
+      "description": "How your account is identified across dshcloud."
     },
     "sessions": {
       "title": "Sessions",

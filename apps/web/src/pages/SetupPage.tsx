@@ -3,7 +3,8 @@ import type { TFunction } from 'i18next'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
-import { BrandMark } from '@/components/brand-mark.js'
+import { WhaleAnimation } from '@/components/whale-animation.js'
+import './login.css'
 import { LanguageSwitcher } from '@/components/language-switcher.js'
 import { ThemeSwitcher } from '@/components/theme-switcher.js'
 import { Alert, AlertDescription } from '@/components/ui/alert.js'
@@ -60,20 +61,18 @@ export default function SetupPage() {
     const { consoleDomain, dns } = mutation.data
     return (
       <Shell>
-        <Card>
-          <CardContent className="flex flex-col gap-3">
-            <h2 className="font-heading text-base font-semibold">{t('setup.doneTitle')}</h2>
-            <p className="text-sm text-muted-foreground">
-              {t('setup.doneBody', { domain: consoleDomain, email: mutation.data.email })}
-            </p>
-            {!dns.resolved && (
-              <Alert>
-                <AlertDescription>{t('setup.doneDns', { probe: dns.probe })}</AlertDescription>
-              </Alert>
-            )}
-            <p className="text-sm text-muted-foreground">{t('setup.doneClose')}</p>
-          </CardContent>
-        </Card>
+        <h2 className="login-title">{t('setup.doneTitle')}</h2>
+        <div className="flex flex-col gap-4 text-left">
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {t('setup.doneBody', { domain: consoleDomain, email: mutation.data.email })}
+          </p>
+          {!dns.resolved && (
+            <Alert>
+              <AlertDescription>{t('setup.doneDns', { probe: dns.probe })}</AlertDescription>
+            </Alert>
+          )}
+          <p className="text-sm text-muted-foreground">{t('setup.doneClose')}</p>
+        </div>
       </Shell>
     )
   }
@@ -84,96 +83,93 @@ export default function SetupPage() {
 
   return (
     <Shell>
-      <Card>
-        <CardContent>
-          <form onSubmit={submit} className="flex flex-col gap-4">
-            <h2 className="font-heading text-base font-semibold">{t('setup.title')}</h2>
+      <h2 className="login-title">{t('setup.title')}</h2>
+      <form onSubmit={submit} className="login-form">
+        <FieldGroup className="flex flex-col gap-4">
+          <Field className="flex flex-col gap-1.5 text-left">
+            <FieldLabel htmlFor="email" className="login-label">{t('setup.email')}</FieldLabel>
+            <Input
+              id="email"
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              className="login-input"
+            />
+          </Field>
 
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="email">{t('setup.email')}</FieldLabel>
-                <Input
-                  id="email"
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  autoComplete="username"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                />
-              </Field>
+          <Field className="flex flex-col gap-1.5 text-left">
+            <FieldLabel htmlFor="password" className="login-label">{t('setup.password')}</FieldLabel>
+            <Input
+              id="password"
+              type="password"
+              required
+              minLength={8}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+              className="login-input"
+            />
+            <FieldDescription className="text-xs mt-1 text-muted-foreground">{t('setup.passwordHint')}</FieldDescription>
+          </Field>
 
-              <Field>
-                <FieldLabel htmlFor="password">{t('setup.password')}</FieldLabel>
-                <Input
-                  id="password"
-                  type="password"
-                  required
-                  minLength={8}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="new-password"
-                />
-                <FieldDescription>{t('setup.passwordHint')}</FieldDescription>
-              </Field>
-
-              <Field>
-                <FieldLabel htmlFor="baseDomain">{t('setup.domain')}</FieldLabel>
-                <Input
-                  id="baseDomain"
-                  required
-                  value={typedDomain}
-                  onChange={(e) => setTypedDomain(e.target.value)}
-                  placeholder="example.com"
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  // 拼错会让控制台落到别的主机名上，而这一页事后就进不来了
-                  aria-invalid={probe === 'missing'}
-                />
-                <DomainStatus probe={probe} domain={domain} host={host} isIp={isIp} />
-                {isIp && domain !== host && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="xs"
-                    className="self-start"
-                    onClick={() => setTypedDomain(`${host}.sslip.io`)}
-                  >
-                    {t('setup.useTempDomain')}
-                  </Button>
-                )}
-              </Field>
-            </FieldGroup>
-
-            {error !== undefined && (
-              <Alert variant="destructive">
-                <AlertDescription>{errorText(error, t)}</AlertDescription>
-              </Alert>
-            )}
-
-            {blocked && (
+          <Field className="flex flex-col gap-1.5 text-left">
+            <FieldLabel htmlFor="baseDomain" className="login-label">{t('setup.domain')}</FieldLabel>
+            <Input
+              id="baseDomain"
+              required
+              value={typedDomain}
+              onChange={(e) => setTypedDomain(e.target.value)}
+              placeholder="example.com"
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              aria-invalid={probe === 'missing'}
+              className="login-input"
+            />
+            <DomainStatus probe={probe} domain={domain} host={host} isIp={isIp} />
+            {isIp && domain !== host && (
               <Button
                 type="button"
-                variant="link"
-                size="xs"
-                className="self-start"
-                onClick={() => setOverride(true)}
+                variant="outline"
+                size="sm"
+                className="self-start mt-1 text-xs shadow-sm h-7"
+                onClick={() => setTypedDomain(`${host}.sslip.io`)}
               >
-                {t('setup.dnsOverride')}
+                {t('setup.useTempDomain')}
               </Button>
             )}
+          </Field>
+        </FieldGroup>
 
-            <Button type="submit" disabled={mutation.isPending || token === '' || !shapeOk || blocked}>
-              {mutation.isPending ? t('setup.pending') : t('setup.submit')}
-            </Button>
+        {error !== undefined && (
+          <Alert variant="destructive" className="py-2.5 text-xs">
+            <AlertDescription>{errorText(error, t)}</AlertDescription>
+          </Alert>
+        )}
 
-            <p className="text-xs text-muted-foreground">{t('setup.insecure')}</p>
-          </form>
-        </CardContent>
-      </Card>
+        {blocked && (
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="self-start p-0 h-auto text-xs"
+            onClick={() => setOverride(true)}
+          >
+            {t('setup.dnsOverride')}
+          </Button>
+        )}
+
+        <Button type="submit" className="login-btn mt-2" disabled={mutation.isPending || token === '' || !shapeOk || blocked}>
+          {mutation.isPending ? t('setup.pending') : t('setup.submit')}
+        </Button>
+
+        <p className="text-xs text-muted-foreground text-center mt-2">{t('setup.insecure')}</p>
+      </form>
     </Shell>
   )
 }
@@ -246,23 +242,40 @@ function DomainStatus(props: {
 
 /** 登录页那套外壳：品牌 + 语言/主题切换，内容居中。 */
 function Shell({ children }: { children: ReactNode }) {
+  const { t } = useTranslation()
   return (
-    // 内容比视口高时**必须能滚**：`items-center` 会把超出的部分顶到容器外，那截就再也滚不回来，
-    // 按钮会够不着。改成「容器滚 + 子元素 my-auto 居中」——装得下就居中，装不下就从顶上滚。
-    <div className="relative flex h-full justify-center overflow-y-auto p-6">
-      <div className="absolute top-4 right-4 flex items-center gap-1">
-        <LanguageSwitcher />
-        <ThemeSwitcher />
-      </div>
-      <div className="my-auto flex w-full max-w-sm flex-col gap-6">
-        <div className="flex flex-col items-center gap-3">
-          <BrandMark className="size-12" />
-          <h1 className="font-heading text-xl font-semibold">
-            dsh-<span className="text-muted-foreground">cloud</span>
-          </h1>
+    <div className="login-container">
+      {/* ── Left: Brand Stage ── */}
+      <section className="login-stage">
+        <div className="login-stage-content">
+          <div className="login-whale-wrap">
+            <div className="login-hero-glow" aria-hidden="true" />
+            <WhaleAnimation className="login-whale" />
+          </div>
+          <div className="login-brand">
+            <h1 className="login-wordmark">
+              dsh<span className="login-wordmark-cloud">cloud.</span>
+            </h1>
+            <p className="login-subtitle">{t('login.subtitle')}</p>
+          </div>
         </div>
-        {children}
-      </div>
+      </section>
+
+      {/* ── Right: Form ── */}
+      <section className="login-panel">
+        <header className="login-header">
+          <LanguageSwitcher />
+          <ThemeSwitcher />
+        </header>
+
+        <main className="login-main">
+          <div className="login-form-wrap">
+            {children}
+          </div>
+        </main>
+
+        <footer className="login-footer" />
+      </section>
     </div>
   )
 }

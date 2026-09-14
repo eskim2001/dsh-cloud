@@ -8,7 +8,7 @@
 html,
 body,
 #root {
-  height: 100%;
+  min-height: 100vh;
 }
 
 @theme inline {
@@ -55,72 +55,77 @@ body,
 }
 
 :root {
-  --background: oklch(0.985 0.002 247);
-  --foreground: oklch(0.141 0.005 285.823);
-  --card: oklch(0.998 0 0);
-  --card-foreground: oklch(0.141 0.005 285.823);
+  /* 浅色这边同样**去彩度**：原来是偏蓝的锌灰（色相 247 / 285），和登录页的中性黑白
+     不是一套材料。现在整条中性轴零彩度，品牌绿是界面上唯一的彩色。 */
+  --background: oklch(0.99 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.536 0.095 181.5);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.95 0.008 247);
-  --accent-foreground: oklch(0.21 0.006 285.885);
+  --secondary: oklch(0.967 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.967 0 0);
+  --muted-foreground: oklch(0.552 0 0);
+  --accent: oklch(0.962 0 0);
+  --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0.004 286.32);
-  --input: oklch(0.92 0.004 286.32);
-  --ring: oklch(0.705 0.015 286.067);
-  --chart-1: oklch(0.871 0.006 286.286);
-  --chart-2: oklch(0.552 0.016 285.938);
-  --chart-3: oklch(0.442 0.017 285.786);
-  --chart-4: oklch(0.37 0.013 285.805);
-  --chart-5: oklch(0.274 0.006 286.033);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.536 0.095 181.5);
+  --chart-1: oklch(0.536 0.095 181.5);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
   --radius: 0.5rem;
-  --sidebar: oklch(0.965 0.003 247);
-  --sidebar-foreground: oklch(0.141 0.005 285.823);
-  --sidebar-primary: oklch(0.21 0.006 285.885);
+  --sidebar: oklch(0.972 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.536 0.095 181.5);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.967 0.001 286.375);
-  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
-  --sidebar-border: oklch(0.92 0.004 286.32);
-  --sidebar-ring: oklch(0.705 0.015 286.067);
+  --sidebar-accent: oklch(0.955 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.536 0.095 181.5);
 }
 
 .dark {
-  --background: oklch(0.141 0.005 285.823);
+  /* 黑曜石家族：中性色**零彩度**，和登录页的 #050505 / #1a1a1a / #888 是同一套材料。
+     原来这套锌灰带蓝调（色相 285），跟登录页的中性黑摆在一起就是两种灰。 */
+  --background: oklch(0.155 0 0);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.21 0.006 285.885);
+  --card: oklch(0.19 0 0);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.21 0.006 285.885);
+  --popover: oklch(0.19 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.92 0.004 286.32);
-  --primary-foreground: oklch(0.21 0.006 285.885);
-  --secondary: oklch(0.274 0.006 286.033);
+  --primary: oklch(0.536 0.095 181.5);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.218 0 0);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.274 0.006 286.033);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.274 0.006 286.033);
+  --muted: oklch(0.218 0 0);
+  --muted-foreground: oklch(0.62 0 0);
+  --accent: oklch(0.218 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.552 0.016 285.938);
-  --chart-1: oklch(0.871 0.006 286.286);
-  --chart-2: oklch(0.552 0.016 285.938);
-  --chart-3: oklch(0.442 0.017 285.786);
-  --chart-4: oklch(0.37 0.013 285.805);
-  --chart-5: oklch(0.274 0.006 286.033);
-  --sidebar: oklch(0.21 0.006 285.885);
+  --border: oklch(0.218 0 0);
+  --input: oklch(0.24 0 0);
+  --ring: oklch(0.619 0.110 181.3);
+  --chart-1: oklch(0.619 0.110 181.3);
+  --chart-2: oklch(0.72 0 0);
+  --chart-3: oklch(0.58 0 0);
+  --chart-4: oklch(0.45 0 0);
+  --chart-5: oklch(0.32 0 0);
+  /* 侧栏是这块屏幕上最深的一层 —— 它是沙箱的壳，工作区在它里面。 */
+  --sidebar: oklch(0.115 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary: oklch(0.536 0.095 181.5);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent: oklch(0.218 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.552 0.016 285.938);
+  --sidebar-border: oklch(0.218 0 0);
+  --sidebar-ring: oklch(0.619 0.110 181.3);
 }
 
 @layer base {
@@ -134,5 +139,94 @@ body,
   }
   html {
     @apply font-sans;
+  }
+}
+
+
+/* ── App Shell Ambient Grid ──────────────────────────────────────── */
+.app-ambient-grid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  opacity: 0.4; /* Stronger in light mode for the technical blueprint feel */
+  z-index: 0;
+  background-image:
+    linear-gradient(to right, rgba(8, 127, 113, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(8, 127, 113, 0.08) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(circle at 50% 0%, black 10%, transparent 70%);
+  -webkit-mask-image: radial-gradient(circle at 50% 0%, black 10%, transparent 70%);
+}
+
+.app-ambient-glow {
+  position: absolute;
+  top: -10vh;
+  left: 10vw;
+  right: 10vw;
+  height: 60vh;
+  pointer-events: none;
+  /* Light mode glow: extremely subtle Deep Sea Green */
+  background: radial-gradient(ellipse at 50% 0%, rgba(8, 127, 113, 0.06) 0%, rgba(8, 127, 113, 0.02) 40%, transparent 80%);
+  filter: blur(40px);
+  z-index: 0;
+  animation: cinematic-breathe 15s ease-in-out infinite;
+}
+
+.app-mouse-spotlight {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    800px circle at var(--mouse-x, 50%) var(--mouse-y, 0%),
+    rgba(8, 127, 113, 0.05),
+    transparent 40%
+  );
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.group\/main:hover .app-mouse-spotlight {
+  opacity: 1;
+}
+
+.dark .app-ambient-grid {
+  opacity: 0.6;
+  background-image:
+    linear-gradient(to right, rgba(8, 127, 113, 0.15) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(8, 127, 113, 0.15) 1px, transparent 1px);
+}
+
+.dark .app-ambient-glow {
+  background: radial-gradient(ellipse at 50% 0%, rgba(8, 127, 113, 0.15) 0%, rgba(8, 127, 113, 0.05) 40%, transparent 80%);
+  filter: blur(60px);
+}
+
+.dark .app-mouse-spotlight {
+  background: radial-gradient(
+    600px circle at var(--mouse-x, 50%) var(--mouse-y, 0%),
+    rgba(8, 127, 113, 0.12),
+    transparent 40%
+  );
+}
+
+@keyframes cinematic-breathe {
+  0%, 100% { opacity: 0.7; transform: scale(1) translateY(0); }
+  50% { opacity: 1; transform: scale(1.02) translateY(10px); }
+}
+
+/* 系统开了「减少动态效果」：呼吸光停住，鼠标聚光灯整个不出现 */
+@media (prefers-reduced-motion: reduce) {
+  .app-ambient-glow {
+    animation: none;
+  }
+  .app-mouse-spotlight {
+    display: none;
   }
 }

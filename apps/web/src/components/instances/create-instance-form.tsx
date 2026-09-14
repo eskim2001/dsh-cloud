@@ -284,11 +284,11 @@ export function CreateInstanceForm({ onCreated }: { onCreated: (id: string) => v
         </details>
       </FieldGroup>
 
-      <DialogFooter className="mt-6">
-        <Button variant="outline" render={<Link to="/workspaces" />} nativeButton={false}>
+      <DialogFooter className="mt-10 gap-3 sm:space-x-0">
+        <Button variant="outline" className="h-10 px-6 text-[14px]" render={<Link to="/workspaces" />} nativeButton={false}>
           {t('common.cancel')}
         </Button>
-        <Button type="submit" disabled={create.isPending || !pidsValid}>
+        <Button type="submit" className="h-10 px-6 text-[14px] shadow-sm" disabled={create.isPending || !pidsValid}>
           {create.isPending ? t('instances.creating') : t('instances.create')}
         </Button>
       </DialogFooter>

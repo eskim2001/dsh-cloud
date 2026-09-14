@@ -49,44 +49,108 @@ After deploying the platform, administrators can add users through invitation li
 
 ## Screenshots
 
-### Home
-
-<p>
-  <a href="docs/screenshots/en/home.png"><img src="docs/screenshots/en/home.png" alt="Home: recent workspaces, quick actions and recent activity" width="100%"></a>
-</p>
-
-### Workspaces
-
-<p>
-  <a href="docs/screenshots/en/workspaces.png"><img src="docs/screenshots/en/workspaces.png" alt="Workspace list" width="100%"></a>
-</p>
-
-### Workspace details
-
-<p>
-  <a href="docs/screenshots/en/workspace.png"><img src="docs/screenshots/en/workspace.png" alt="Workspace details, files entry and version" width="100%"></a>
-</p>
-
-<details>
-  <summary>Administration · Overview</summary>
-  <p>
-    <a href="docs/screenshots/en/admin.png"><img src="docs/screenshots/en/admin.png" alt="Administration · Overview" width="100%"></a>
-  </p>
-</details>
-
-<details>
-  <summary>Administration · All workspaces</summary>
-  <p>
-    <a href="docs/screenshots/en/admin-instances.png"><img src="docs/screenshots/en/admin-instances.png" alt="Administration · All workspaces" width="100%"></a>
-  </p>
-</details>
-
-<details>
-  <summary>Administration · Users</summary>
-  <p>
-    <a href="docs/screenshots/en/admin-users.png"><img src="docs/screenshots/en/admin-users.png" alt="Administration · Users" width="100%"></a>
-  </p>
-</details>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/en/light/login.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en/dark/login.png">
+          <img src="docs/screenshots/en/light/login.png" alt="Sign-in page: obsidian brand pane with the whale animation on the left, form on the right" width="100%">
+        </picture>
+      </a>
+      <br><sub>Sign in</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/en/light/home.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en/dark/home.png">
+          <img src="docs/screenshots/en/light/home.png" alt="Home: continue working, recent activity and quick actions" width="100%">
+        </picture>
+      </a>
+      <br><sub>Home</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/en/light/workspaces.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en/dark/workspaces.png">
+          <img src="docs/screenshots/en/light/workspaces.png" alt="Workspace list: status, spec and quota for each workspace" width="100%">
+        </picture>
+      </a>
+      <br><sub>Workspaces</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/en/light/workspace-new.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en/dark/workspace-new.png">
+          <img src="docs/screenshots/en/light/workspace-new.png" alt="Create workspace: subdomain, version and resource sizing" width="100%">
+        </picture>
+      </a>
+      <br><sub>Create workspace</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/en/light/workspace.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en/dark/workspace.png">
+          <img src="docs/screenshots/en/light/workspace.png" alt="Workspace details: status, storage used and running version" width="100%">
+        </picture>
+      </a>
+      <br><sub>Workspace details</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/en/light/workspace-settings.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en/dark/workspace-settings.png">
+          <img src="docs/screenshots/en/light/workspace-settings.png" alt="Workspace settings: storage quota, version upgrade and container logs" width="100%">
+        </picture>
+      </a>
+      <br><sub>Workspace settings</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/en/light/admin.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en/dark/admin.png">
+          <img src="docs/screenshots/en/light/admin.png" alt="Administration · Overview: workspaces, users and measured storage" width="100%">
+        </picture>
+      </a>
+      <br><sub>Administration · Overview</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/en/light/admin-instances.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en/dark/admin-instances.png">
+          <img src="docs/screenshots/en/light/admin-instances.png" alt="Administration · All workspaces: search, filters, quotas and container logs" width="100%">
+        </picture>
+      </a>
+      <br><sub>Administration · All workspaces</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/en/light/admin-versions.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en/dark/admin-versions.png">
+          <img src="docs/screenshots/en/light/admin-versions.png" alt="Administration · Versions: version catalogue, default version and host pre-warming" width="100%">
+        </picture>
+      </a>
+      <br><sub>Administration · Versions</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/en/light/admin-users.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en/dark/admin-users.png">
+          <img src="docs/screenshots/en/light/admin-users.png" alt="Administration · Users: roles, per-user workspace limits and bans" width="100%">
+        </picture>
+      </a>
+      <br><sub>Administration · Users</sub>
+    </td>
+  </tr>
+</table>
 
 ## Getting Started
 
@@ -95,19 +159,13 @@ After deploying the platform, administrators can add users through invitation li
 A Linux host with Docker (Compose v2), ports `80` / `443` free, and a disk that can enforce a quota.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/scripts/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/scripts/install.sh | bash
 ```
 
-(Drop `sudo` if you are already root.)
-
-When it finishes it prints a bootstrap URL (`http://<host>:3000/setup?token=...`). Open it, create the administrator account, and enter a parent domain. On submit that entry point closes, the console lands at `console.<the parent you entered>`, and you sign in with the credentials you just created.
-
-For upgrades and rollbacks, bring-your-own certificates, and the **control plane's Docker socket / `CAP_SYS_ADMIN` boundary**, see the [deployment guide](docker/platform/README.md).
-
 <details>
-<summary>Options, prerequisites, checksum, upgrade and uninstall</summary>
+<summary>More options</summary>
 
-**Options** — all of them can be omitted; the defaults are below (`--help` lists the rest):
+The full list is in the script's `--help`:
 
 | Option | If omitted |
 |---|---|
@@ -116,11 +174,7 @@ For upgrades and rollbacks, bring-your-own certificates, and the **control plane
 | `--pool-root <path>` | `/var/lib/dsh` |
 | `--pool-size-mb <MB>` | 80% of the free space on that filesystem |
 
-The domain and the administrator have **no** install options — both are configured on the bootstrap page.
-
 The page takes the **parent** domain: the console lives at `console.<parent>` and every workspace takes a subdomain of its own. Certificates are issued per host, so the wildcard record `*.<parent>` must point at this machine first.
-
-In bootstrap mode the platform serves only that one page (guarded by a one-time token; no other API is mounted). Submitting the account and domain closes the entry point and gives the public port back. See [D36](docs/DECISIONS.md).
 
 **Prerequisites**
 
@@ -128,16 +182,6 @@ In bootstrap mode the platform serves only that one page (guarded by a one-time 
 - **Storage that can enforce a hard quota**: `HOST_STORAGE_ROOT` (default `/var/lib/dsh`) must either sit on XFS mounted with `pquota`, or the script creates a loopback XFS image for it (needs root, and writes the mount into `fstab`). If neither is possible the install refuses to proceed. See [D18](docs/DECISIONS.md).
 - Ports `80` and `443` free: the ingress binds them directly, and `80` is also needed for the ACME HTTP-01 check.
 - Host access to GHCR (both the platform image and workspace images come from there).
-
-**Read the script before running it**: replace `| sudo bash` with `-o install.sh`. Its URL is pinned to a tag, so the contents never change; to verify, compute the SHA-256 on both sides:
-
-```bash
-curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/scripts/install.sh" | sha256sum
-```
-
-```bash
-git show v0.1.10:scripts/install.sh | sha256sum
-```
 
 **Upgrade** (keeps data and secrets):
 
@@ -157,7 +201,7 @@ curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/script
 
 ### Local development
 
-Use this path when changing code. Prerequisites: Node.js 22+ and pnpm 10.10.0, plus Docker Desktop with Compose v2.
+Use this path when changing code. Prerequisites: Node.js 22+ and pnpm 10.10.0, Docker
 
 ```bash
 pnpm install
@@ -166,26 +210,6 @@ pnpm install
 ```bash
 pnpm dev
 ```
-
-One command brings up everything: preflight → generate `apps/server/.env.local` → start PostgreSQL and the ingress ([local.yml](docker/compose/local.yml)) → migrate → create the administrator → start the server and console. Open `https://console.lvh.me` and sign in with `admin@lvh.me` / `dsh-cloud-dev`.
-
-`Ctrl-C` stops the server and console; `pnpm dev:down` stops the ingress and PostgreSQL (add `-v` to drop the database too). Repository layout and conventions are in [AGENTS.md](AGENTS.md); local DNS, TLS and common failures are in the [local ingress guide](docker/compose/README.md).
-
-### Create a workspace
-
-You land on **Home** after signing in: recently used workspaces on top, quick actions and recent activity below.
-
-On the "Versions" page, select "Check for updates" to sync the versions available in GHCR, then publish the ones you need (and set a default). To let users upgrade to a version, first "Pre-warm on this host" — the upgrade picker lists only versions cached locally. Workspace creation is not subject to this; the platform pulls what it needs. See [D23](docs/DECISIONS.md).
-
-Build locally only if you changed `docker/instance-image/`:
-
-```bash
-./docker/instance-image/build.sh
-```
-
-The tag comes from [VERSION](docker/instance-image/VERSION) and follows `<dsh version>_<revision>` (for example, `0.1.2-rc.1_2`). Local and CI builds produce the same image name: `ghcr.io/eskim2001/dsh-instance:<tag>`. See [D22](docs/DECISIONS.md).
-
-With a version configured, create a workspace on the "Workspaces" page and open it from its details page.
 
 ## Contributing
 

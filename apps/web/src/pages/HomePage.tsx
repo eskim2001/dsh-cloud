@@ -1,15 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
-import { ArrowRightIcon, PlusIcon } from 'lucide-react'
+import { AlertTriangleIcon, ArrowRightIcon, DatabaseIcon, PlusIcon, TerminalSquareIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { StatusBadge } from '@/components/status-badge.js'
-import { buttonVariants } from '@/components/ui/button.js'
+import { Button } from '@/components/ui/button.js'
+import { Card } from '@/components/ui/card.js'
 import { Skeleton } from '@/components/ui/skeleton.js'
 import { listInstances } from '@/lib/api.js'
 import { listRefetchInterval } from '@/lib/instance-status.js'
 import { keys } from '@/lib/query-keys.js'
 import { useSession } from '@/lib/use-session.js'
-import { cn } from '@/lib/utils.js'
 
 export default function HomePage() {
   const { t, i18n } = useTranslation()
@@ -19,62 +19,148 @@ export default function HomePage() {
     queryFn: listInstances,
     refetchInterval: (query) => listRefetchInterval(query.state.data?.instances),
   })
+  
   const recent = instances.data?.instances ?? []
   const current = recent[0]
+  const others = recent.filter((item) => item.id !== current?.id).slice(0, 3)
   const name = user?.name?.split(/\s+/)[0] || user?.email.split('@')[0] || ''
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-14 py-6 md:py-14">
-      <header className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-        <p className="text-2xl font-medium tracking-normal">
+    <div className="mx-auto flex w-full max-w-5xl flex-col px-6 pt-8 md:pt-10 relative z-10 pb-16">
+      <header className="mb-10">
+        <h1 className="font-heading text-3xl font-semibold tracking-tight text-foreground">
           {t(`home.${greeting}`, { name })}
-        </p>
-        <p className="mt-2 text-sm text-muted-foreground">{t('home.subtitle')}</p>
+        </h1>
+        <p className="mt-2 text-[14px] text-muted-foreground">{t('home.subtitle')}</p>
       </header>
 
       <section>
-        <div className="flex items-center justify-between">
-          <h1 className="text-sm font-medium">{t('home.continue')}</h1>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-[13px] font-medium tracking-tight text-foreground/80">{t('home.continue')}</h2>
         </div>
 
         {instances.isPending && (
-          <div className="mt-4 border-y">
-            {[0, 1].map((item) => <Skeleton key={item} className="my-3 h-14 rounded-md" />)}
-          </div>
+           <Card className="h-32 flex items-center p-6">
+              <Skeleton className="h-8 w-1/3 rounded-md" />
+           </Card>
         )}
-        {instances.isError && <p className="text-sm text-destructive">{t('instances.loadFailed')}</p>}
+
+        {instances.isError && (
+          <Card className="p-6">
+            <p className="text-sm text-destructive">{t('instances.loadFailed')}</p>
+          </Card>
+        )}
+
         {instances.data !== undefined && current === undefined && (
-          <div className="mt-4 border-y py-14 text-center">
-            <p className="font-medium">{t('home.emptyTitle')}</p>
-            <p className="mt-2 text-sm text-muted-foreground">{t('home.emptyBody')}</p>
-            <Link className={cn(buttonVariants(), 'mt-6')} to="/workspaces/new">
-              <PlusIcon />
+          <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed">
+            <div className="size-12 rounded-full bg-muted/50 flex items-center justify-center mb-4 text-muted-foreground">
+              <PlusIcon className="size-5" />
+            </div>
+            <p className="text-[14px] font-medium text-foreground">{t('home.emptyTitle')}</p>
+            <p className="mt-1 text-[13px] text-muted-foreground mb-6 max-w-md">{t('home.emptyBody')}</p>
+            <Button className="h-10 px-6 text-[14px] shadow-sm" render={<Link to="/workspaces/new" />} nativeButton={false}>
+              <PlusIcon className="mr-1.5 size-4" />
               {t('home.create')}
-            </Link>
-          </div>
+            </Button>
+          </Card>
         )}
+
         {current !== undefined && (
-          <Link to={`/workspaces/${current.id}/open`} className="group mt-4 grid min-h-28 grid-cols-[1fr_auto] items-center gap-6 border-y py-6">
-            <div className="min-w-0"><p className="truncate text-lg font-medium">{current.slug}</p><div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1"><StatusBadge status={current.status} statusText={current.statusText} /><span className="text-xs text-muted-foreground">{t('instances.lastUsed', { time: relativeDate(current.stoppedAt ?? current.createdAt, i18n.language) })}</span></div></div>
-            <span className="inline-flex items-center gap-2 text-sm font-medium">{t('instances.open')}<ArrowRightIcon className="size-4 transition-transform group-hover:translate-x-1" /></span>
-          </Link>
+          <div className="space-y-4">
+            {current.lastError !== null && (
+              <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 flex items-start gap-3">
+                <AlertTriangleIcon className="size-4 shrink-0 text-destructive mt-0.5" aria-hidden="true" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-medium text-destructive">{t('workspaceDetail.attention')}</p>
+                  <p className="mt-1 text-[13px] leading-relaxed text-destructive/80">{current.lastError}</p>
+                </div>
+                <Button variant="outline" className="h-8 px-4 text-xs shadow-none shrink-0" render={<Link to={`/workspaces/${current.id}`} />} nativeButton={false}>
+                  {t('workspaceDetail.settings')}
+                </Button>
+              </div>
+            )}
+
+            <Card className="group relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between p-6 gap-6 transition-colors hover:bg-muted/30">
+              <Link to={`/workspaces/${current.id}/open`} className="absolute inset-0 z-0 outline-none">
+                <span className="sr-only">{t('instances.open')}</span>
+              </Link>
+              
+              <div className="flex items-center gap-4 relative z-10 pointer-events-none">
+                <div className="size-12 rounded-xl bg-card border border-border/80 shadow-sm flex items-center justify-center shrink-0 text-muted-foreground">
+                  <TerminalSquareIcon className="size-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-3">
+                    <h3 className="font-heading text-xl font-semibold tracking-tight text-foreground truncate max-w-[200px] sm:max-w-md">{current.slug}</h3>
+                    <StatusBadge status={current.status} statusText={current.statusText} />
+                  </div>
+                  <p className="mt-1 text-[13px] text-muted-foreground">
+                    {t('instances.lastUsed', {
+                      time: relativeDate(current.stoppedAt ?? current.createdAt, i18n.language),
+                    })}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="relative z-10 w-full sm:w-auto mt-2 sm:mt-0">
+                <Button className="h-10 w-full sm:w-auto px-6 text-[14px] shadow-sm pointer-events-auto" render={<Link to={`/workspaces/${current.id}/open`} />} nativeButton={false}>
+                  {t('instances.open')}
+                  <ArrowRightIcon className="ml-1.5 size-4" />
+                </Button>
+              </div>
+            </Card>
+          </div>
         )}
       </section>
 
       {current !== undefined && (
-        <div className="grid gap-10 md:grid-cols-[1fr_1.35fr]">
-          <section>
-            <h2 className="text-sm font-medium">{t('home.quickActions')}</h2>
-            <div className="mt-4 border-t">
-              <Link to="/workspaces/new" className="group flex items-center justify-between border-b py-4 text-sm"><span className="flex items-center gap-3"><PlusIcon className="size-4 text-muted-foreground" />{t('home.create')}</span><ArrowRightIcon className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></Link>
-              <Link to="/files" className="group flex items-center justify-between border-b py-4 text-sm"><span>{t('home.browseFiles')}</span><ArrowRightIcon className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></Link>
-            </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 mt-8 lg:mt-10">
+          <section className="lg:col-span-2">
+            <h2 className="text-[13px] font-medium tracking-tight mb-4 text-foreground/80">{t('home.activity')}</h2>
+            <Card className="flex flex-col p-0 gap-0 divide-y divide-border/60">
+              {others.length === 0 ? (
+                <div className="p-6 text-[13px] text-muted-foreground text-center">
+                  {t('activity.empty')}
+                </div>
+              ) : (
+                others.map((item) => (
+                  <Link key={item.id} to={`/workspaces/${item.id}`} className="group flex flex-col sm:flex-row sm:items-center justify-between p-5 transition-colors hover:bg-muted/30 outline-none gap-2 sm:gap-0">
+                    <div className="flex items-center gap-3">
+                      <span className="text-[14px] font-medium text-foreground truncate max-w-[200px]">{item.slug}</span>
+                      <StatusBadge status={item.status} statusText={item.statusText} className="shrink-0" />
+                    </div>
+                    <div className="flex items-center justify-between sm:justify-end sm:gap-4 text-[13px] text-muted-foreground">
+                      <time className="tabular-nums">
+                        {relativeDate(item.stoppedAt ?? item.createdAt, i18n.language)}
+                      </time>
+                      <ArrowRightIcon className="size-4 opacity-0 -translate-x-2 transition-all group-hover:opacity-100 group-hover:translate-x-0 group-hover:text-primary hidden sm:block" />
+                    </div>
+                  </Link>
+                ))
+              )}
+            </Card>
           </section>
+          
           <section>
-            <div className="flex items-center justify-between"><h2 className="text-sm font-medium">{t('home.activity')}</h2><Link to="/activity" className="text-xs text-muted-foreground hover:text-foreground">{t('home.viewActivity')}</Link></div>
-            <div className="mt-4 border-t">{recent.slice(0, 3).map((item) => <div key={item.id} className="flex items-center justify-between gap-4 border-b py-4"><div><p className="text-sm">{t('workspaceDetail.available')}</p><p className="mt-1 text-xs text-muted-foreground">{item.slug}</p></div><time className="text-xs text-muted-foreground">{relativeDate(item.stoppedAt ?? item.createdAt, i18n.language)}</time></div>)}</div>
+            <h2 className="text-[13px] font-medium tracking-tight mb-4 text-foreground/80">{t('home.quickActions')}</h2>
+            <Card className="flex flex-col p-0 gap-0 divide-y divide-border/60">
+              <Link to="/workspaces/new" className="group flex items-center justify-between p-5 transition-colors hover:bg-muted/30 outline-none">
+                <div className="flex items-center gap-3 text-[14px] font-medium text-foreground">
+                  <PlusIcon className="size-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                  {t('home.create')}
+                </div>
+                <ArrowRightIcon className="size-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
+              </Link>
+              <Link to="/workspaces" className="group flex items-center justify-between p-5 transition-colors hover:bg-muted/30 outline-none">
+                <div className="flex items-center gap-3 text-[14px] font-medium text-foreground">
+                  <DatabaseIcon className="size-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                  {t('nav.workspaces')}
+                </div>
+                <ArrowRightIcon className="size-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
+              </Link>
+            </Card>
           </section>
         </div>
       )}

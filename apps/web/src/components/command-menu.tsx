@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { FileSearchIcon, PlusIcon, SearchIcon, SettingsIcon } from 'lucide-react'
+import { PlusIcon, SearchIcon, SettingsIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -38,10 +38,12 @@ export function CommandMenu() {
 
   return (
     <>
-      <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setOpen(true)}>
-        <SearchIcon />
-        <span className="hidden sm:inline">{t('command.search')}</span>
-        <kbd className="hidden rounded border bg-muted px-1.5 py-0.5 font-sans text-[10px] sm:inline">⌘ K</kbd>
+      <Button variant="outline" className="relative h-9 w-full justify-start rounded-lg bg-muted/50 text-sm font-normal text-muted-foreground shadow-none sm:pr-12 md:w-40 lg:w-64" onClick={() => setOpen(true)}>
+        <SearchIcon className="mr-2 size-4 shrink-0" />
+        <span className="inline-flex truncate mt-px">{t('command.search')}</span>
+        <kbd className="pointer-events-none absolute right-1 top-1.5 hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100 sm:flex">
+          <span className="text-xs">⌘</span>K
+        </kbd>
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="top-[18%] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-lg">
@@ -52,7 +54,6 @@ export function CommandMenu() {
           </div>
           <div className="max-h-80 overflow-y-auto p-2">
             <CommandItem icon={PlusIcon} label={t('command.create')} onClick={() => go('/workspaces/new')} />
-            <CommandItem icon={FileSearchIcon} label={t('command.files')} onClick={() => go('/files')} />
             <CommandItem icon={SettingsIcon} label={t('command.settings')} onClick={() => go('/settings/account')} />
             {matching.length > 0 && <p className="px-3 pt-4 pb-2 text-xs text-muted-foreground">{t('nav.workspaces')}</p>}
             {matching.map((item) => <CommandItem key={item.id} icon={SearchIcon} label={item.slug} onClick={() => go(`/workspaces/${item.id}`)} />)}

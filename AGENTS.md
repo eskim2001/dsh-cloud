@@ -129,6 +129,7 @@ pnpm --filter @dsh-cloud/server test:security
 | 架构 + 安全模型 + 隔离边界 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | 为什么这么定（ADR） | [docs/DECISIONS.md](docs/DECISIONS.md) |
 | 待验证 / 待定 | [docs/OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md) |
+| 改 UI 前必读的视觉约束 | [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) |
 | 生产部署怎么装（镜像 / 拓扑 / 权限） | [docker/platform/README.md](docker/platform/README.md) |
 | 本地入口栈怎么起 | [docker/compose/README.md](docker/compose/README.md) |
 | 项目概览 / 快速开始 | [README.md](README.md) · [README.en.md](README.en.md) |

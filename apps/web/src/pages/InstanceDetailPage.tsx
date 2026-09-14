@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeftIcon, ArrowRightIcon, FileIcon, SettingsIcon } from 'lucide-react'
+import { ArrowLeftIcon, ArrowRightIcon, DatabaseIcon, SettingsIcon, TerminalSquareIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 import { StatusBadge } from '@/components/status-badge.js'
+import { Card } from '@/components/ui/card.js'
 import { Button } from '@/components/ui/button.js'
 import { getInstance } from '@/lib/api.js'
 import { formatMb } from '@/lib/format.js'
@@ -17,13 +18,12 @@ export default function InstanceDetailPage() {
     queryKey: keys.instance(id),
     queryFn: () => getInstance(id),
     enabled: id !== '',
-    // 编排进行中每 3 秒跟一次；其余每 10 秒兜底（见 lib/instance-status.ts 的说明）
     refetchInterval: (query) => instanceRefetchInterval(query.state.data),
   })
 
   if (instance.isError) {
     return (
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 pt-10">
         <BackLink />
         <p className="text-sm text-destructive">{t('workspaceDetail.notFound')}</p>
       </div>
@@ -32,9 +32,9 @@ export default function InstanceDetailPage() {
 
   if (instance.data === undefined) {
     return (
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 pt-10">
         <BackLink />
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        <p className="text-sm text-muted-foreground animate-pulse">{t('common.loading')}</p>
       </div>
     )
   }
@@ -43,40 +43,74 @@ export default function InstanceDetailPage() {
   const version = item.image.slice(item.image.lastIndexOf(':') + 1)
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-10 py-4 md:py-8">
-      <BackLink />
-      <header className="flex flex-wrap items-start justify-between gap-6">
-        <div>
-          <div className="flex items-center gap-3"><h1 className="text-2xl font-medium">{item.slug}</h1><StatusBadge status={item.status} statusText={item.statusText} /></div>
-          <p className="mt-2 text-sm text-muted-foreground">{t('workspaceDetail.created', { time: new Date(item.createdAt).toLocaleDateString(i18n.language) })}</p>
+    <div className="mx-auto flex w-full max-w-5xl flex-col px-6 pt-8 md:pt-10 relative z-10 pb-16">
+      <div className="mb-6">
+        <BackLink />
+      </div>
+      
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between pb-8 border-b border-border/40">
+        <div className="flex items-center gap-4">
+          <div className="size-12 rounded-xl bg-card border border-border/80 shadow-sm flex items-center justify-center shrink-0 text-muted-foreground">
+            <TerminalSquareIcon className="size-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground truncate max-w-[200px] sm:max-w-none">{item.slug}</h1>
+              <StatusBadge status={item.status} statusText={item.statusText} className="shrink-0" />
+            </div>
+            <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
+              {t('workspaceDetail.created', { time: new Date(item.createdAt).toLocaleDateString(i18n.language) })}
+            </p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" render={<Link to={`/workspaces/${id}/settings`} />} nativeButton={false}><SettingsIcon />{t('workspaceDetail.settings')}</Button>
-          <Button render={<Link to={`/workspaces/${id}/open`} />} nativeButton={false}>{t('workspaceDetail.open')}<ArrowRightIcon /></Button>
+        
+        <div className="flex items-center gap-3 w-full sm:w-auto mt-6 sm:mt-0 relative z-10">
+          <Button variant="outline" size="icon" className="h-10 w-10 shrink-0 shadow-sm" title={t('workspaceDetail.settings')} render={<Link to={`/workspaces/${id}/settings`} />} nativeButton={false}>
+            <SettingsIcon className="size-4.5 text-muted-foreground" />
+            <span className="sr-only">{t('workspaceDetail.settings')}</span>
+          </Button>
+          <Button className="h-10 flex-1 sm:flex-none shadow-sm whitespace-nowrap px-6 text-[14px]" render={<Link to={`/workspaces/${id}/open`} />} nativeButton={false}>
+            {t('workspaceDetail.open')}
+            <ArrowRightIcon className="ml-1.5 size-4" />
+          </Button>
         </div>
       </header>
 
-      {item.lastError !== null && <div className="border-y border-destructive/30 py-4"><p className="text-sm font-medium">{t('workspaceDetail.attention')}</p><p className="mt-1 text-sm text-muted-foreground">{item.lastError}</p></div>}
-
-      <section>
-        <h2 className="text-sm font-medium">{t('workspaceDetail.workspace')}</h2>
-        <div className="mt-4 grid border-y sm:grid-cols-3">
-          <Summary icon={FileIcon} label={t('workspaceDetail.files')} value={t('workspaceDetail.openFiles')} />
-          <Summary label={t('workspaceDetail.storage')} value={item.diskUsedMb === undefined ? t('instanceDetail.noData') : formatMb(item.diskUsedMb)} />
-          <Summary label={t('workspaceDetail.version')} value={version} />
+      {item.lastError !== null && (
+        <div className="mt-8 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+          <p className="text-[13px] font-medium text-destructive">{t('workspaceDetail.attention')}</p>
+          <p className="mt-1 text-[13px] leading-relaxed text-destructive/80">{item.lastError}</p>
         </div>
-      </section>
+      )}
 
-      <section>
-        <h2 className="text-sm font-medium">{t('workspaceDetail.recent')}</h2>
-        <div className="mt-4 flex items-center justify-between border-y py-5"><div><p className="text-sm">{item.stoppedAt === null ? t('workspaceDetail.available') : t('activity.stopped')}</p><p className="mt-1 text-xs text-muted-foreground">{item.slug}</p></div><time className="text-xs text-muted-foreground">{new Date(item.stoppedAt ?? item.createdAt).toLocaleString(i18n.language)}</time></div>
-      </section>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
+         <Card className="flex flex-col p-6 justify-center relative overflow-hidden group">
+            <DatabaseIcon className="absolute -right-4 -bottom-4 size-24 text-muted/20 transition-transform group-hover:scale-110 group-hover:-rotate-12 duration-500" />
+            <span className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground mb-4 relative z-10">{t('workspaceDetail.storage')}</span>
+            <div className="flex items-baseline gap-2 relative z-10">
+               <span className="text-3xl font-light tabular-nums tracking-tight text-foreground">
+                 {item.diskUsedMb === undefined ? t('instanceDetail.noData') : formatMb(item.diskUsedMb)}
+               </span>
+            </div>
+         </Card>
+         
+         <Card className="flex flex-col p-6 justify-center">
+            <span className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground mb-4">{t('workspaceDetail.version')}</span>
+            <span className="text-sm font-mono text-foreground truncate" title={version}>{version}</span>
+         </Card>
+
+         <Card className="flex flex-col p-6 justify-center sm:col-span-2 lg:col-span-1">
+            <span className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground mb-4">{t('workspaceDetail.recent')}</span>
+            <p className="text-[13px] font-medium text-foreground">
+              {item.stoppedAt === null ? t('workspaceDetail.available') : t('activity.stopped')}
+            </p>
+            <time className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground tabular-nums">
+              {new Date(item.stoppedAt ?? item.createdAt).toLocaleString(i18n.language)}
+            </time>
+         </Card>
+      </div>
     </div>
   )
-}
-
-function Summary({ icon: Icon, label, value }: { icon?: typeof FileIcon; label: string; value: string }) {
-  return <div className="flex min-h-28 flex-col justify-between border-b py-5 sm:border-r sm:border-b-0 sm:px-5 first:pl-0 last:border-r-0"><div className="flex items-center gap-2 text-xs text-muted-foreground">{Icon !== undefined && <Icon className="size-3.5" />}{label}</div><p className="mt-6 truncate text-sm font-medium">{value}</p></div>
 }
 
 function BackLink() {
@@ -84,9 +118,9 @@ function BackLink() {
   return (
     <Link
       to="/workspaces"
-      className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      className="inline-flex w-fit items-center gap-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:text-primary"
     >
-      <ArrowLeftIcon className="size-4" />
+      <ArrowLeftIcon className="size-3.5" />
       {t('workspaceDetail.back')}
     </Link>
   )

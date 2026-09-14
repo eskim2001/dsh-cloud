@@ -167,7 +167,7 @@ export default function AdminVersionsPage() {
                     {t('admin.versions.emptyBody')}
                   </p>
                 </div>
-                <Button size="sm" disabled={check.isPending} onClick={() => check.mutate()}>
+                <Button className="h-10 px-6 text-[14px] shadow-sm" disabled={check.isPending} onClick={() => check.mutate()}>
                   {check.isPending ? t('admin.versions.checking') : t('admin.versions.check')}
                 </Button>
               </div>

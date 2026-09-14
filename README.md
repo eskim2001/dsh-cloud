@@ -50,44 +50,108 @@
 
 ## 截图
 
-### 主页
-
-<p>
-  <a href="docs/screenshots/zh-CN/home.png"><img src="docs/screenshots/zh-CN/home.png" alt="主页：最近的工作空间、快捷操作与最近活动" width="100%"></a>
-</p>
-
-### 工作空间
-
-<p>
-  <a href="docs/screenshots/zh-CN/workspaces.png"><img src="docs/screenshots/zh-CN/workspaces.png" alt="工作空间列表" width="100%"></a>
-</p>
-
-### 工作空间详情
-
-<p>
-  <a href="docs/screenshots/zh-CN/workspace.png"><img src="docs/screenshots/zh-CN/workspace.png" alt="工作空间详情、文件入口与版本" width="100%"></a>
-</p>
-
-<details>
-  <summary>平台管理 · 概览</summary>
-  <p>
-    <a href="docs/screenshots/zh-CN/admin.png"><img src="docs/screenshots/zh-CN/admin.png" alt="平台管理 · 概览" width="100%"></a>
-  </p>
-</details>
-
-<details>
-  <summary>平台管理 · 全部工作空间</summary>
-  <p>
-    <a href="docs/screenshots/zh-CN/admin-instances.png"><img src="docs/screenshots/zh-CN/admin-instances.png" alt="平台管理 · 全部工作空间" width="100%"></a>
-  </p>
-</details>
-
-<details>
-  <summary>平台管理 · 用户</summary>
-  <p>
-    <a href="docs/screenshots/zh-CN/admin-users.png"><img src="docs/screenshots/zh-CN/admin-users.png" alt="平台管理 · 用户" width="100%"></a>
-  </p>
-</details>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/zh-CN/light/login.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/zh-CN/dark/login.png">
+          <img src="docs/screenshots/zh-CN/light/login.png" alt="登录页：左侧黑曜石品牌区与鲸鱼动画，右侧登录表单" width="100%">
+        </picture>
+      </a>
+      <br><sub>登录</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/zh-CN/light/home.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/zh-CN/dark/home.png">
+          <img src="docs/screenshots/zh-CN/light/home.png" alt="主页：继续工作、最近活动与快捷操作" width="100%">
+        </picture>
+      </a>
+      <br><sub>主页</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/zh-CN/light/workspaces.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/zh-CN/dark/workspaces.png">
+          <img src="docs/screenshots/zh-CN/light/workspaces.png" alt="工作空间列表：每个工作空间的状态、规格与配额" width="100%">
+        </picture>
+      </a>
+      <br><sub>工作空间</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/zh-CN/light/workspace-new.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/zh-CN/dark/workspace-new.png">
+          <img src="docs/screenshots/zh-CN/light/workspace-new.png" alt="创建工作空间：子域名、运行版本与资源规格" width="100%">
+        </picture>
+      </a>
+      <br><sub>创建工作空间</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/zh-CN/light/workspace.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/zh-CN/dark/workspace.png">
+          <img src="docs/screenshots/zh-CN/light/workspace.png" alt="工作空间详情：状态、已用存储与运行版本" width="100%">
+        </picture>
+      </a>
+      <br><sub>工作空间详情</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/zh-CN/light/workspace-settings.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/zh-CN/dark/workspace-settings.png">
+          <img src="docs/screenshots/zh-CN/light/workspace-settings.png" alt="工作空间设置：存储配额、版本升级与容器日志" width="100%">
+        </picture>
+      </a>
+      <br><sub>工作空间设置</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/zh-CN/light/admin.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/zh-CN/dark/admin.png">
+          <img src="docs/screenshots/zh-CN/light/admin.png" alt="平台管理 · 概览：工作空间数、用户数与已统计存储" width="100%">
+        </picture>
+      </a>
+      <br><sub>平台管理 · 概览</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/zh-CN/light/admin-instances.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/zh-CN/dark/admin-instances.png">
+          <img src="docs/screenshots/zh-CN/light/admin-instances.png" alt="平台管理 · 全部工作空间：搜索、过滤、配额与容器日志" width="100%">
+        </picture>
+      </a>
+      <br><sub>平台管理 · 全部工作空间</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/zh-CN/light/admin-versions.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/zh-CN/dark/admin-versions.png">
+          <img src="docs/screenshots/zh-CN/light/admin-versions.png" alt="平台管理 · 版本管理：版本目录、默认版本与预热到本机" width="100%">
+        </picture>
+      </a>
+      <br><sub>平台管理 · 版本管理</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/zh-CN/light/admin-users.png">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/zh-CN/dark/admin-users.png">
+          <img src="docs/screenshots/zh-CN/light/admin-users.png" alt="平台管理 · 用户：角色、每人的工作空间上限与封禁" width="100%">
+        </picture>
+      </a>
+      <br><sub>平台管理 · 用户</sub>
+    </td>
+  </tr>
+</table>
 
 ## 快速开始
 
@@ -96,19 +160,13 @@
 一台 Linux 主机，装了 Docker（含 Compose v2），`80` / `443` 空闲，另有一块能给硬配额的盘。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/scripts/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/scripts/install.sh | bash
 ```
 
-（已经是 root 就去掉 `sudo`。）
-
-装完会打印一行引导地址（`http://<机器>:3000/setup?token=…`）。在浏览器里打开它，建管理员账号、填父域。提交后这个入口关闭，控制台落在 `console.<你填的父域>`，用刚建的凭据登录。
-
-升级回滚、自备证书、以及**控制面持有 Docker socket 与 `CAP_SYS_ADMIN` 的边界**，见[部署说明](docker/platform/README.md)。
-
 <details>
-<summary>参数、前置条件、校验和、升级与卸载</summary>
+<summary>更多配置</summary>
 
-**参数** —— 都能省，省略时按默认走（完整列表见脚本的 `--help`）：
+完整列表见脚本的 `--help`：
 
 | 参数 | 省略时 |
 |---|---|
@@ -117,11 +175,9 @@ curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/scripts
 | `--pool-root <路径>` | `/var/lib/dsh` |
 | `--pool-size-mb <MB>` | 取所在文件系统可用空间的 80% |
 
-域名和管理员**没有**安装参数 —— 都在引导页里配。
 
 引导页填的是**父域**：控制台落在 `console.<父域>`，每个工作空间各占 `<子域>.<父域>`。证书按主机逐个签发，所以泛解析 `*.<父域>` 必须先指向这台机器，否则签不下来。
 
-引导态下平台只开着那一页（一次性 token 保护，其余接口都不挂）。填完账号和域名，入口立刻关闭，对外端口同时收回。见 [D36](docs/DECISIONS.md)。
 
 **前置条件**
 
@@ -129,16 +185,6 @@ curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/scripts
 - **一块能给硬配额的盘**：`HOST_STORAGE_ROOT`（默认 `/var/lib/dsh`）要么在以 `pquota` 挂载的 XFS 上，要么让脚本建一块 loopback XFS 镜像（要 root，并把挂载写进 `fstab`）。两条都做不到会拒绝安装。见 [D18](docs/DECISIONS.md)。
 - 端口 `80`、`443` 空闲：入口直接绑它们，其中 `80` 还要留给 ACME 的 HTTP-01 校验。
 - 宿主能访问 GHCR（拉平台镜像与工作空间镜像）。
-
-**先看脚本再执行**：把 `| sudo bash` 换成 `-o install.sh`。URL 钉在 tag 上、内容不会变；要核对就两边各算一次 SHA-256：
-
-```bash
-curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/scripts/install.sh" | sha256sum
-```
-
-```bash
-git show v0.1.10:scripts/install.sh | sha256sum
-```
 
 **升级**（保留数据与密钥）：
 
@@ -158,7 +204,7 @@ curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/script
 
 ### 本地开发
 
-改代码用这条。前置：Node.js 22+ 与 pnpm 10.10.0，Docker Desktop（带 Compose v2）。
+改代码用这条。前置：Node.js 22+ 与 pnpm 10.10.0，Docker
 
 ```bash
 pnpm install
@@ -167,26 +213,6 @@ pnpm install
 ```bash
 pnpm dev
 ```
-
-一条命令起全套：预检 → 生成 `apps/server/.env.local` → 起 PostgreSQL 和入口服务（[local.yml](docker/compose/local.yml)）→ 迁移 → 建管理员 → 起控制面和管理台。打开 `https://console.lvh.me`，用 `admin@lvh.me` / `dsh-cloud-dev` 登录。
-
-`Ctrl-C` 只停控制面和管理台；`pnpm dev:down` 停入口和 PostgreSQL，加 `-v` 连数据库一起清。仓库结构与约定见 [AGENTS.md](AGENTS.md)，本地入口的 DNS / TLS / 常见故障见[本地入口指南](docker/compose/README.md)。
-
-### 创建工作空间
-
-登录后落在「主页」：最近用过的空间在最上面，下面是快捷操作和最近活动。
-
-在「版本管理」页点「检查更新」，同步 GHCR 的可用版本，再发布需要的版本（可设为默认）。要让用户能升级到某个版本，得先把它「预热到本机」——用户端的升级列表只列本机已缓存的版本；创建工作空间不受此限，平台会自己拉。见 [D23](docs/DECISIONS.md)。
-
-只有改了 `docker/instance-image/` 才需要本地构建：
-
-```bash
-./docker/instance-image/build.sh
-```
-
-tag 由 [VERSION](docker/instance-image/VERSION) 决定，格式 `<dsh版本>_<修订号>`（如 `0.1.2-rc.1_2`）。本地和 CI 构建出的镜像名一致：`ghcr.io/eskim2001/dsh-instance:<tag>`。见 [D22](docs/DECISIONS.md)。
-
-配好版本后，在「工作空间」页创建工作空间，建好后从详情页直接在浏览器打开。
 
 ## 参与贡献
 

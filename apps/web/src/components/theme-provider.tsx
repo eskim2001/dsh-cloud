@@ -16,7 +16,9 @@ const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 function readStoredTheme(): Theme {
   const raw = localStorage.getItem(THEME_STORAGE_KEY)
-  return raw === 'light' || raw === 'dark' || raw === 'system' ? raw : 'system'
+  // 默认**浅色**（不是 system）：装机后的第一屏和 README 的截图都按浅色出。
+  // 深色是可选的一套，不是默认 —— 登录页那片黑曜石是它自己的舞台，不代表控制台的默认观感。
+  return raw === 'light' || raw === 'dark' || raw === 'system' ? raw : 'light'
 }
 
 function prefersDark(): boolean {

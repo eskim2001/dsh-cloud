@@ -63,12 +63,12 @@ export default function AccountPage() {
   ]
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 py-2 md:py-4">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 pt-6 md:pt-8 relative z-10">
       <PageHeader
         title={t('settings.account.title')}
         description={t('settings.account.description')}
       />
-      <div className="flex gap-6 border-b" role="tablist" aria-label={t('settings.account.tabs.label')}>
+      <div className="flex gap-8 border-b border-border/80" role="tablist" aria-label={t('settings.account.tabs.label')}>
         {tabs.map(({ value, label, icon: Icon }) => (
           <button
             key={value}
@@ -77,7 +77,7 @@ export default function AccountPage() {
             role="tab"
             aria-selected={activeView === value}
             aria-controls={`account-panel-${value}`}
-            className={`relative -mb-px inline-flex h-11 shrink-0 items-center gap-2 border-b-2 px-1 text-sm font-medium transition-colors ${activeView === value ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+            className={`relative -mb-px inline-flex h-12 shrink-0 items-center gap-2 border-b-2 px-1 text-sm font-medium transition-colors ${activeView === value ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'}`}
             onClick={() => setSearchParams(value === 'profile' ? {} : { view: value }, { replace: true })}
           >
             <Icon className="size-4" />
@@ -167,7 +167,7 @@ function ProfileCard() {
           )}
 
           <div className="mt-5 flex items-center gap-3">
-            <Button type="submit" disabled={!dirty || save.isPending}>
+            <Button type="submit" className="h-10 px-6 text-[14px] shadow-sm" disabled={!dirty || save.isPending}>
               {save.isPending ? t('common.saving') : t('common.save')}
             </Button>
             {saved && !dirty && (
@@ -271,7 +271,7 @@ function PasswordCard() {
             </Field>
           </FieldGroup>
 
-          <div className="mt-5 flex flex-wrap items-center gap-3">
+          <div className="mt-6 flex flex-wrap items-center gap-3">
             <Toggle
               variant="outline"
               size="sm"
@@ -280,7 +280,7 @@ function PasswordCard() {
             >
               {t('settings.account.revokeOthers')}
             </Toggle>
-            <Button type="submit" disabled={!valid || change.isPending}>
+            <Button type="submit" className="h-10 px-6 text-[14px] shadow-sm" disabled={!valid || change.isPending}>
               {change.isPending ? t('common.saving') : t('common.save')}
             </Button>
           </div>
@@ -354,7 +354,7 @@ function SessionsCard() {
         )}
 
         {sessions.data !== undefined && (
-          <div className="overflow-x-auto border-y">
+          <div className="overflow-x-auto">
             <Table>
             <TableHeader>
               <TableRow>
@@ -415,12 +415,12 @@ function AccountSection({
   children: ReactNode
 }) {
   return (
-    <section className="max-w-3xl pt-2">
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <p className="mt-1 text-sm leading-5 text-muted-foreground">{description}</p>
+    <section className="flex flex-col rounded-xl border border-border/80 bg-card shadow-sm overflow-hidden">
+      <div className="border-b border-border/60 bg-muted/30 px-6 py-5">
+        <h2 className="text-sm font-medium tracking-tight text-foreground">{title}</h2>
+        <p className="mt-1 text-[13px] leading-5 text-muted-foreground">{description}</p>
       </div>
-      <div>{children}</div>
+      <div className="p-6 relative z-10">{children}</div>
     </section>
   )
 }
