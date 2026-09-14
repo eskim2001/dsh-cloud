@@ -96,7 +96,7 @@
 一台 Linux 主机，装了 Docker（含 Compose v2），`80` / `443` 空闲，另有一块能给硬配额的盘。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.7/scripts/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.8/scripts/install.sh | sudo bash
 ```
 
 （已经是 root 就去掉 `sudo`。）
@@ -133,23 +133,23 @@ curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.7/scripts/
 **先看脚本再执行**：把 `| sudo bash` 换成 `-o install.sh`。URL 钉在 tag 上、内容不会变；要核对就两边各算一次 SHA-256：
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.7/scripts/install.sh" | sha256sum
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.8/scripts/install.sh" | sha256sum
 ```
 
 ```bash
-git show v0.1.7:scripts/install.sh | sha256sum
+git show v0.1.8:scripts/install.sh | sha256sum
 ```
 
 **升级**（保留数据与密钥）：
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.7/scripts/install.sh" | sudo bash -s -- update --version 0.1.7
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.8/scripts/install.sh" | sudo bash -s -- update --version 0.1.8
 ```
 
 **卸载**（默认保留数据库卷与存储池；加 `--purge` 连数据一起删，不可恢复）：
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.7/scripts/install.sh" | sudo bash -s -- uninstall
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.8/scripts/install.sh" | sudo bash -s -- uninstall
 ```
 
 </details>
