@@ -92,28 +92,41 @@ After deploying the platform, administrators can add users through invitation li
 
 ### Deploy to your own server
 
-Prerequisites:
+A Linux host with Docker (Compose v2), ports `80` / `443` free, and a disk that can enforce a quota.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh | sudo bash
+```
+
+The script runs, in order: preflight (environment, ports, storage capability) → provision the storage pool → start PostgreSQL → migrate the database → create the first administrator → start the control plane and ingress. It ends by printing the console URL and an administrator password **shown once**. It asks for a domain and an administrator email along the way; answering is enough, and installing without a domain works too.
+
+For bring-your-own certificates, upgrades and rollbacks, and **why it is expected for the control plane to hold the Docker socket and `CAP_SYS_ADMIN`**, see the [deployment guide](docker/platform/README.md).
+
+<details>
+<summary>Options, prerequisites, checksum, upgrade and uninstall</summary>
+
+**Options** — all of them can be omitted; the defaults are below (`--help` lists the rest):
+
+| Option | If omitted |
+|---|---|
+| `--domain <parent>` | No domain → **bootstrap**: the script prints a `http://<ip>/setup?token=...` link to enter it in a browser |
+| `--admin-email <email>` | Asked interactively |
+| `--email <email>` | No certificate expiry notices (certificates are still issued) |
+| `--version <tag>` | Uses `latest` (**which moves**; the digest actually pulled is recorded in `/opt/dsh-cloud/.installed-version`) |
+| `--non-interactive` | Never asks; every value must come from an option (for automation) |
+
+`--domain` is the **parent** domain: the console lives at `console.<parent>` and every workspace takes a subdomain of its own. Certificates are issued per host (one for the console, one per workspace), so no DNS provider API is involved — but the wildcard record `*.<parent>` must point at this machine, or certificates cannot be issued.
+
+Without a domain the platform runs in **bootstrap** mode: it serves **only** that one page (guarded by a one-time token; no other API is mounted). Submitting the domain closes the entry point immediately, and the console then lives at `console.<the parent you entered>`. See [D36](docs/DECISIONS.md).
+
+**Prerequisites**
 
 - A Linux host (x86-64 or arm64) with Docker and Compose v2.
-- **Storage that can enforce a hard quota**: `HOST_STORAGE_ROOT` (default `/var/lib/dsh`) must either sit on XFS mounted with `pquota`, or the installer creates a loopback XFS image for it (needs root, and writes the mount into `fstab`). If neither is possible the install **refuses to proceed** — once storage is pooled, a quota that merely looks enforced is worse than none. See [D18](docs/DECISIONS.md).
+- **Storage that can enforce a hard quota**: `HOST_STORAGE_ROOT` (default `/var/lib/dsh`) must either sit on XFS mounted with `pquota`, or the script creates a loopback XFS image for it (needs root, and writes the mount into `fstab`). If neither is possible the install **refuses to proceed** — once storage is pooled, a quota that merely looks enforced is worse than none. See [D18](docs/DECISIONS.md).
 - Ports `80` and `443` free: the ingress binds them directly, and `80` is also needed for the ACME HTTP-01 check.
 - Host access to GHCR (both the platform image and workspace images come from there).
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh | sudo bash -s -- --version 0.1.0 --domain example.com --email you@example.com
-```
-
-The `0.1.0` in both places is the same tag: the script at `v0.1.0`, and the platform image `dsh-cloud:0.1.0`. Change both together.
-
-Both `--version` and `--email` can be omitted: without a version the installer uses `latest` (which **moves** — the digest it actually pulled is recorded in `/opt/dsh-cloud/.installed-version`), and without an email you simply do not get certificate expiry notices (certificates are still issued). Both are the kind of thing you only miss once something breaks, so passing them is worth the keystrokes.
-
-The script runs, in order: preflight (environment, ports, storage capability) → provision the storage pool on the host and persist it in `fstab` → start PostgreSQL → migrate the database → create the first administrator → start the control plane and ingress. It then prints the console URL and an administrator password **shown once**.
-
-`--domain` is the **parent** domain: the console lives at `console.<parent>` and every workspace takes a subdomain of its own. Certificates are issued per host (one for the console, one per workspace), so no DNS provider API is involved — but the wildcard record `*.<parent>` must already point at this machine, or certificates cannot be issued.
-
-**No domain yet? Leave `--domain` off**: the script prints a `http://<ip>/setup?token=...` link. Open it and enter the domain there. During that bootstrap the platform serves **only** that page (guarded by a one-time token; no other API is mounted), and the entry point is closed the moment you submit — the console then lives at `console.<the parent you entered>`. See [D36](docs/DECISIONS.md).
-
-To read the script before running it, replace `| sudo bash -s --` with `-o install.sh`. Its URL is pinned to a tag, so the contents never change; to verify, compute the SHA-256 on both sides and compare:
+**Read the script before running it**: replace `| sudo bash` with `-o install.sh`. Its URL is pinned to a tag, so the contents never change; to verify, compute the SHA-256 on both sides and compare:
 
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh" | sha256sum
@@ -123,19 +136,19 @@ curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts
 git show v0.1.0:scripts/install.sh | sha256sum
 ```
 
-Upgrade to a new version (keeps data and secrets):
+**Upgrade** (keeps data and secrets):
 
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.1/scripts/install.sh" | sudo bash -s -- update --version 0.1.1
 ```
 
-Uninstall (keeps the database volume and storage pool; add `--purge` to delete data irrecoverably):
+**Uninstall** (keeps the database volume and storage pool; add `--purge` to delete data irrecoverably):
 
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh" | sudo bash -s -- uninstall
 ```
 
-For bring-your-own certificates (skip ACME), upgrades and rollbacks, and **why it is expected for the control plane to hold the Docker socket and `CAP_SYS_ADMIN`**, see the [deployment guide](docker/platform/README.md).
+</details>
 
 > The project is in early development: deployment verification and security work still have open items. Before exposing it to the internet, read the hardening checklist and permission boundaries in the [architecture and security model](docs/ARCHITECTURE.md).
 

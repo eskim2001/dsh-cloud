@@ -93,28 +93,41 @@
 
 ### 部署到自己的服务器
 
-前置条件：
-
-- Linux 主机（x86-64 或 arm64），装有 Docker 与 Compose v2。
-- **一块能给硬配额的盘**：`HOST_STORAGE_ROOT`（默认 `/var/lib/dsh`）要么落在一块以 `pquota` 挂载的 XFS 上，要么让安装脚本建一块 loopback XFS 镜像（要 root，并把挂载写进 `fstab`）。两条都做不到会**拒绝安装** —— 池化之后「看起来有配额」比没有更糟。见 [D18](docs/DECISIONS.md)。
-- 端口 `80`、`443` 空闲：入口直接绑它们，其中 `80` 还要留给 ACME 的 HTTP-01 校验。
-- 宿主能访问 GHCR（拉平台镜像与工作空间镜像）。
+一台 Linux 主机，装了 Docker（含 Compose v2），`80` / `443` 空闲，另有一块能给硬配额的盘。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh | sudo bash -s -- --version 0.1.0 --domain example.com --email you@example.com
+curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh | sudo bash
 ```
 
-两处的 `0.1.0` 指同一个 tag：`v0.1.0` 那份脚本、和 `dsh-cloud:0.1.0` 那个平台镜像。换版本要一起改。
+脚本按序做：预检（环境 / 端口 / 存储能力）→ 在宿主上准备好存储池 → 起 PostgreSQL → 迁移数据库 → 建第一个管理员 → 起控制面与入口，最后打印控制台地址和**只显示一次**的管理员密码。中间它会问域名和管理员邮箱，照答即可 —— 没有域名也能装。
 
-`--version` 和 `--email` **都可以省略**：省略版本就用 `latest`（**会漂移**，实际装到的 digest 记在 `/opt/dsh-cloud/.installed-version`），省略邮箱就收不到证书过期提醒（证书照签）。这两样都属于「出事了才想起它」的东西，建议还是给上。
+自备证书、升级回滚、以及**为什么控制面持有 Docker socket 与 `CAP_SYS_ADMIN` 是预期内的**，见[部署说明](docker/platform/README.md)。
 
-脚本按序做：预检（环境 / 端口 / 存储能力）→ 在宿主上准备好存储池并写进 `fstab` → 起 PostgreSQL → 迁移数据库 → 建第一个管理员 → 起控制面与入口，最后打印控制台地址和**只显示一次**的管理员密码。
+<details>
+<summary>参数、前置条件、校验和、升级与卸载</summary>
+
+**参数** —— 都能省，省略时按默认走（完整列表见脚本的 `--help`）：
+
+| 参数 | 省略时 |
+|---|---|
+| `--domain <父域>` | 不配域名 → **引导态**：脚本打印一条 `http://<ip>/setup?token=…`，在浏览器里填 |
+| `--admin-email <邮箱>` | 交互问 |
+| `--email <邮箱>` | 不发证书过期提醒（证书照签） |
+| `--version <tag>` | 用 `latest`（**会漂移**；装到的 digest 记在 `/opt/dsh-cloud/.installed-version`） |
+| `--non-interactive` | 不提问，全部走参数（自动化用） |
 
 `--domain` 给的是**父域**：控制台落在 `console.<父域>`，每个工作空间各占 `<子域>.<父域>`。证书按主机逐个签发（控制台一张、每个工作空间一张），所以不需要任何 DNS 服务商的 API —— 但**泛解析 `*.<父域>` 要先指向这台机器**，否则证书签不下来。
 
-**还没有域名就省略 `--domain`**：脚本会打印一条 `http://<ip>/setup?token=…`，用浏览器打开、把域名填进去即可。引导期平台**只**开着那一页（靠一枚一次性 token 保护，其余接口一律不挂），填完这个入口立刻关掉、控制台随即落在 `console.<你填的父域>`。见 [D36](docs/DECISIONS.md)。
+不配域名就是**引导态**：平台**只**开着那一页（一次性 token 保护，其余接口一律不挂），填完域名这个入口立刻关掉、控制台随即落在 `console.<你填的父域>`。见 [D36](docs/DECISIONS.md)。
 
-想先看脚本做了什么，把 `| sudo bash -s --` 换成 `-o install.sh`，读过再执行。脚本 URL 钉在 tag 上、内容不会变；要核对就两边各算一次 SHA-256，应当一致：
+**前置条件**
+
+- Linux 主机（x86-64 或 arm64），装有 Docker 与 Compose v2。
+- **一块能给硬配额的盘**：`HOST_STORAGE_ROOT`（默认 `/var/lib/dsh`）要么落在一块以 `pquota` 挂载的 XFS 上，要么让脚本建一块 loopback XFS 镜像（要 root，并把挂载写进 `fstab`）。两条都做不到会**拒绝安装** —— 池化之后「看起来有配额」比没有更糟。见 [D18](docs/DECISIONS.md)。
+- 端口 `80`、`443` 空闲：入口直接绑它们，其中 `80` 还要留给 ACME 的 HTTP-01 校验。
+- 宿主能访问 GHCR（拉平台镜像与工作空间镜像）。
+
+**先看脚本再执行**：把 `| sudo bash` 换成 `-o install.sh`，读过再跑。URL 钉在 tag 上、内容不会变；要核对就两边各算一次 SHA-256，应当一致：
 
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh" | sha256sum
@@ -124,19 +137,19 @@ curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts
 git show v0.1.0:scripts/install.sh | sha256sum
 ```
 
-升级到新版本（保留数据与密钥）：
+**升级**（保留数据与密钥）：
 
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.1/scripts/install.sh" | sudo bash -s -- update --version 0.1.1
 ```
 
-卸载（默认保留数据库卷与存储池；加 `--purge` 连数据一起删，不可恢复）：
+**卸载**（默认保留数据库卷与存储池；加 `--purge` 连数据一起删，不可恢复）：
 
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh" | sudo bash -s -- uninstall
 ```
 
-自备证书（不加 ACME）、升级与回滚、以及**为什么控制面持有 Docker socket 与 `CAP_SYS_ADMIN` 是预期内的**，见[部署说明](docker/platform/README.md)。
+</details>
 
 > 项目处于早期开发阶段：部署验证与安全工作仍有未决项，公网部署前请先读[架构与安全模型](docs/ARCHITECTURE.md)里的权限边界与运行限制（§五、§八）。
 
