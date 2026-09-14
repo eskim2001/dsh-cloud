@@ -13,9 +13,11 @@ const EnvSchema = z.object({
    * **父域**：实例子域挂在它下面（`<slug>.<BASE_DOMAIN>`），会话 cookie 也种在它上面
    * （`Domain=.<BASE_DOMAIN>`），所以它必须同时覆盖控制台和实例。
    *
-   * **可以为空**：空 = 还没配域名（**引导态**）—— 那时控制面只暴露 token 门保护的 setup 页，
-   * 操作者在面板里填域名、写进 `platform_setting` 后重启。域名优先取这里（装机时给了
-   * `--domain`），否则取 DB。见 DECISIONS 的引导态装机那条。
+   * **可以为空**：空 = 还没配域名（**引导态**）—— 那时控制面只暴露引导页，
+   * 操作者在上面建管理员、填域名，域名写进 `platform_setting` 后重启生效。
+   *
+   * 非空会**压过**那份 DB 记录。装机不再写它（.env 里那两行恒为空），这条只服务
+   * **本地开发**（`BASE_DOMAIN=lvh.me`）和手工覆盖。见 DECISIONS 的引导态装机那条。
    */
   BASE_DOMAIN: z
     .string()
@@ -188,8 +190,8 @@ export function consoleLabel(env: Env): string {
 /**
  * 把「env 里写的域名」与「DB 里存的域名」合成一份**生效的** Env，并说明当前是不是引导态。
  *
- * 优先级：**env 优先**（装机时给了 `--domain` 就是这档，保持老行为），env 空才用 DB；
- * 都没有 ⇒ 引导态（只暴露 token 门保护的 setup 页，见 DECISIONS 的引导态装机）。
+ * 优先级：**env 优先**（本地开发 / 手工覆盖走这档），env 空才用 DB；
+ * 都没有 ⇒ 引导态（只暴露引导页，见 DECISIONS 的引导态装机）。
  *
  * 用法：**在 `createAuth` 和 `buildApp` 之前解析一次**，之后全用它 —— 否则
  * `trustedOrigins` 之类会拿空域名算出废值。

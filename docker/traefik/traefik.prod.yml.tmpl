@@ -20,9 +20,8 @@ entryPoints:
   websecure:
     address: ":443"
 
-# >>> acme
-# 这一段是可选的：install.sh 跑 --no-acme 时会把这两行 marker 之间的内容整段删掉
-# （anchor 就是下面这两条注释），那时证书走 file provider 里的静态证书。
+# ACME 恒开（装机不问了）。`email:` 那一行由 install.sh 删掉 —— 留空在 YAML 里是 null，
+# Traefik 未必收，而不带 email 的 resolver 实测通过校验、ACME 照常工作。
 certificatesResolvers:
   le:
     acme:
@@ -30,7 +29,6 @@ certificatesResolvers:
       storage: /acme/acme.json
       httpChallenge:
         entryPoint: web
-# <<< acme
 
 providers:
   file:

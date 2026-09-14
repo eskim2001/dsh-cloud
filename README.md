@@ -99,11 +99,11 @@
 curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.7/scripts/install.sh | sudo bash
 ```
 
-（**已经是 root 就去掉 `sudo`** —— 很多 VPS 默认给你的就是 root shell，而那些系统往往根本没装 sudo。）
+（已经是 root 就去掉 `sudo`。）
 
-脚本按序做：预检（环境 / 端口 / 存储能力）→ 在宿主上准备好存储池 → 起 PostgreSQL → 迁移数据库 → 建第一个管理员 → 起控制面与入口，最后打印控制台地址和**只显示一次**的管理员密码。中间它会问域名和管理员邮箱，照答即可 —— 没有域名也能装。
+装完会打印一行引导地址（`http://<机器>:3000/setup?token=…`）。在浏览器里打开它，建管理员账号、填父域。提交后这个入口关闭，控制台落在 `console.<你填的父域>`，用刚建的凭据登录。
 
-自备证书、升级回滚、以及**为什么控制面持有 Docker socket 与 `CAP_SYS_ADMIN` 是预期内的**，见[部署说明](docker/platform/README.md)。
+升级回滚、自备证书、以及**控制面持有 Docker socket 与 `CAP_SYS_ADMIN` 的边界**，见[部署说明](docker/platform/README.md)。
 
 <details>
 <summary>参数、前置条件、校验和、升级与卸载</summary>
@@ -112,24 +112,25 @@ curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.7/scripts/
 
 | 参数 | 省略时 |
 |---|---|
-| `--domain <父域>` | 不配域名 → **引导态**：脚本打印一条 `http://<ip>/setup?token=…`，在浏览器里填 |
-| `--admin-email <邮箱>` | 交互问 |
-| `--email <邮箱>` | 不发证书过期提醒（证书照签） |
 | `--version <tag>` | 用 `latest`（**会漂移**；装到的 digest 记在 `/opt/dsh-cloud/.installed-version`） |
-| `--non-interactive` | 不提问，全部走参数（自动化用） |
+| `--wizard-port <端口>` | 从 `3000` 起试 `3000-3003`，取第一台空闲的 |
+| `--pool-root <路径>` | `/var/lib/dsh` |
+| `--pool-size-mb <MB>` | 取所在文件系统可用空间的 80% |
 
-`--domain` 给的是**父域**：控制台落在 `console.<父域>`，每个工作空间各占 `<子域>.<父域>`。证书按主机逐个签发（控制台一张、每个工作空间一张），所以不需要任何 DNS 服务商的 API —— 但**泛解析 `*.<父域>` 要先指向这台机器**，否则证书签不下来。
+域名和管理员**没有**安装参数 —— 都在引导页里配。
 
-不配域名就是**引导态**：平台**只**开着那一页（一次性 token 保护，其余接口一律不挂），填完域名这个入口立刻关掉、控制台随即落在 `console.<你填的父域>`。见 [D36](docs/DECISIONS.md)。
+引导页填的是**父域**：控制台落在 `console.<父域>`，每个工作空间各占 `<子域>.<父域>`。证书按主机逐个签发，所以泛解析 `*.<父域>` 必须先指向这台机器，否则签不下来。
+
+引导态下平台只开着那一页（一次性 token 保护，其余接口都不挂）。填完账号和域名，入口立刻关闭，对外端口同时收回。见 [D36](docs/DECISIONS.md)。
 
 **前置条件**
 
 - Linux 主机（x86-64 或 arm64），装有 Docker 与 Compose v2。
-- **一块能给硬配额的盘**：`HOST_STORAGE_ROOT`（默认 `/var/lib/dsh`）要么落在一块以 `pquota` 挂载的 XFS 上，要么让脚本建一块 loopback XFS 镜像（要 root，并把挂载写进 `fstab`）。两条都做不到会**拒绝安装** —— 池化之后「看起来有配额」比没有更糟。见 [D18](docs/DECISIONS.md)。
+- **一块能给硬配额的盘**：`HOST_STORAGE_ROOT`（默认 `/var/lib/dsh`）要么在以 `pquota` 挂载的 XFS 上，要么让脚本建一块 loopback XFS 镜像（要 root，并把挂载写进 `fstab`）。两条都做不到会拒绝安装。见 [D18](docs/DECISIONS.md)。
 - 端口 `80`、`443` 空闲：入口直接绑它们，其中 `80` 还要留给 ACME 的 HTTP-01 校验。
 - 宿主能访问 GHCR（拉平台镜像与工作空间镜像）。
 
-**先看脚本再执行**：把 `| sudo bash` 换成 `-o install.sh`，读过再跑。URL 钉在 tag 上、内容不会变；要核对就两边各算一次 SHA-256，应当一致：
+**先看脚本再执行**：把 `| sudo bash` 换成 `-o install.sh`。URL 钉在 tag 上、内容不会变；要核对就两边各算一次 SHA-256：
 
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.7/scripts/install.sh" | sha256sum
@@ -175,7 +176,7 @@ pnpm dev
 
 登录后落在「主页」：最近用过的空间在最上面，下面是快捷操作和最近活动。
 
-在「版本管理」页点「检查更新」，同步 GHCR 的可用版本，再发布需要的版本（可设为默认）。要让**用户**能升级到某个版本，得先把它「预热到本机」——用户端的升级列表只列本机已缓存的版本；创建工作空间不受此限，平台会自己拉。见 [D23](docs/DECISIONS.md)。
+在「版本管理」页点「检查更新」，同步 GHCR 的可用版本，再发布需要的版本（可设为默认）。要让用户能升级到某个版本，得先把它「预热到本机」——用户端的升级列表只列本机已缓存的版本；创建工作空间不受此限，平台会自己拉。见 [D23](docs/DECISIONS.md)。
 
 只有改了 `docker/instance-image/` 才需要本地构建：
 

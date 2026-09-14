@@ -70,8 +70,9 @@
   **不在容器里建池**（D35）
 - **`scripts/install.sh`**：install / update / uninstall，幂等，**绝不重发 secret**；
   部署资产（prod.yml + Traefik 模板）随镜像走、用 `docker cp` 取出，模板与镜像版本严格对齐
-- **不填域名也能装**（[D36](docs/DECISIONS.md)）：`--domain` 可省 —— 引导态只暴露 token 门保护的
-  setup 页（复用 `:80` 上一条动态 router），操作者在面板里填域名，填完暴露当场关闭。
+- **不填域名也能装**（[D36](docs/DECISIONS.md)）：装机不配域名、也不建账号 —— 控制面以**引导态**
+  起来，直接对外开一个专用端口（安装脚本打印那一行地址），口子上只有引导页 + setup 端点，
+  操作者在那一页里建管理员、填域名，填完暴露当场关闭、端口收回回环。
   跳转也从静态配置搬进了动态 router（静态那份会把 :80 全 301 掉，实测见 D36）
 - README「快速开始」已换成部署路径；只对本地成立的链路（`lvh.me`、自签红锁）收进
   [AGENTS.md](AGENTS.md) §四 与 [docker/compose/README.md](docker/compose/README.md)
@@ -108,8 +109,8 @@
   装完池子若失效，平台也会拒绝启动 —— 池化之后"看起来有配额"比没有更糟
   （见 [D18](docs/DECISIONS.md)、[storage/README.md](docs/storage/README.md)）
 - 端口 `80` / `443` 空闲（ACME 的 HTTP-01 校验需要 `80`）
-- **域名**：装机时给（`--domain`）可以，不给也可以 —— 不给就是**引导态**，装完在面板里填。
-  两条路都要求**泛解析 `*.<父域>` 指向这台机器**，否则证书签不下来（面板会检查并警告，不拦）
+- **域名**：装机不配 —— 控制面以**引导态**起来，操作者在引导页里填（连同首个管理员账号）。
+  要求**泛解析 `*.<父域>` 指向这台机器**，否则证书签不下来（引导页会检查并警告，不拦）
 - 宿主能访问 GHCR（拉实例镜像）
 
 **三项已定**：
@@ -117,7 +118,7 @@
 1. **脚本 URL** —— 挂 `raw.githubusercontent.com/<repo>/<tag>/scripts/install.sh`，**pin tag + 校验 checksum**，
    不从移动分支管道进 shell。
 2. **管理员凭据** —— 安装时随机生成、打印一次。本地那对 `admin@lvh.me` / `dsh-cloud-dev` 绝不沿用。
-3. **域名怎么给** —— 交互提问，`--domain` / `DSH_DOMAIN` 可覆盖（自动化走参数）。
+3. **域名怎么给** —— 引导页里填（装机不问，见 [D36](docs/DECISIONS.md)）。
 
 ### M2 能管
 
