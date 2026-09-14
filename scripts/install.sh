@@ -626,14 +626,31 @@ cmd_update() {
   cmd_install
 }
 
+# 工作空间容器**不属于** compose 项目 —— 它们是控制面经 docker.sock 建的（label 见
+# instance-spec 的渲染器），所以 `compose down` 碰不到它们。不显式处理就会留下还在跑的孤儿：
+# 没有入口也没有控制面，纯白吃 CPU/内存。用平台**自己的 label** 找，别按名字猜。
+managed_instance_ids() {
+  docker ps -aq --filter 'label=dsh.cloud/managed=true' 2>/dev/null || true
+}
+
 cmd_uninstall() {
   STEP='卸载'
   [ -f "$STATE_DIR/prod.yml" ] || die "没找到 $STATE_DIR/prod.yml —— 这里没装过？"
-  log "停服务并删容器"
-  compose down --remove-orphans || true
+
+  local ids
+  ids=$(managed_instance_ids)
+
   if [ "$PURGE" = 1 ]; then
-    warn "--purge：连 Postgres 卷、存储池、状态目录一起删，**不可恢复**"
+    warn "--purge：连 Postgres 卷、存储池、工作空间容器一起删，**不可恢复**"
+    log "停服务、删容器（含工作空间）"
     compose down -v --remove-orphans || true
+    if [ -n "$ids" ]; then
+      # 必须**先删容器再动池子**：它们 bind 在池子目录上，池子被 umount + 删掉之后
+      # 它们写进去的东西会直接进已删除的目录（静默），而且 loop 设备还被它们占着。
+      # 未加引号是有意的：$ids 是多行 id 列表，这里就是要按空白拆开。
+      # shellcheck disable=SC2086
+      docker rm -f $ids >/dev/null && log "  工作空间容器已删"
+    fi
     if [ -f "$STATE_DIR/.env" ]; then
       local root img
       root=$(env_get HOST_STORAGE_ROOT)
@@ -643,13 +660,23 @@ cmd_uninstall() {
         umount "$root" 2>/dev/null || true
         rm -rf "$root"
         rm -f "$img"
-        sed -i "\|^[^#]*[[:space:]]${root}[[:space:]]|d" /etc/fstab 2>/dev/null || true
+        # 挂载行和那行说明注释一起删，别在 fstab 里留孤儿（注释以 `# dsh-cloud 实例数据池` 开头）
+        sed -i -e "\|^[^#]*[[:space:]]${root}[[:space:]]|d" \
+          -e '\|^# dsh-cloud 实例数据池|d' /etc/fstab 2>/dev/null || true
       fi
     fi
     rm -rf "$STATE_DIR"
     log "清干净了。"
   else
-    log "容器删了；**Postgres 卷与存储池保留**（数据还在）。"
+    log "停服务并删容器"
+    compose down --remove-orphans || true
+    if [ -n "$ids" ]; then
+      # 只**停**不删：容器和它的数据都还在，重装之后平台自己会把「状态是 running」的
+      # 那批拉起来（见 instance/boot.ts）。留着跑才是错的 —— 它们此时既没有入口也没有控制面。
+      # shellcheck disable=SC2086
+      docker stop $ids >/dev/null && log "  工作空间容器已停（数据留着，重装即可再用）"
+    fi
+    log "容器删了；**Postgres 卷、存储池与工作空间数据保留**。"
     printf '  连数据一起删：install.sh uninstall --purge\n'
   fi
 }
