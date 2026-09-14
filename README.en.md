@@ -95,7 +95,7 @@ After deploying the platform, administrators can add users through invitation li
 A Linux host with Docker (Compose v2), ports `80` / `443` free, and a disk that can enforce a quota.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.2/scripts/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.3/scripts/install.sh | sudo bash
 ```
 
 (Drop `sudo` if you are already root -- many VPS providers hand you a root shell, and those images often do not ship `sudo` at all.)
@@ -131,23 +131,23 @@ Without a domain the platform runs in **bootstrap** mode: it serves **only** tha
 **Read the script before running it**: replace `| sudo bash` with `-o install.sh`. Its URL is pinned to a tag, so the contents never change; to verify, compute the SHA-256 on both sides and compare:
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.2/scripts/install.sh" | sha256sum
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.3/scripts/install.sh" | sha256sum
 ```
 
 ```bash
-git show v0.1.2:scripts/install.sh | sha256sum
+git show v0.1.3:scripts/install.sh | sha256sum
 ```
 
 **Upgrade** (keeps data and secrets):
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.3/scripts/install.sh" | sudo bash -s -- update --version 0.1.3
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.4/scripts/install.sh" | sudo bash -s -- update --version 0.1.4
 ```
 
 **Uninstall** (keeps the database volume and storage pool; add `--purge` to delete data irrecoverably):
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.2/scripts/install.sh" | sudo bash -s -- uninstall
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.3/scripts/install.sh" | sudo bash -s -- uninstall
 ```
 
 </details>
