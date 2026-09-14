@@ -162,20 +162,24 @@ preflight() {
   docker compose version >/dev/null 2>&1 || die "Docker Compose v2 不可用（需要 \`docker compose\` 子命令，不是老的 docker-compose）。"
   docker info >/dev/null 2>&1 || die "连不上 Docker daemon（docker info 失败）。"
 
-  # 80/443 必须空闲：入口在 host 网络上，直接绑这两个端口。
-  # 用 if 而不是 `cmd && die`：端口**空闲**时那条链的左半边是失败的，读起来像「空闲就报错」。
-  local p
-  for p in 80 443; do
-    if have ss; then
-      if ss -ltnH "sport = :$p" 2>/dev/null | grep -q .; then
-        die "端口 $p 已被占用。先腾出来（入口要绑它）。"
+  # 80/443：**只有首装才要求它们空闲**。更新时占着这两个端口的正是我们自己的入口，
+  # 要求空闲会让 `update` 永远跑不起来（实测 2026-09-14：在跑着的部署上重跑，直接卡在这）。
+  # 真被别人占了的话，`compose up` 会当场报出来 —— 报在真正出事的那一步。
+  if [ ! -f "$STATE_DIR/.env" ]; then
+    # 用 if 而不是 `cmd && die`：端口**空闲**时那条链的左半边是失败的，读起来像「空闲就报错」。
+    local p
+    for p in 80 443; do
+      if have ss; then
+        if ss -ltnH "sport = :$p" 2>/dev/null | grep -q .; then
+          die "端口 $p 已被占用。先腾出来（入口要绑它）。"
+        fi
+      elif have lsof; then
+        if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then
+          die "端口 $p 已被占用。"
+        fi
       fi
-    elif have lsof; then
-      if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then
-        die "端口 $p 已被占用。"
-      fi
-    fi
-  done
+    done
+  fi
 
   resolve_version
 }
@@ -481,9 +485,15 @@ start_services() {
   wait_for_console
 
   printf '\n\033[32m✓ 装好了\033[0m\n\n'
+  # 「配好没配好」看**控制面的投影**，不看 `$DOMAIN`：在一台已配置的机器上重跑时，`.env` 里的域名
+  # 是空的（域名存在库里），照 `$DOMAIN` 判会把它当成引导态、打印一条已经作废的 setup 指引。
+  local configured=0
+  if [ -f "$STATE_DIR/traefik/dynamic/platform.yml" ]; then configured=1; fi
   if [ -n "$DOMAIN" ]; then
     printf '  控制台　　：https://%s\n' "$CONSOLE_DOMAIN"
     printf '  实例　　　：https://<子域名>.%s\n' "$DOMAIN"
+  elif [ "$configured" = 1 ]; then
+    printf '  域名　　　：已配置（存在平台的库里，控制台在 console.<你当初填的那个域名>）\n'
   else
     printf '  \033[1m下一步：用浏览器打开下面这条链接，把域名填进去。\033[0m\n\n'
     printf '    http://%s/setup?token=%s\n' "$(machine_address)" "$SETUP_TOKEN"
@@ -501,7 +511,7 @@ start_services() {
     printf '\n'
     printf '  管理员已存在，**密码没动**（seed 只在零管理员时建号）。用原密码登录。\n'
   fi
-  if [ "$ACME" = 1 ] && [ -n "$DOMAIN" ]; then
+  if [ "$ACME" = 1 ] && [ "$configured" = 1 ]; then
     printf '  首次访问时 ACME 可能还在签发证书（几秒到一分钟），报证书错就等一下再刷。\n'
   fi
   printf '\n'
