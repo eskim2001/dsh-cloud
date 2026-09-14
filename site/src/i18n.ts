@@ -55,7 +55,7 @@ const zh = {
   ingressTitle: '打开实例还需要什么？',
   ingressText: '实例要跑起来，还需要能拉到的实例镜像、指向本机的 DNS 泛解析、以及按主机签发的 TLS 证书。只启动控制台打不开实例。改了实例镜像才需要本地构建：',
   imageCommand: './docker/instance-image/build.sh',
-  readiness: '当前不是生产可用版本。整套安装路径只在开发机上验过——真机上的入口拓扑、磁盘配额与证书签发仍待验证。',
+  readiness: '当前不是生产可用版本。真机上已验：安装 → 引导页建号配域 → 逐主机 ACME 证书 → :80 跳 443。还没验：开一个工作空间并访问、宿主重启后的自动恢复。',
   faqTitle: '几个值得先问的问题。',
   faq: [
     ['它和 DeepSeek Harness 是什么关系？', 'DeepSeek Harness 是上游 agent harness。dshcloud 在其外围提供账号、工作空间编排、资源配额和访问控制，不是 DeepSeek 官方云服务。'],
@@ -131,7 +131,7 @@ const en: Dictionary = {
   ingressTitle: 'What else does instance access need?',
   ingressText: 'Instances also need a pullable instance image, wildcard DNS pointing at this machine, and per-host TLS certificates. Starting the console alone does not open instances. Build an image locally only if you changed it:',
   imageCommand: './docker/instance-image/build.sh',
-  readiness: 'Not production-ready. The full install path has only been verified on a development machine; ingress topology, disk quotas and certificate issuance on a real host are still unverified.',
+  readiness: 'Not production-ready. Verified on a real host: install, the bootstrap page, a per-host ACME certificate, and the :80 redirect. Not yet verified: creating and opening a workspace, or recovery after a host reboot.',
   faqTitle: 'Good questions to ask first.',
   faq: [
     ['How does this relate to DeepSeek Harness?', 'DeepSeek Harness is the upstream agent harness. dshcloud adds accounts, workspace orchestration, quotas and access control around it. It is not an official DeepSeek cloud service.'],
