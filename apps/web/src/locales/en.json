@@ -154,7 +154,7 @@
     "doneTitle": "Domain saved",
     "doneBody": "The platform is restarting (a few seconds). Then open {{domain}} and sign in with the administrator email and password printed during the install.",
     "doneClose": "This page's entry point has been closed — you can close this tab.",
-    "doneDns": "Note: {{probe}} does not resolve — the wildcard record probably has not taken effect yet. The domain is saved, but certificates cannot be issued until it does."
+    "doneDns": "Note: {{probe}} does not resolve — the wildcard record has not taken effect yet. The domain is saved, but until it resolves **you cannot reach `console.<the domain you entered>` either** (and certificates cannot be issued). To get in meanwhile, add a hosts entry or send the Host header yourself."
   },
   "invite": {
     "subtitle": "You have been invited",
