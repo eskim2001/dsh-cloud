@@ -1,6 +1,6 @@
 # 开发计划
 
-> 目标：把 `dsh` 做成可运营的多租户 SaaS 平台。
+> 目标：把 `dsh` 做成一个开源自托管、装完就能用的多用户运行平台。
 > 架构见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)；决策见 [DECISIONS.md](docs/DECISIONS.md)；待验证见 [OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md)。
 
 ## 总纲
@@ -13,7 +13,6 @@
 |---|---|
 | 可观测性（Prometheus / Loki / Grafana） | M2 |
 | 备份 / 镜像扫描 / 对象存储 | M2 |
-| 计费 / 支付 / 充值 / 钱包 | M3 |
 | K8s / microVM / 多机 | M4 |
 | 外壳 / iframe 包裹（dsh 占满整页即可） | 按需，晚于 MVP |
 | dsh 内部机制（密钥存储、模型端点） | 交给 dsh |
@@ -98,8 +97,8 @@
 **引导态那条链路**（引导页 → 建号 + 填域名 → 摘掉入口 → 控制台落位）**已在真机验完整**，
 开发机上也能端到端跑（见 D36）—— 它是整套里唯一两种环境都能验的。
 
-发布工序早就位了：README 那行安装命令钉 tag（`raw.githubusercontent.com/<repo>/v<版本>/…`），
-发版打一个 `vX.Y.Z`。注意**推 tag 不会触发镜像构建** —— `platform-image.yml` 只认手动
+发布工序早就位了：README 那行安装命令指向 `main`（**不钉版本**，读者拿到的是当前分支那份），
+发版另打一个 `vX.Y.Z` tag。注意**推 tag 不会触发镜像构建** —— `platform-image.yml` 只认手动
 `gh workflow run`。
 
 **installer 契约**（脚本照此实现）：
@@ -124,8 +123,9 @@
 
 **三项已定**：
 
-1. **脚本 URL** —— 挂 `raw.githubusercontent.com/<repo>/<tag>/scripts/install.sh`，**pin tag + 校验 checksum**，
-   不从移动分支管道进 shell。
+1. **脚本 URL** —— 指向 `raw.githubusercontent.com/<repo>/main/scripts/install.sh`，**不钉版本、
+   不校验 checksum**：读者拿到的是当前分支那份，不会随发版过期。代价是不再有「内容不会变、
+   可两边核对 SHA-256」这条性质（2026-09-15 改的，原先定的是 pin tag）。
 2. **管理员凭据** —— 安装时随机生成、打印一次。本地那对 `admin@lvh.me` / `dsh-cloud-dev` 绝不沿用。
 3. **域名怎么给** —— 引导页里填（装机不问，见 [D36](docs/DECISIONS.md)）。
 
@@ -133,13 +133,14 @@
 
 实例列表 / 详情 / 建 / 升级 / 回滚 UI 完善；插件目录规范；workspace 独立卷；对账循环；审计日志；可观测性与备份。
 
-### M3 能卖
+### M3 好用
 
-注册 / 充值 / 钱包 / 计费 / 套餐 / 配额判定；**实测单容器资源占用**（定配额档位与底价）。
+把日常使用的毛刺磨掉：装机到开出第一个工作空间之间不留断层；邀请与升级流程顺手；界面文案与文档一致。
+**实测单容器资源占用**，据此定默认配额档位。
 
 ### M4 演进
 
-K8s renderer；microVM / gVisor renderer；token 计费；更多形态（headless / acp / sdk）。
+K8s renderer；microVM / gVisor renderer；更多形态（headless / acp / sdk）。
 
 ## 验收表（缺一条不算过）
 

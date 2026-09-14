@@ -5,9 +5,9 @@
 
 ## 一、我们在做什么
 
-把 `dsh`（[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)，DeepSeek 开源的 agent harness）做成一个**可运营的多租户 SaaS 平台**：
+把 `dsh`（[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)，DeepSeek 开源的 agent harness）做成一个**好用的、自部署的多用户平台**：
 
-- 用户注册 → 平台给他一个**隔离的 dsh 容器**（CPU / 内存 / 磁盘配额）；
+- 装在自己的服务器上；管理员用**邀请链接**加人（**没有公开注册**）→ 每人拿到一个**隔离的 dsh 容器**（CPU / 内存 / 磁盘配额）；
 - 一实例一容器（独立网络），升级 dsh 版本**不丢**用户的插件 / 配置 / UI 改动；
 - **访问 dsh 必须经过平台认证**（不能被别人直接访问）。
 

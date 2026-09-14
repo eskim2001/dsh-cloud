@@ -2,8 +2,8 @@
 #
 # dsh-cloud 一键安装 / 升级 / 卸载。**在宿主机上以 root 跑**，不是在容器里。
 #
-#   curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/install.sh \
-#     | sudo bash -s -- --version 0.1.0
+#   curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/main/scripts/install.sh \
+#     | bash
 #
 # 子命令：install（默认）/ update / uninstall
 #
