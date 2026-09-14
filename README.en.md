@@ -159,8 +159,10 @@ After deploying the platform, administrators can add users through invitation li
 A Linux host with Docker (Compose v2), ports `80` / `443` free, and a disk that can enforce a quota.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/scripts/install.sh | sudo bash
 ```
+
+(Drop `sudo` if you are already root.)
 
 <details>
 <summary>More options</summary>
@@ -201,7 +203,7 @@ curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/script
 
 ### Local development
 
-Use this path when changing code. Prerequisites: Node.js 22+ and pnpm 10.10.0, Docker
+Use this path when changing code. Prerequisites: Node.js 22+ and pnpm 10.10.0, plus Docker with Compose v2.
 
 ```bash
 pnpm install

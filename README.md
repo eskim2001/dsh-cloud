@@ -160,8 +160,10 @@
 一台 Linux 主机，装了 Docker（含 Compose v2），`80` / `443` 空闲，另有一块能给硬配额的盘。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/scripts/install.sh | sudo bash
 ```
+
+（已经是 root 就去掉 `sudo`。）
 
 <details>
 <summary>更多配置</summary>
@@ -204,7 +206,7 @@ curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.10/script
 
 ### 本地开发
 
-改代码用这条。前置：Node.js 22+ 与 pnpm 10.10.0，Docker
+改代码用这条。前置：Node.js 22+ 与 pnpm 10.10.0，以及带 Compose v2 的 Docker。
 
 ```bash
 pnpm install
