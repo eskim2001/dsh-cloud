@@ -105,6 +105,8 @@ curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/v0.1.0/scripts/
 
 The `0.1.0` in both places is the same tag: the script at `v0.1.0`, and the platform image `dsh-cloud:0.1.0`. Change both together.
 
+Both `--version` and `--email` can be omitted: without a version the installer uses `latest` (which **moves** — the digest it actually pulled is recorded in `/opt/dsh-cloud/.installed-version`), and without an email you simply do not get certificate expiry notices (certificates are still issued). Both are the kind of thing you only miss once something breaks, so passing them is worth the keystrokes.
+
 The script runs, in order: preflight (environment, ports, storage capability) → provision the storage pool on the host and persist it in `fstab` → start PostgreSQL → migrate the database → create the first administrator → start the control plane and ingress. It then prints the console URL and an administrator password **shown once**.
 
 `--domain` is the **parent** domain: the console lives at `console.<parent>` and every workspace takes a subdomain of its own. Certificates are issued per host (one for the console, one per workspace), so no DNS provider API is involved — but the wildcard record `*.<parent>` must already point at this machine, or certificates cannot be issued.

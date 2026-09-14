@@ -42,6 +42,8 @@ FORCE_SECRETS=0
 # 由 seed_admin 填，最后打印时用
 ADMIN_CREATED=0
 ADMIN_PASSWORD=
+# 由 fetch_assets 填：拉到的镜像 digest（写进 .installed-version，标签漂移时靠它认版本）
+IMAGE_DIGEST=
 
 STEP='初始化'
 trap 'on_fail' ERR
@@ -69,12 +71,12 @@ usage() {
   uninstall          停服务并删容器（**保留** Postgres 卷与存储池）
 
 选项
-  --version <tag>    平台镜像 tag，如 0.1.0（必填；环境变量 DSH_CLOUD_VERSION）
+  --version <tag>    平台镜像 tag，如 0.1.0。省略 = 用 latest（**会漂移**；装到的 digest 会记下来）
   --domain <域名>    父域，如 example.com（实例子域是 <slug>.example.com）。
                      **可以不给**：不给就是「引导态」—— 装完只开一个 token 门保护的 setup 页，
                      操作者在浏览器里填域名。在已有安装上再跑一次并带上它，可以**补配或改配**域名
                      （那时以 env 为准；面板里存的那份 DB 记录不跟着变）。
-  --email <邮箱>     ACME 账户邮箱，会收到证书过期提醒（--acme 时必填）
+  --email <邮箱>     ACME 账户邮箱，会收到证书过期提醒。**可选**：不给就没有提醒（证书照签）
   --admin-email <邮箱>  首个管理员的登录邮箱
   --pool-root <路径> 存储池根，默认 /var/lib/dsh
   --pool-size-mb <MB> 需要自动建 loopback 池时用；省略取该文件系统的 80%
@@ -128,10 +130,15 @@ env_get() { # 从 .env 里读一个键（不 source：值可能带奇怪字符�
 
 compose() { docker compose -f "$STATE_DIR/prod.yml" --project-directory "$STATE_DIR" "$@"; }
 
+# 有没有**可交互**的终端。`curl | bash` 时 stdin 是管道，但 /dev/tty 通常可用；
+# ssh 非交互、cron、CI 里没有 —— 那时直接 read 会往 stderr 甩 "No such device or address"。
+# 所以先探测：探不到就当非交互处理，缺什么参数由 preflight / 摘要说清楚。
+can_prompt() { { true </dev/tty; } 2>/dev/null; }
+
 ask() { # ask <提示> <默认值>
   local prompt=$1 def=${2:-} reply
-  if [ "$NONINTERACTIVE" = 1 ]; then
-    [ -n "$def" ] || die "$prompt（--non-interactive 下必须用参数给出来）"
+  if [ "$NONINTERACTIVE" = 1 ] || ! can_prompt; then
+    [ -n "$def" ] || die "缺 $prompt（此刻没有可交互的终端，请用命令行参数给出来）"
     printf '%s' "$def"
     return
   fi
@@ -178,10 +185,18 @@ resolve_version() {
     # 直接从仓库里跑（开发 / 排障）时顺手读一下，省得每次带 --version
     VERSION=$(tr -d '[:space:]' <"$(dirname "$0")/../docker/platform/VERSION")
   fi
-  [ -n "$VERSION" ] ||
-    die "没给版本。用 --version <tag>（如 --version 0.1.0）或环境变量 DSH_CLOUD_VERSION。"
-  printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' ||
-    die "版本形状不对（期望普通 semver，如 0.1.0）：$VERSION"
+  if [ -z "$VERSION" ]; then
+    VERSION=latest
+    warn "没给 --version：用 latest —— 它**会漂移**，同一个命令今天和下周装出来的不是同一版。要可复现就钉一个 tag（--version 0.1.0）。实际装到的 digest 会记进 $STATE_DIR/.installed-version。"
+  fi
+  printf '%s' "$VERSION" | grep -qE '^([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|latest)$' ||
+    die "版本形状不对（期望普通 semver 如 0.1.0，或 latest）：$VERSION"
+}
+
+# 装的是哪个镜像的**哪一份**。版本标签可能漂移（latest），digest 不会 ——
+# 「我到底装的哪版」靠它回答，别只记标签。
+image_digest() {
+  docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$1" 2>/dev/null | head -1
 }
 
 # ── ② 存储池：在**宿主**上预置并持久化（见 D35）──────────────────────────
@@ -262,6 +277,9 @@ fetch_assets() {
   STEP='取部署资产'
   log "拉平台镜像 $IMAGE_REPO:$VERSION"
   docker pull -q "$IMAGE_REPO:$VERSION" >/dev/null || die "拉不到 $IMAGE_REPO:$VERSION（检查 tag 和网络；GHCR 包需要是公开的）"
+  IMAGE_DIGEST=$(image_digest "$IMAGE_REPO:$VERSION")
+  # 标签可能是漂移的（latest），digest 不是 —— 把它记下来，「我到底装的哪版」才有答案
+  log "digest：${IMAGE_DIGEST:-（拿不到，非 registry 拉来的镜像没有 RepoDigests）}"
 
   # 部署资产**随镜像走**：这样模板和镜像版本严格对齐，安装时也不用再连第二个域名。
   # docker cp 直接读镜像文件系统，不依赖镜像里有哪些命令。
@@ -283,8 +301,15 @@ render_configs() {
 
   # 静态配置：ACME 那段是可选的，--no-acme 时按 marker 整段删掉。
   if [ "$ACME" = 1 ]; then
-    sed -e "s|__ACME_EMAIL__|${ACME_EMAIL}|g" \
-      "$STATE_DIR/traefik/traefik.yml.tmpl" >"$STATE_DIR/traefik/traefik.yml"
+    if [ -n "$ACME_EMAIL" ]; then
+      sed -e "s|__ACME_EMAIL__|${ACME_EMAIL}|g" \
+        "$STATE_DIR/traefik/traefik.yml.tmpl" >"$STATE_DIR/traefik/traefik.yml"
+    else
+      # 没邮箱就**删掉那一行**：`email:` 留空在 YAML 里是 null，Traefik 未必收；
+      # 而 email 本身是**可选**的（实测：不带 email 的 resolver 通过校验，ACME 照常工作）。
+      sed -e '/^ *email: __ACME_EMAIL__$/d' \
+        "$STATE_DIR/traefik/traefik.yml.tmpl" >"$STATE_DIR/traefik/traefik.yml"
+    fi
   else
     sed -e '/# >>> acme/,/# <<< acme/d' \
       "$STATE_DIR/traefik/traefik.yml.tmpl" >"$STATE_DIR/traefik/traefik.yml"
@@ -373,7 +398,7 @@ domain_setup() {
 
   # 域名**可以不给**：不给就是引导态 —— 装完只暴露 token 门保护的 setup 页，操作者在面板里填。
   # 所以这里不能用 ask()（它在 --non-interactive 下没有默认值就直接 die），要允许空。
-  if [ -z "$DOMAIN" ] && [ "$NONINTERACTIVE" != 1 ]; then
+  if [ -z "$DOMAIN" ] && [ "$NONINTERACTIVE" != 1 ] && can_prompt; then
     read -r -p "父域（留空 = 装完在面板里配，先只开一个引导页）: " DOMAIN </dev/tty || DOMAIN=
   fi
 
@@ -396,8 +421,10 @@ domain_setup() {
   fi
   [ -n "$ADMIN_EMAIL" ] || die "没给管理员邮箱。"
 
-  if [ "$ACME" = 1 ] && [ -z "$ACME_EMAIL" ]; then
-    ACME_EMAIL=$(ask "ACME 账户邮箱（证书过期提醒发这里）")
+  # 邮箱是**可选**的（Traefik 的 ACME 块不带 email 也通过校验）：不给就收不到证书过期提醒。
+  # 所以这里不走 ask() —— 它在 --non-interactive 下没有默认值就会直接 die。
+  if [ "$ACME" = 1 ] && [ -z "$ACME_EMAIL" ] && [ "$NONINTERACTIVE" != 1 ] && can_prompt; then
+    read -r -p "ACME 账户邮箱（可留空 —— 留空就收不到证书过期提醒）: " ACME_EMAIL </dev/tty || ACME_EMAIL=
   fi
 
   # 没给域名就没什么可查的（引导态那句提示留给最后的摘要）
@@ -483,10 +510,8 @@ start_services() {
   printf '    https://github.com/eskim2001/dsh-cloud/blob/main/docs/ARCHITECTURE.md\n'
 }
 
-/**
- * 引导期要打印一个操作者**能直接打开**的地址：优先公网 IP（他浏览器能到的是那个），
- * 拿不到就退到本机第一个非回环地址（内网部署够用）。
- */
+# 引导期要打印一个操作者**能直接打开**的地址：优先公网 IP（他浏览器能到的是那个），
+# 拿不到就退到本机第一个非回环地址（内网部署够用）。
 machine_address() {
   if have curl; then
     local pub
@@ -571,9 +596,10 @@ cmd_install() {
     provision_pool
   fi
 
-  # 唯一一处校验邮箱：此时两条路的值都已就位（首装问过、升级从 .env 读出）
+  # 邮箱**不再是硬要求**：不给照样签证书，只是收不到过期提醒（那提醒是续签失败时唯一的预警）。
+  # 此刻两条路的值都已就位（首装问过 / 升级从 .env 读出），所以这一处就够了。
   if [ "$ACME" = 1 ] && [ -z "$ACME_EMAIL" ]; then
-    die "用 ACME 就得给邮箱：--email you@example.com（或 --no-acme 自备证书）。"
+    warn "没给 ACME 邮箱：证书照签，但**收不到证书过期提醒** —— 续签失败时那就是唯一的预警。想补：加 --email 重跑，或在 $STATE_DIR/.env 里设 INSTALL_ACME_EMAIL。"
   fi
 
   fetch_assets
@@ -581,7 +607,8 @@ cmd_install() {
   render_configs
   start_services
 
-  printf '%s\n' "$VERSION" >"$STATE_DIR/.installed-version"
+  # 记**两份**：人能读的标签，和不会漂移的 digest
+  printf 'version=%s\ndigest=%s\n' "$VERSION" "$IMAGE_DIGEST" >"$STATE_DIR/.installed-version"
 }
 
 cmd_update() {

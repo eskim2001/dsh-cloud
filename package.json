@@ -13,7 +13,8 @@
     "dev:server": "pnpm --filter @dsh-cloud/server dev",
     "dev:web": "pnpm --filter @dsh-cloud/web dev",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "test": "bash scripts/install.test.sh && pnpm -r test",
+    "test:install": "bash scripts/install.test.sh",
     "build": "pnpm -r build"
   },
   "devDependencies": {
