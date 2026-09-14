@@ -238,7 +238,14 @@ if (bootstrap) {
 // 平台自己的三条路由要在**开始服务之前**就位：引导口的文件不先落地，操作者打开 :80 什么也看不到。
 await projectPlatform(bootstrap ? undefined : env.CONSOLE_DOMAIN)
 
-await app.listen({ host: '127.0.0.1', port: env.PORT })
+// 引导态把控制面**直接开到对外**：此刻域名还不知道、证书更没影，操作者需要一个「打开就能用」
+// 的地址（安装脚本会把它打印出来）。口子上只挂 setup 页、健康检查和控制台静态文件 —— 见 `app.ts`
+// 里那段早返回，业务路由一条都不属于引导态。
+//
+// 配好域名后就回到 `127.0.0.1`。那是**默认**（控制面在宿主网络上，Traefik 走回环进来），
+// 不是新增的限制 —— 引导态的开放在这条路径上是唯一的例外，也是它必须尽快收回的原因。
+const listenHost = bootstrap ? '0.0.0.0' : '127.0.0.1'
+await app.listen({ host: listenHost, port: env.PORT })
 
 const shutdown = async (signal: string): Promise<void> => {
   app.log.info(`收到 ${signal}，退出中`)

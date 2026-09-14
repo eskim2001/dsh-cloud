@@ -33,6 +33,9 @@ ACME_EMAIL=${DSH_ACME_EMAIL:-}
 ADMIN_EMAIL=${DSH_ADMIN_EMAIL:-}
 POOL_SIZE_MB=${DSH_POOL_SIZE_MB:-}
 POOL_ROOT=$DEFAULT_POOL_ROOT
+WIZARD_PORT=${DSH_WIZARD_PORT:-}
+# 空 = 还没定（首装时由 pick_control_port 挑；重跑时从 .env 读回来）
+CONTROL_PORT=
 ACME=1
 ACME_SET=0
 NONINTERACTIVE=0
@@ -80,6 +83,8 @@ usage() {
   --admin-email <邮箱>  首个管理员的登录邮箱
   --pool-root <路径> 存储池根，默认 /var/lib/dsh
   --pool-size-mb <MB> 需要自动建 loopback 池时用；省略取该文件系统的 80%
+  --wizard-port <端口> 引导页（也就是控制面自己）的端口。省略 = 从 3000 起试 3000-3003，
+                     取第一台空闲的。**只在引导态**对这个端口对外开口；配好域名就收回去
   --acme             配 ACME 自动签证书（默认）。重跑时可用来覆盖上次的 --no-acme
   --no-acme          不配 ACME，证书由你自己放进 file provider
   --non-interactive  不提问，全部走参数 / 环境变量
@@ -103,6 +108,7 @@ while [ $# -gt 0 ]; do
     --admin-email) ADMIN_EMAIL=${2:?--admin-email 后面要给邮箱}; shift 2 ;;
     --pool-root) POOL_ROOT=${2:?--pool-root 后面要给路径}; shift 2 ;;
     --pool-size-mb) POOL_SIZE_MB=${2:?--pool-size-mb 后面要给数字}; shift 2 ;;
+    --wizard-port) WIZARD_PORT=${2:?--wizard-port 后面要给端口号}; shift 2 ;;
     --acme) ACME=1; ACME_SET=1; shift ;;
     --no-acme) ACME=0; ACME_SET=1; shift ;;
     --non-interactive) NONINTERACTIVE=1; shift ;;
@@ -129,6 +135,44 @@ env_get() { # 从 .env 里读一个键（不 source：值可能带奇怪字符�
 }
 
 compose() { docker compose -f "$STATE_DIR/prod.yml" --project-directory "$STATE_DIR" "$@"; }
+
+# 这个端口上有没有人在听。先用 `ss`（能看见绑在别的网卡上的，最准），没有就退回往回环连一下 ——
+# 连得上就说明有人在听。
+port_in_use() {
+  local p=$1
+  if have ss; then
+    if ss -lnt 2>/dev/null | grep -qE "[:.]${p}[[:space:]]"; then return 0; fi
+    return 1
+  fi
+  if (exec 3<>/dev/tcp/127.0.0.1/"$p") 2>/dev/null; then return 0; fi
+  return 1
+}
+
+# 控制面自己的端口 —— 引导页就开在它上面，装完打印的那行地址带的就是它。
+#
+# 首装从 3000 起试 3000-3003，取第一台空闲的：操作者不用挑，装完只面对**一行**地址。
+# 重跑沿用 .env 里的：端口是「这台机器上装在哪」的一部分，悄悄换掉的话，之前按老地址配的
+# 防火墙规则会突然失效，而正开着那个页面的人也只会看到连接被拒。
+# `--wizard-port` 显式给的压过上面两条，且**满了就直接报错、不另挑一个** —— 显式给的值被悄悄
+# 换掉是最难查的那类问题。
+pick_control_port() {
+  if [ -n "$WIZARD_PORT" ]; then
+    if port_in_use "$WIZARD_PORT"; then
+      die "--wizard-port $WIZARD_PORT 已经被占用了。换一个，或先把它腾出来。"
+    fi
+    CONTROL_PORT=$WIZARD_PORT
+    return 0
+  fi
+  [ -n "$CONTROL_PORT" ] && return 0 # 重跑：.env 里已经有了
+  local p
+  for p in 3000 3001 3002 3003; do
+    if ! port_in_use "$p"; then
+      CONTROL_PORT=$p
+      return 0
+    fi
+  done
+  die "端口 3000-3003 都被占用了。用 --wizard-port <端口> 指定一个空闲的。"
+}
 
 # 有没有**可交互**的终端。`curl | bash` 时 stdin 是管道，但 /dev/tty 通常可用；
 # ssh 非交互、cron、CI 里没有 —— 那时直接 read 会往 stderr 甩 "No such device or address"。
@@ -425,7 +469,7 @@ domain_setup() {
     CONSOLE_DOMAIN="${CONSOLE_LABEL}.${DOMAIN}"
   fi
 
-  CONTROL_PORT=3000
+  pick_control_port
   POSTGRES_PORT=$POSTGRES_PORT_DEFAULT
 
   if [ -z "$ADMIN_EMAIL" ]; then
@@ -504,7 +548,7 @@ start_services() {
     printf '  域名　　　：已配置（存在平台的库里，控制台在 console.<你当初填的那个域名>）\n'
   else
     printf '  \033[1m下一步：用浏览器打开下面这条链接，把域名填进去。\033[0m\n\n'
-    printf '    http://%s/setup?token=%s\n' "$(machine_address)" "$SETUP_TOKEN"
+    printf '    http://%s:%s/setup?token=%s\n' "$(machine_address)" "$CONTROL_PORT" "$SETUP_TOKEN"
     printf '\n'
     printf '  现在是**引导态**：平台只开着这一个 setup 页，那枚 token 即是它的唯一凭证（一次性）。\n'
     printf '  填完域名它会立刻关掉这个入口并重启，控制台就落在 console.<你填的域名>。\n'
