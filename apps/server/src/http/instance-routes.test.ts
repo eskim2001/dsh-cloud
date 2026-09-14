@@ -320,6 +320,50 @@ describe('实例面：用量', () => {
   })
 })
 
+/**
+ * 踩过的坑：详情页和设置页读的是单实例响应，而它曾经**没把磁盘用量传下去** ——
+ * 于是那两页的「存储」永远显示「暂无数据」，列表页却正常（列表走的是 `readDiskAll`）。
+ * 只在真机上现形：开发机没有池子，那里本来就该是「暂无数据」。
+ */
+describe('实例面：单实例响应必须带磁盘用量', () => {
+  const disk = { usedMb: 123, quotaMb: 10_240, enforced: true }
+
+  it('详情里带 diskUsedMb / diskEnforced', async () => {
+    const { app } = await build(ME, { getById: async () => row(), readDisk: async () => disk })
+    const res = await app.inject({ method: 'GET', url: '/api/instances/i-1' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().instance.diskUsedMb).toBe(123)
+    expect(res.json().instance.diskEnforced).toBe(true)
+  })
+
+  it('读不到时是 undefined 而不是 0（页面据此显示「暂无数据」）', async () => {
+    const { app } = await build(ME, { getById: async () => row(), readDisk: async () => undefined })
+    const res = await app.inject({ method: 'GET', url: '/api/instances/i-1' })
+    expect(res.json().instance.diskUsedMb).toBeUndefined()
+    expect(res.json().instance.diskEnforced).toBe(false)
+  })
+
+  it('生命周期动作的响应也带（否则点一下「停止」，页面上的数字就没了）', async () => {
+    const { app } = await build(ME, { getById: async () => row(), readDisk: async () => disk })
+    const res = await app.inject({ method: 'POST', url: '/api/instances/i-1/stop' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().instance.diskUsedMb).toBe(123)
+  })
+
+  it('创建的新实例同样带（此时多半是 0）', async () => {
+    const { app } = await build(ME, {
+      readDisk: async () => ({ usedMb: 0, quotaMb: 10_240, enforced: true }),
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/instances',
+      payload: { slug: 'newbie' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().instance.diskUsedMb).toBe(0)
+  })
+})
+
 describe('实例面：日志', () => {
   it('实例还没有容器 → 409，不去碰日志流', async () => {
     const streamLogs = vi.fn(async () => {})

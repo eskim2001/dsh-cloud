@@ -173,6 +173,14 @@ export async function registerInstanceRoutes(
       }
     }
 
+    /**
+     * **单个实例**的响应体。磁盘用量必须一起带上——详情页和设置页读的就是这个响应，
+     * 漏掉的话那两页的「存储」永远是「暂无数据」，而列表页（走 `reqDiskAll`）却有数字。
+     * 单实例的响应有七八处，全放进这一个函数里，省得下回又漏一处。
+     */
+    const publicOne = async (req: FastifyRequest, row: InstanceRow) =>
+      toPublicInstance(row, deps.env, await liveStates(req), await readDiskOf(req, row))
+
     scope.get('/api/instances', async (req: AuthedRequest) => {
       const rows = await deps.listMine(req.userId!)
       const states = await liveStates(req)
@@ -225,9 +233,7 @@ export async function registerInstanceRoutes(
           // exactOptionalPropertyTypes：没选版本就不带这个键，让编排层回落默认版本
           ...(image === undefined ? {} : { image }),
         })
-        const states = await liveStates(req)
-        return reply.code(201).send({ instance: toPublicInstance(row, deps.env, states) })
-      } catch (err) {
+        return reply.code(201).send({ instance: await publicOne(req, row) })      } catch (err) {
         if (err instanceof SlugTakenError) return reply.code(409).send({ error: err.message })
         if (err instanceof QuotaExceededError) return reply.code(409).send({ error: err.message })
         // 没有默认镜像版本这类是**请求本身**的问题（D21），不是服务端故障
@@ -239,28 +245,28 @@ export async function registerInstanceRoutes(
     scope.get('/api/instances/:id', async (req: AuthedRequest, reply) => {
       const row = await ownedRow(req)
       if (row === undefined) return reply.code(404).send({ error: '实例不存在' })
-      return { instance: toPublicInstance(row, deps.env, await liveStates(req)) }
+      return { instance: await publicOne(req, row) }
     })
 
     scope.post('/api/instances/:id/restart', async (req: AuthedRequest, reply) => {
       const row = await ownedRow(req)
       if (row === undefined) return reply.code(404).send({ error: '实例不存在' })
       const updated = await deps.provisioner.restart(row.id)
-      return { instance: toPublicInstance(updated, deps.env, await liveStates(req)) }
+      return { instance: await publicOne(req, updated) }
     })
 
     scope.post('/api/instances/:id/stop', async (req: AuthedRequest, reply) => {
       const row = await ownedRow(req)
       if (row === undefined) return reply.code(404).send({ error: '实例不存在' })
       const updated = await deps.provisioner.stop(row.id)
-      return { instance: toPublicInstance(updated, deps.env, await liveStates(req)) }
+      return { instance: await publicOne(req, updated) }
     })
 
     scope.post('/api/instances/:id/start', async (req: AuthedRequest, reply) => {
       const row = await ownedRow(req)
       if (row === undefined) return reply.code(404).send({ error: '实例不存在' })
       const updated = await deps.provisioner.start(row.id)
-      return { instance: toPublicInstance(updated, deps.env, await liveStates(req)) }
+      return { instance: await publicOne(req, updated) }
     })
 
     // 删除 = **永久**（数据一起删）。必须回填子域名挡误操作；留下的只有主机名（见 provisioner.remove）
@@ -352,7 +358,7 @@ export async function registerInstanceRoutes(
 
       try {
         const updated = await deps.provisioner.setImage(row.id, parsed.data.image)
-        return { instance: toPublicInstance(updated, deps.env, await liveStates(req)) }
+        return { instance: await publicOne(req, updated) }
       } catch (err) {
         if (isImageFailure(err)) return reply.code(400).send({ error: err.message })
         throw err
@@ -365,7 +371,7 @@ export async function registerInstanceRoutes(
 
       try {
         const updated = await deps.provisioner.rollbackImage(row.id)
-        return { instance: toPublicInstance(updated, deps.env, await liveStates(req)) }
+        return { instance: await publicOne(req, updated) }
       } catch (err) {
         if (isImageFailure(err)) return reply.code(400).send({ error: err.message })
         throw err
