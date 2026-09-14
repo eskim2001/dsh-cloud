@@ -8,7 +8,7 @@ interface Props { locale: Locale }
 const { locale } = Astro.props
 const text = dictionaries[locale]
 const other: Locale = locale === 'zh' ? 'en' : 'zh'
-const repository = import.meta.env.PUBLIC_REPOSITORY_URL || 'https://github.com/eskim2001/dsh-cloud'
+const repository = import.meta.env.PUBLIC_REPOSITORY_URL || 'https://github.com/eskim2001/dshcloud'
 const icons = [Server, Users, Boxes, RefreshCw]
 const sections = ['capabilities', 'isolation', 'start']
 ---

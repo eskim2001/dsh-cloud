@@ -165,7 +165,7 @@ After deploying the platform, administrators can add users through invitation li
 A Linux host with Docker (Compose v2), ports `80` / `443` free, and a disk that can enforce a quota.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/eskim2001/dshcloud/main/scripts/install.sh | bash
 ```
 
 <details>
@@ -192,13 +192,13 @@ The page takes the **parent** domain: the console lives at `console.<parent>` an
 **Upgrade** (keeps data and secrets):
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/main/scripts/install.sh" | bash -s -- update
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dshcloud/main/scripts/install.sh" | bash -s -- update
 ```
 
 **Uninstall** (keeps the database volume and storage pool; add `--purge` to delete data irrecoverably):
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/main/scripts/install.sh" | bash -s -- uninstall
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dshcloud/main/scripts/install.sh" | bash -s -- uninstall
 ```
 
 </details>

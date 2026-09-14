@@ -309,7 +309,7 @@
   - **事实进 OCI label**：`org.opencontainers.image.*`（`version` = `<dsh版本>_<修订号>`、`source`、
     `revision` = git sha、`created`）+ `io.dsh-cloud.dsh.version` / `io.dsh-cloud.image.revision`。
     tag 给人看，label 给机器读——`docker inspect` 就能回答「这版里是哪个 dsh」。
-  - **仓库** `ghcr.io/eskim2001/dsh-instance`（GitHub `eskim2001/dsh-cloud`），由
+  - **仓库** `ghcr.io/eskim2001/dsh-instance`（GitHub `eskim2001/dshcloud`），由
     `.github/workflows/instance-image.yml` 推送。触发**只有 `workflow_dispatch`**：tag 不可变，
     VERSION 是唯一旋钮，发布必须是「人 + 改修订号」的刻意动作。包**公开**，读不需要 PAT，
     但仍要走匿名 token 换取（`ghcr.io/token?scope=repository:...`），不是裸 GET。

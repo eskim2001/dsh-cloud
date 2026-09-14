@@ -44,7 +44,7 @@ drizzle-kit、web 的 native 依赖）。功能上无害（顶层链接是干净
 正常不用手工跑。要单独试镜像：
 
 ```bash
-docker run --rm --env-file /opt/dsh-cloud/.env ghcr.io/eskim2001/dsh-cloud:0.1.0 migrate
+docker run --rm --env-file /opt/dsh-cloud/.env ghcr.io/eskim2001/dshcloud:0.1.0 migrate
 ```
 
 `serve` 起不来的常见原因不是镜像，是存储池：容器里**不建池**，`HOST_STORAGE_ROOT`

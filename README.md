@@ -166,7 +166,7 @@
 一台 Linux 主机，装了 Docker（含 Compose v2），`80` / `443` 空闲，另有一块能给硬配额的盘。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/eskim2001/dshcloud/main/scripts/install.sh | bash
 ```
 
 <details>
@@ -195,13 +195,13 @@ curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/main/scripts/in
 **升级**（保留数据与密钥）：
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/main/scripts/install.sh" | bash -s -- update
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dshcloud/main/scripts/install.sh" | bash -s -- update
 ```
 
 **卸载**（默认保留数据库卷与存储池；加 `--purge` 连数据一起删，不可恢复）：
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/eskim2001/dsh-cloud/main/scripts/install.sh" | bash -s -- uninstall
+curl -fsSL "https://raw.githubusercontent.com/eskim2001/dshcloud/main/scripts/install.sh" | bash -s -- uninstall
 ```
 
 </details>

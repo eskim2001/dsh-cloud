@@ -64,7 +64,7 @@
 
 **已实现**（[D32](docs/DECISIONS.md)–[D35](docs/DECISIONS.md)）：
 
-- **平台镜像** `ghcr.io/eskim2001/dsh-cloud`：一个容器跑控制面、**同源**提供管理台；CI 手动 dispatch
+- **平台镜像** `ghcr.io/eskim2001/dshcloud`：一个容器跑控制面、**同源**提供管理台；CI 手动 dispatch
   出 amd64 + arm64（`.github/workflows/platform-image.yml`）
 - **生产栈** `docker/compose/prod.yml`：入口与控制面走 **host 网络**，Postgres 只发布到宿主回环（D33）
 - **TLS** 默认**逐主机 ACME HTTP-01**（控制台一张、每个实例子域一张），不需要 DNS provider ——

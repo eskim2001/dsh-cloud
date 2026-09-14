@@ -23,7 +23,7 @@ test('one route template emits the two locale pages', () => {
 test('both locales expose the project repository without extra configuration', () => {
   for (const file of ['dist/index.html', 'dist/en/index.html']) {
     const html = read(file)
-    assert.ok(html.includes('href="https://github.com/eskim2001/dsh-cloud"'))
+    assert.ok(html.includes('href="https://github.com/eskim2001/dshcloud"'))
     assert.match(html, /class="source-link"/)
     assert.match(html, /GitHub/)
   }
@@ -36,7 +36,7 @@ test('display branding is dshcloud while technical identifiers stay unchanged', 
     // 但必须是**非标识符**字符——`<title>dsh-cloud` 不能混过去。
     assert.match(html, /<title>dshcloud[^A-Za-z0-9-]/)
     assert.match(html, /<h1[^>]*>dsh<span[^>]*class="wordmark-cloud"[^>]*>cloud<\/span><span aria-hidden="true"/)
-    assert.ok(html.includes('https://github.com/eskim2001/dsh-cloud'))
+    assert.ok(html.includes('https://github.com/eskim2001/dshcloud'))
     // 技术标识符不跟着品牌改名：scope 得还是 `@dsh-cloud/`，不能是 `@dshcloud/`
     assert.doesNotMatch(html, /@dshcloud\//)
     const prose = html.replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/g, '').replace(/<[^>]+>/g, '')

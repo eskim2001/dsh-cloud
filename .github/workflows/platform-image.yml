@@ -60,7 +60,7 @@ jobs:
           TAG: ${{ steps.v.outputs.tag }}
         run: |
           TOKEN=$(curl -sS -u "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
-            "https://ghcr.io/token?service=ghcr.io&scope=repository:eskim2001/dsh-cloud:pull" \
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:eskim2001/dshcloud:pull" \
             | jq -r '.token // empty')
           if [ -z "$TOKEN" ]; then
             echo "No GHCR token (package does not exist yet) - treating as a first push"
@@ -69,7 +69,7 @@ jobs:
           CODE=$(curl -s -o /dev/null -w '%{http_code}' -I \
             -H "Authorization: Bearer $TOKEN" \
             -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json" \
-            "https://ghcr.io/v2/eskim2001/dsh-cloud/manifests/$TAG")
+            "https://ghcr.io/v2/eskim2001/dshcloud/manifests/$TAG")
           case "$CODE" in
             200)
               echo "tag $TAG already exists - bump docker/platform/VERSION." >&2
@@ -102,7 +102,7 @@ jobs:
           context: .
           file: docker/platform/Dockerfile
           platforms: ${{ matrix.platform }}
-          outputs: type=image,name=ghcr.io/eskim2001/dsh-cloud,push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=ghcr.io/eskim2001/dshcloud,push-by-digest=true,name-canonical=true,push=true
           # Scope per arch: the default scope is "buildkit" and the two matrix legs run
           # concurrently, so a shared scope would make them overwrite each other's cache.
           cache-from: type=gha,scope=platform-${{ matrix.arch }}
@@ -166,23 +166,23 @@ jobs:
               echo "digest filename does not look like sha256: $digest" >&2
               exit 1
             fi
-            images="$images ghcr.io/eskim2001/dsh-cloud@sha256:$digest"
+            images="$images ghcr.io/eskim2001/dshcloud@sha256:$digest"
           done
           echo "Merging:$images"
-          docker buildx imagetools create -t "ghcr.io/eskim2001/dsh-cloud:$VERSION" $images
-          echo "Published ghcr.io/eskim2001/dsh-cloud:$VERSION (amd64 + arm64)"
+          docker buildx imagetools create -t "ghcr.io/eskim2001/dshcloud:$VERSION" $images
+          echo "Published ghcr.io/eskim2001/dshcloud:$VERSION (amd64 + arm64)"
 
           # 非预发布版额外推一个 `latest` —— 安装脚本省略 --version 时用的就是它。
           # **只有这一个指针会移动**：版本 tag 依旧不可变（上面那道守卫还在）。
           if [[ "$VERSION" != *-* ]]; then
-            docker buildx imagetools create -t "ghcr.io/eskim2001/dsh-cloud:latest" $images
+            docker buildx imagetools create -t "ghcr.io/eskim2001/dshcloud:latest" $images
             echo "Also tagged :latest (pre-release versions never move it)"
           fi
 
       - name: Summary
         run: |
           {
-            echo "### Pushed \`ghcr.io/eskim2001/dsh-cloud:$(tr -d '[:space:]' < docker/platform/VERSION)\` (linux/amd64 + linux/arm64)"
+            echo "### Pushed \`ghcr.io/eskim2001/dshcloud:$(tr -d '[:space:]' < docker/platform/VERSION)\` (linux/amd64 + linux/arm64)"
             echo
             echo "After the first push, set the package to Public (new GHCR packages default to private) -"
             echo "the installer pulls it anonymously:"

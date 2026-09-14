@@ -40,7 +40,7 @@ npm run test:browser
 | --- | --- |
 | `SITE_URL` | 网站 origin，例如自定义域名；用于 canonical 与语言替代链接 |
 | `SITE_BASE` | 路径前缀，例如 `/dsh-cloud`；自定义域名使用 `/` |
-| `PUBLIC_REPOSITORY_URL` | GitHub 仓库 URL；默认 `https://github.com/eskim2001/dsh-cloud`，可覆盖 |
+| `PUBLIC_REPOSITORY_URL` | GitHub 仓库 URL；默认 `https://github.com/eskim2001/dshcloud`，可覆盖 |
 
 自定义域名还需要自行配置 DNS 与 Pages 域名设置。工作流不修改 DNS，也不会部署主项目服务端。
 

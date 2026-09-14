@@ -19,7 +19,7 @@ HERE=$PWD
 cd ../.. # 仓库根 = 构建上下文
 
 VERSION=$(tr -d '[:space:]' < "$HERE/VERSION")
-REPO=${REPO:-ghcr.io/eskim2001/dsh-cloud}
+REPO=${REPO:-ghcr.io/eskim2001/dshcloud}
 PLATFORM=${PLATFORM:-}
 PUSH=${PUSH:-0}
 

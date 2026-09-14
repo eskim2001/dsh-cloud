@@ -2,7 +2,7 @@
 #
 # dsh-cloud 一键安装 / 升级 / 卸载。**在宿主机上以 root 跑**，不是在容器里。
 #
-#   curl -fsSL https://raw.githubusercontent.com/eskim2001/dsh-cloud/main/scripts/install.sh \
+#   curl -fsSL https://raw.githubusercontent.com/eskim2001/dshcloud/main/scripts/install.sh \
 #     | bash
 #
 # 子命令：install（默认）/ update / uninstall
@@ -22,7 +22,7 @@
 set -euo pipefail
 
 STATE_DIR=/opt/dsh-cloud
-IMAGE_REPO=ghcr.io/eskim2001/dsh-cloud
+IMAGE_REPO=ghcr.io/eskim2001/dshcloud
 DEFAULT_POOL_ROOT=/var/lib/dsh
 POSTGRES_PORT_DEFAULT=55432
 
@@ -443,7 +443,7 @@ start_services() {
   printf '\n'
   printf '  下一步：登录 → 管理台「镜像管理」把实例镜像设为默认 → 建实例。\n'
   printf '  安全边界（为什么控制面持有 docker.sock + CAP_SYS_ADMIN 是预期内的）：\n'
-  printf '    https://github.com/eskim2001/dsh-cloud/blob/main/docs/ARCHITECTURE.md\n'
+  printf '    https://github.com/eskim2001/dshcloud/blob/main/docs/ARCHITECTURE.md\n'
 }
 
 # 引导期要打印一个操作者**能直接打开**的地址：优先公网 IP（他浏览器能到的是那个），
