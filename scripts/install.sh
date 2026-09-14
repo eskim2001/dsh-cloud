@@ -257,22 +257,30 @@ provision_pool() {
     mkfs.xfs -q -f "$img"
   fi
 
+  # 先挂上、确认配额真强制得了，**再**写 fstab。反过来（先写 fstab 再挂）的话，mount 失败会在
+  # 机器上留一条指向不存在镜像的挂载行；而那时 prod.yml 还没生成，uninstall 认不出这台装过 ——
+  # 那行就再没人清得掉。挂的时候给显式选项，和 fstab 那行要写的是同一组（loop,pquota），
+  # 所以不依赖 fstab 已存在。
+  STEP="挂载 $POOL_ROOT"
+  if mountpoint -q "$POOL_ROOT" 2>/dev/null; then
+    die "$POOL_ROOT 已经挂着别的东西，且不是「XFS + pquota」。先 umount 并清掉旧挂载再重跑。"
+  fi
+  mount -o loop,pquota "$img" "$POOL_ROOT" ||
+    die "挂 $POOL_ROOT 失败。手工跑 mount -o loop,pquota $img $POOL_ROOT 看报什么，或看 dmesg。"
+
+  if ! pool_is_ready; then
+    umount "$POOL_ROOT" 2>/dev/null || true
+    die "$POOL_ROOT 挂上了但不是「XFS + pquota」。配额强制不了，平台会拒绝启动。"
+  fi
+
   # 用 fstab 的 `loop` 选项挂：不钉 /dev/loopN（重启后编号会变）。
   # nofail 是有意的 —— 池子挂了不该让宿主机进 emergency；平台启动时会自己拒绝启动，
   # 那是**看得见**的失败，比开不了机强。
-  STEP="写 fstab 并挂载 $POOL_ROOT"
   if ! grep -qE "^[^#]*[[:space:]]${POOL_ROOT}[[:space:]]" /etc/fstab; then
     log "写 /etc/fstab（重启后自动挂回）"
     printf '# dsh-cloud 实例数据池（D18/D35）\n%s %s xfs loop,pquota,nofail,defaults 0 0\n' \
       "$img" "$POOL_ROOT" >>/etc/fstab
   fi
-
-  if mountpoint -q "$POOL_ROOT" 2>/dev/null; then
-    die "$POOL_ROOT 已经挂着别的东西，且不是「XFS + pquota」。先 umount 并清掉旧挂载再重跑。"
-  fi
-  mount "$POOL_ROOT" || die "挂 $POOL_ROOT 失败。检查 /etc/fstab 里那一行，或看 dmesg。"
-
-  pool_is_ready || die "$POOL_ROOT 挂上了但不是「XFS + pquota」。配额强制不了，平台会拒绝启动。"
   log "存储池就绪：$POOL_ROOT（loopback XFS + pquota，已写进 fstab）"
 }
 
@@ -633,17 +641,76 @@ managed_instance_ids() {
   docker ps -aq --filter 'label=dsh.cloud/managed=true' 2>/dev/null || true
 }
 
+# 这个路径会被直接 rm -rf，而它来自 .env（可能被截断或手工改过）。先过一遍形状检查。
+pool_root_is_removable() {
+  local p=${1:-}
+  # 先挡写法：结尾的 `/`、`/..`、路径中间的 `/../` 都能让 `rm -rf <值>` 变成 `rm -rf /` 或顶层
+  # 目录 —— 光数层级是拦不住的（`/var/..` 有两层）。这几条放在最前面。
+  case "$p" in
+    / | */ | *.. | */../*) return 1 ;;
+  esac
+  # 再要绝对、且至少在 / 下面两层：`/pool` 这种单层路径会被拒（宁可让操作者手工确认），
+  # 因为放行单层就等于要逐个列全部顶层目录，漏一个就是灾难。
+  case "$p" in
+    /*/*) ;;
+    *) return 1 ;;
+  esac
+  case "$p" in
+    /bin | /boot | /dev | /etc | /home | /lib | /lib64 | /media | /mnt | /opt | /proc | \
+      /root | /run | /sbin | /srv | /sys | /tmp | /usr | /var) return 1 ;;
+  esac
+  # 二级目录也挡一道：`.env` 被截断成 `/var/lib`（从 `/var/lib/dsh`）这种是能通过的，
+  # 而 `rm -rf /var/lib` 会连 docker、apt 的目录一起带走。
+  case "$p" in
+    /var/cache | /var/lib | /var/log | /var/run | /var/spool | /var/tmp | \
+      /usr/bin | /usr/include | /usr/lib | /usr/local | /usr/sbin | /usr/share | /usr/src) return 1 ;;
+  esac
+  return 0
+}
+
+# 调用方必须先过 pool_root_is_removable。
+teardown_pool() {
+  # 先 umount：池子还挂着的时候删 .img，等于把挂着的东西从底下抽掉
+  umount "$1" 2>/dev/null || true
+  rm -rf "$1"
+  rm -f "$1.img"
+  # 挂载行和那行说明注释一起删，别在 fstab 里留孤儿（注释以 `# dsh-cloud 实例数据池` 开头）
+  sed -i -e "\|^[^#]*[[:space:]]$1[[:space:]]|d" \
+    -e '\|^# dsh-cloud 实例数据池|d' /etc/fstab 2>/dev/null || true
+}
+
+manual_pool_cleanup() {
+  printf '  存储池没清（路径读不到，或看着不像池子路径）。手工清：\n' >&2
+  printf '    1. 找：mount | grep xfs，以及 /etc/fstab\n' >&2
+  printf '    2. 卸：umount <池子路径>\n' >&2
+  printf '    3. 删：rm -rf <池子路径> <池子路径>.img\n' >&2
+  printf '    4. 删 /etc/fstab 里以 "# dsh-cloud 实例数据池" 开头的那两行\n' >&2
+}
+
 cmd_uninstall() {
   STEP='卸载'
-  [ -f "$STATE_DIR/prod.yml" ] || die "没找到 $STATE_DIR/prod.yml —— 这里没装过？"
 
-  local ids
+  # prod.yml 是「装过一次」的凭据，但**不是**卸载的前提：install 在它落盘之前就已经建池子、写
+  # fstab 了（cmd_install 里 provision_pool 早于 render_configs）。装到一半死掉恰恰是最需要清
+  # 的状态，所以这里降级成「能确定多少清多少」，而不是拿一句「这里没装过？」把操作者挡回去。
+  local degraded=0
+  [ -f "$STATE_DIR/prod.yml" ] || degraded=1
+
+  local ids root=''
   ids=$(managed_instance_ids)
+  root=$(env_get HOST_STORAGE_ROOT)
+
+  if [ "$degraded" = 1 ]; then
+    warn "没找到 $STATE_DIR/prod.yml —— 这不是一次完整安装（装到一半失败，或已经被卸过）。"
+    warn "只清能确定的部分；compose 栈（如果有）的容器要手工 docker ps 处理。"
+  fi
 
   if [ "$PURGE" = 1 ]; then
     warn "--purge：连 Postgres 卷、存储池、工作空间容器一起删，**不可恢复**"
-    log "停服务、删容器（含工作空间）"
-    compose down -v --remove-orphans || true
+    if [ "$degraded" = 0 ]; then
+      log "停服务、删容器（含工作空间）"
+      compose down -v --remove-orphans || true
+    fi
     if [ -n "$ids" ]; then
       # 必须**先删容器再动池子**：它们 bind 在池子目录上，池子被 umount + 删掉之后
       # 它们写进去的东西会直接进已删除的目录（静默），而且 loop 设备还被它们占着。
@@ -651,32 +718,30 @@ cmd_uninstall() {
       # shellcheck disable=SC2086
       docker rm -f $ids >/dev/null && log "  工作空间容器已删"
     fi
-    if [ -f "$STATE_DIR/.env" ]; then
-      local root img
-      root=$(env_get HOST_STORAGE_ROOT)
-      if [ -n "$root" ]; then
-        img="${root}.img"
-        # 先 umount：池子还挂着的时候删 .img，等于把挂着的东西从底下抽掉
-        umount "$root" 2>/dev/null || true
-        rm -rf "$root"
-        rm -f "$img"
-        # 挂载行和那行说明注释一起删，别在 fstab 里留孤儿（注释以 `# dsh-cloud 实例数据池` 开头）
-        sed -i -e "\|^[^#]*[[:space:]]${root}[[:space:]]|d" \
-          -e '\|^# dsh-cloud 实例数据池|d' /etc/fstab 2>/dev/null || true
-      fi
+    if [ -n "$root" ] && pool_root_is_removable "$root"; then
+      teardown_pool "$root"
+      log "  存储池与 fstab 已清：$root"
+    else
+      manual_pool_cleanup
     fi
     rm -rf "$STATE_DIR"
     log "清干净了。"
   else
-    log "停服务并删容器"
-    compose down --remove-orphans || true
+    if [ "$degraded" = 0 ]; then
+      log "停服务并删容器"
+      compose down --remove-orphans || true
+    fi
     if [ -n "$ids" ]; then
       # 只**停**不删：容器和它的数据都还在，重装之后平台自己会把「状态是 running」的
       # 那批拉起来（见 instance/boot.ts）。留着跑才是错的 —— 它们此时既没有入口也没有控制面。
       # shellcheck disable=SC2086
       docker stop $ids >/dev/null && log "  工作空间容器已停（数据留着，重装即可再用）"
     fi
-    log "容器删了；**Postgres 卷、存储池与工作空间数据保留**。"
+    if [ "$degraded" = 0 ]; then
+      log "容器删了；**Postgres 卷、存储池与工作空间数据保留**。"
+    else
+      log "能确定的都清了；**存储池与工作空间数据保留**。"
+    fi
     printf '  连数据一起删：install.sh uninstall --purge\n'
   fi
 }
