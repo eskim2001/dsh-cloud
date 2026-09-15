@@ -13,9 +13,9 @@
 </p>
 
 <p align="center">
-  <b>在线演示</b> · <a href="https://console.demo.dshcloud.app/">console.demo.dshcloud.app</a><br>
+  <b>在线演示</b> · <a href="https://console.demo.dshcloud.app/" target="_blank" rel="noopener noreferrer">console.demo.dshcloud.app</a><br>
   <sub>共享演示账号 <code>demo-user@dshcloud.app</code> · 密码 <code>demo-user</code></sub><br>
-  <sub>工作空间直达 · <a href="https://demo-user.demo.dshcloud.app/">demo-user.demo.dshcloud.app</a></sub>
+  <sub>工作空间直达 · <a href="https://demo-user.demo.dshcloud.app/" target="_blank" rel="noopener noreferrer">demo-user.demo.dshcloud.app</a></sub>
 </p>
 
 <p align="center">
