@@ -24,6 +24,8 @@ const env: Env = {
   INSTANCE_IMAGE_REGISTRY_TOKEN: '',
   SETUP_TOKEN: '',
   SELF_CONTAINER: '',
+  DEMO_EMAIL: '',
+  DEMO_PASSWORD: '',
 }
 
 const { db } = createDb(env.DATABASE_URL)

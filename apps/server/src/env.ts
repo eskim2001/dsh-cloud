@@ -128,6 +128,18 @@ const EnvSchema = z.object({
    * 重启靠它定位容器 —— 不依赖 `os.hostname()` 恰好等于容器短 ID 这种事。
    */
   SELF_CONTAINER: z.string().default(''),
+
+  /**
+   * **演示站的共享账号**，两个都填才会在登录页显示一条提示（点一下直接填进表单）。
+   *
+   * 之所以是环境变量、而不是写死在页面里：登录页是**所有部署共用的一份代码**，
+   * 写死了每个自托管的人都会在自己登录页上看到这个演示账号。不设 = 什么都不多出来。
+   *
+   * 只填一个按没配处理（别把半截凭据显示出去）。**密码会经公开端点原样发给任何访客** ——
+   * 它天生就是公开的，这里只放演示账号，别塞真账号。
+   */
+  DEMO_EMAIL: z.string().default(''),
+  DEMO_PASSWORD: z.string().default(''),
 }).superRefine((env, ctx) => {
   // 引导态：两个都空是**合法**的（域名还没配）。只填一个才是配置错误。
   if (env.BASE_DOMAIN === '' || env.CONSOLE_DOMAIN === '') {
@@ -185,6 +197,17 @@ export const CONSOLE_LABEL = 'console'
 /** 控制台主机名的首段（`console.lvh.me` → `console`；引导态是空串）。实例不能占用它。 */
 export function consoleLabel(env: Env): string {
   return env.CONSOLE_DOMAIN.split('.')[0]!
+}
+
+/**
+ * 登录页要展示的演示账号。两个都填才有值 —— 只填一个当没配（见 `DEMO_EMAIL` 的说明）。
+ * 返回 `null` 时就当这个功能不存在，登录页上不多出任何东西。
+ */
+export function demoAccount(env: Env): { email: string; password: string } | null {
+  const { DEMO_EMAIL: email, DEMO_PASSWORD: password } = env
+  // 空 == 没配（`Env` 上这两个有默认值，但测试里手写的 env fixture 未必带）
+  if (!email || !password) return null
+  return { email, password }
 }
 
 /**

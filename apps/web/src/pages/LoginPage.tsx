@@ -12,6 +12,7 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field.js'
 import { Input } from '@/components/ui/input.js'
 import { ApiError, signIn } from '../lib/api.js'
 import { sessionKey } from '../lib/use-session.js'
+import { useSetupState } from '../lib/use-setup.js'
 import './login.css'
 
 export default function LoginPage() {
@@ -22,6 +23,9 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { t } = useTranslation()
+  // 演示站才有值（运营方设了 DEMO_EMAIL / DEMO_PASSWORD）。取不到就当没有这个功能 ——
+  // 这条请求失败不该影响登录本身，所以不处理 loading / error。
+  const demo = useSetupState().data?.demo ?? null
 
   const mutation = useMutation({
     mutationFn: () => signIn(email, password),
@@ -37,6 +41,13 @@ export default function LoginPage() {
   const submit = (e: FormEvent) => {
     e.preventDefault()
     mutation.mutate()
+  }
+
+  // 只填不提交：填进去之后表单里是什么、密码是明文还是圆点，都还看得见，用户按「进入控制台」即可。
+  const fillDemo = () => {
+    if (demo === null) return
+    setEmail(demo.email)
+    setPassword(demo.password)
   }
 
   return (
@@ -67,6 +78,22 @@ export default function LoginPage() {
         <main className="login-main">
           <div className="login-form-wrap">
             <h2 className="login-title">{t('login.title')}</h2>
+
+            {demo !== null && (
+              <button type="button" onClick={fillDemo} className="login-demo">
+                <span className="login-demo-label">{t('login.demoAccount')}</span>
+                <span className="login-demo-row">
+                  <span className="login-demo-cred">
+                    {demo.email}
+                    <span className="login-demo-slash" aria-hidden="true">
+                      /
+                    </span>
+                    {demo.password}
+                  </span>
+                  <span className="login-demo-fill">{t('login.demoFill')} ›</span>
+                </span>
+              </button>
+            )}
 
             <form onSubmit={submit} className="login-form">
               <FieldGroup className="flex flex-col gap-4">

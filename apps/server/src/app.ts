@@ -36,7 +36,7 @@ import {
   inviteUrl,
   newInviteToken,
 } from './invitation.js'
-import { trustedOrigins, type Env } from './env.js'
+import { demoAccount, trustedOrigins, type Env } from './env.js'
 import { registerAdminRoutes } from './http/admin-routes.js'
 import { registerForwardAuth } from './http/forward-auth-route.js'
 import { registerInvitationRoutes } from './http/invitation-routes.js'
@@ -140,7 +140,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   // setup 端点：**两个模式都注册**（控制台启动时用它决定显示 setup 页还是正常界面）。
   // 已配置时 `deps.setup` 缺省 ⇒ state 回 `true`、写端点 409，见 setup-routes.ts。
-  registerSetupRoutes(app, deps.setup ?? { configured: true, token: '' })
+  // 演示账号从 env 直接取（不经过 `deps.setup`）：演示站跑的是**已配置**模式，那条路没有 setup。
+  registerSetupRoutes(app, {
+    ...(deps.setup ?? { configured: true, token: '' }),
+    demo: demoAccount(deps.env),
+  })
 
   // 引导态到此为止：除了 setup 与健康检查，**什么都不挂**。早返回放在这里（所有业务路由之前），
   // 是为了让「引导态的暴露面」在代码里一目了然 —— 下面那一整段都不属于引导态。

@@ -559,9 +559,16 @@ export async function setDefaultAdminImage(ref: string): Promise<void> {
  *
  * 这个端点在**两个模式都注册**：已配置时它就是一句 `{ configured: true }`，
  * 控制台据此走正常界面，不必去猜 404 的含义。
+ *
+ * `demo` 是演示站的共享账号，**只有运营方设了环境变量才有**；登录页拿它显示一条提示。
  */
-export async function getSetupState(): Promise<{ configured: boolean }> {
-  return request<{ configured: boolean }>('/api/setup/state')
+export interface SetupState {
+  configured: boolean
+  demo: { email: string; password: string } | null
+}
+
+export async function getSetupState(): Promise<SetupState> {
+  return request<SetupState>('/api/setup/state')
 }
 
 /**

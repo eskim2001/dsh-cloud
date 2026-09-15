@@ -12,7 +12,9 @@ const ALLOWED_GET_ROUTES = [
   'GET /auth/verify', // 入口调它判定数据面（Traefik forward-auth）
   'GET /api/auth/*', // better-auth 自己的端点（登录 / 登出 / 会话）
   'GET /healthz', // 存活探针，无数据
-  'GET /api/setup/state', // 公开：只回一行「配好没」，不含任何令牌（见 setup-routes.ts）
+  // 公开：回「配好没」+ 演示账号（运营方设了 DEMO_EMAIL / DEMO_PASSWORD 才有，登录页要它）。
+  // 演示账号本来就是给任何访客用的，这个口子公开是**故意的**（见 setup-routes.ts）。
+  'GET /api/setup/state',
   // 引导页边打字边问「这个父域解析通了没」。凭证是 URL 里那枚一次性 token（**不是**公开的
   // —— 它会让服务器去查 DNS），只读、不改任何状态。
   'GET /api/setup/probe',

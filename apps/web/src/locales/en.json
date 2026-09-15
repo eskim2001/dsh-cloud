@@ -119,7 +119,9 @@
     "showPassword": "Show password",
     "hidePassword": "Hide password",
     "pending": "Verifying…",
-    "submitSignIn": "Enter Console"
+    "submitSignIn": "Enter Console",
+    "demoAccount": "Demo account",
+    "demoFill": "Fill in"
   },
   "setup": {
     "title": "Set up",

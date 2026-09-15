@@ -65,12 +65,26 @@ describe('setup 端点', () => {
     app = await build()
     expect((await app.inject({ method: 'GET', url: '/api/setup/state' })).json()).toEqual({
       configured: false,
+      demo: null,
     })
     await app.close()
 
     app = await build({ configured: true })
     expect((await app.inject({ method: 'GET', url: '/api/setup/state' })).json()).toEqual({
       configured: true,
+      demo: null,
+    })
+  })
+
+  /**
+   * 演示账号跟 `configured` 同路：登录页在**登录之前**就要拿到它。没配的部署必须回 `null`
+   * —— 登录页据此决定渲不渲染那一块，回了别的东西自托管的人登录页上就会多出一条提示。
+   */
+  it('state：配了演示账号就带上，没配就是 null', async () => {
+    app = await build({ demo: { email: 'demo@example.com', password: 'demo-pass' } })
+    expect((await app.inject({ method: 'GET', url: '/api/setup/state' })).json()).toEqual({
+      configured: false,
+      demo: { email: 'demo@example.com', password: 'demo-pass' },
     })
   })
 

@@ -231,6 +231,76 @@
   height: 2.5rem;
 }
 
+/* ── Demo Account Hint ───────────────────────────────────────────────
+   只有演示站（设了 DEMO_EMAIL / DEMO_PASSWORD）才渲染这一块。整块是一个按钮：
+   点一下把凭据填进下面的表单 —— 演示站上访客本来就是要用这个账号，让他手打没有意义。 */
+
+.login-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  width: 100%;
+  margin-bottom: 1.75rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px dashed oklch(0.86 0.005 220);
+  border-radius: 0.375rem;
+  background-color: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.login-demo:hover {
+  border-color: oklch(0.40 0.12 180);
+  background-color: oklch(0.40 0.12 180 / 6%);
+}
+
+.dark .login-demo {
+  border-color: oklch(0.26 0.01 220);
+}
+
+.dark .login-demo:hover {
+  border-color: oklch(0.65 0.14 180);
+  background-color: oklch(0.65 0.14 180 / 10%);
+}
+
+.login-demo-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: oklch(0.55 0.015 220);
+}
+
+.login-demo-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.login-demo-cred {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login-demo-slash {
+  margin: 0 0.25rem;
+  color: oklch(0.55 0.015 220);
+}
+
+.login-demo-fill {
+  flex: none;
+  font-size: 0.75rem;
+  color: #087f71;
+}
+
+.dark .login-demo-fill {
+  color: #0a9b8a;
+}
+
 /* ── Whale Animation Tracks ──────────────────────────────────────── */
 
 .login-whale-rise {

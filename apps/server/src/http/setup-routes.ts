@@ -31,6 +31,11 @@ export interface SetupDeps {
   restart?: () => void
   /** 测试用：查子域解析。默认走系统解析器，查不到返回空表（**不抛**）。 */
   resolveSubdomain?: (hostname: string) => Promise<string[]>
+  /**
+   * 演示站的共享账号（`demoAccount(env)` 的结果）。**两个模式都给** —— 演示站是配好域名
+   * 那一档，正是已配置模式。`null` / 缺省 = 登录页不显示任何提示。
+   */
+  demo?: { email: string; password: string } | null
 }
 
 /** 父域形状：小写 hostname，且**至少两个标签**（否则 `console.<父域>` 不成立）。 */
@@ -74,8 +79,14 @@ export function registerSetupRoutes(app: FastifyInstance, deps: SetupDeps): void
   /**
    * 控制台启动时问一次「配好了没」。**两个模式都注册**：正常模式下它就是一句
    * `{ configured: true }`，控制台据此走正常界面，不必去猜 404 的含义。
+   *
+   * 捎带把**演示账号**发给登录页 —— 它跟 `configured` 是同一类东西：登录**之前**
+   * 界面就要知道的一点点公开配置。没有第二个端点的必要。
    */
-  app.get('/api/setup/state', async () => ({ configured: deps.configured }))
+  app.get('/api/setup/state', async () => ({
+    configured: deps.configured,
+    demo: deps.demo ?? null,
+  }))
 
   /**
    * 向导页边打字边问：「这个父域的泛解析配好了没」。

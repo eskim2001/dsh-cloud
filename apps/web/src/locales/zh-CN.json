@@ -119,7 +119,9 @@
     "showPassword": "显示密码",
     "hidePassword": "隐藏密码",
     "pending": "验证中…",
-    "submitSignIn": "进入控制台"
+    "submitSignIn": "进入控制台",
+    "demoAccount": "演示账号",
+    "demoFill": "填入"
   },
   "setup": {
     "title": "初始化",
