@@ -7,11 +7,12 @@
 #
 # 子命令：install（默认）/ update / uninstall
 #
-# 它做四件事，顺序不能换：
+# 它做四件事，顺序不能换（另有第五件，是**可选**的：`--harden-host`）：
 #   ① 预检（环境 / 端口 / **存储能力**）
 #   ② 在**宿主上**预置存储池并写持久化 —— 容器里建池宿主看不见（见 D35）
 #   ③ 从镜像里取部署资产到 /opt/dsh-cloud，渲染 Traefik 配置
 #   ④ 起 Postgres → 迁移 → 起控制面与入口 → **打印一行引导地址**
+#   ⑤（可选）在宿主 INPUT 上拦一道「实例容器 → 宿主自己」，见 `harden_host`
 #
 # **账号和域名不归它管**：都在那行地址打开的引导页里配。安装这一步因此一个问题都不问。
 #
@@ -38,6 +39,8 @@ CONTROL_PORT=
 POSTGRES_PORT=
 PURGE=0
 FORCE_SECRETS=0
+# 默认不碰宿主防火墙：这台机器上可能还有别的容器要访问宿主上的服务，一刀切会误伤（见 harden_host）
+HARDEN_HOST=0
 
 # 由 fetch_assets 填：拉到的镜像 digest（写进 .installed-version，标签漂移时靠它认版本）
 IMAGE_DIGEST=
@@ -73,6 +76,9 @@ usage() {
                      取第一台空闲的
   --pool-root <路径> 存储池根，默认 /var/lib/dsh
   --pool-size-mb <MB> 需要自动建 loopback 池时用；省略取该文件系统的 80%
+  --harden-host      在宿主 INPUT 上拦住「实例容器 → 宿主自己」的入站（默认不做）。
+                     ⚠️ 代价是**这台机器上所有容器**都再也够不到宿主的监听，别在有别的
+                     容器要访问宿主服务的机器上开。开关生效后重启也会自动装回。
   --purge            （uninstall）连 Postgres 卷、存储池、状态目录一起删 —— **不可恢复**
   -h, --help         显示这段
 
@@ -93,6 +99,7 @@ while [ $# -gt 0 ]; do
     --pool-root) POOL_ROOT=${2:?--pool-root 后面要给路径}; shift 2 ;;
     --pool-size-mb) POOL_SIZE_MB=${2:?--pool-size-mb 后面要给数字}; shift 2 ;;
     --wizard-port) WIZARD_PORT=${2:?--wizard-port 后面要给端口号}; shift 2 ;;
+    --harden-host) HARDEN_HOST=1; shift ;;
     --purge) PURGE=1; shift ;;
     -h | --help) usage; exit 0 ;;
     *) die "认不出的参数：$1（-h 看用法）" ;;
@@ -156,6 +163,43 @@ pick_control_port() {
 }
 
 # ── ① 预检 ──────────────────────────────────────────────────────────────
+
+# 这台机器上的 Docker 会不会被 firewalld 冲掉跨网络隔离（CVE-2025-54410）。
+#
+# 为什么平台要在意：**每实例一个网络**那层隔离不是 Docker 的默认行为，而是它写下的 iptables
+# 规则。firewalld 一 reload（`firewall-cmd --reload`、装包、改 zone）就把那些规则抹掉，而
+# 影响范围里的 Docker **不会重建它们** —— 于是实例之间又能互相访问，且**没有任何报错**。
+# 影响范围（GHSA-4vq8-7jfc-9cvp）：`<= 25.0.12`，以及 `26.0.0-rc1 ~ 28.0.0`；25.0.13 与
+# 28.0.0 起已修。只在「firewalld 在跑」**且**「版本落在范围里」时返回 0。
+docker_affected_by_firewalld_cve() {
+  local ver major minor patch
+  ver=$(docker version --format '{{.Server.Version}}' 2>/dev/null) || return 0
+  major=${ver%%.*}
+  ver=${ver#*.}
+  minor=${ver%%.*}
+  patch=${ver#*.}
+  # 版本尾巴上可能挂着 `-rc.1` / `+dfsg` 之类，只取前缀里的数字。**解析不出来就当成受影响**：
+  # 这条警告的假阳性只是多一句提醒，假阴性是一个静默失效的隔离。
+  major=${major%%[!0-9]*}
+  minor=${minor%%[!0-9]*}
+  patch=${patch%%[!0-9]*}
+  case "$major$minor$patch" in
+    '' | *[!0-9]*) return 0 ;;
+  esac
+  [ "$major" -ge 28 ] && return 1
+  if [ "$major" -eq 25 ] && [ "$minor" -eq 0 ] && [ "$patch" -ge 13 ]; then
+    return 1
+  fi
+  return 0
+}
+
+warn_if_firewalld_breaks_isolation() {
+  have firewall-cmd || return 0
+  systemctl is-active --quiet firewalld 2>/dev/null || return 0
+  docker_affected_by_firewalld_cve || return 0
+  warn "这台机器跑着 firewalld，Docker 又落在 CVE-2025-54410 的影响范围里：firewalld 一 reload 就会冲掉 Docker 的跨网络隔离规则，而它不会重建 —— 实例之间那层隔离会**静默**失效。升级到 25.0.13 / 28.0.0 以上再上线。"
+}
+
 preflight() {
   STEP='预检'
 
@@ -170,6 +214,8 @@ preflight() {
   have docker || die "没装 Docker。"
   docker compose version >/dev/null 2>&1 || die "Docker Compose v2 不可用（需要 \`docker compose\` 子命令，不是老的 docker-compose）。"
   docker info >/dev/null 2>&1 || die "连不上 Docker daemon（docker info 失败）。"
+
+  warn_if_firewalld_breaks_isolation
 
   # 80/443：**只有首装才要求它们空闲**。更新时占着这两个端口的正是我们自己的入口，
   # 要求空闲会让 `update` 永远跑不起来（实测 2026-09-14：在跑着的部署上重跑，直接卡在这）。
@@ -291,6 +337,102 @@ provision_pool() {
       "$img" "$POOL_ROOT" >>/etc/fstab
   fi
   log "存储池就绪：$POOL_ROOT（loopback XFS + pquota，已写进 fstab）"
+}
+
+# ── ②b 宿主侧加固（可选，--harden-host）────────────────────────────────
+# 实例容器从网桥的**网关**后面出去，发给宿主自己的包（sshd:22，以及任何绑 0.0.0.0 的东西）
+# 走的是 INPUT，默认一路放行。Docker **没有**原生开关能只关掉这一条 ——
+# `com.docker.network.bridge.gateway_mode_ipv4=isolated` 会连网桥地址一起去掉，而它**必须**
+# 配 `--internal`，那样实例连出网都没了（实测：官方文档写明 isolated 只用于 internal 网络）。
+# 所以只剩两条路：接受「实例够得到宿主上的服务」，或者在宿主 INPUT 上拦一道。这是后者。
+#
+# 拦法按**接口**、不按网段：网段是 Docker 动态分的（还跟操作者自己的网络共享地址池），而
+# 「来自容器网桥接口」正好就是那个威胁面。出网不受影响（那是 FORWARD），入口转发到实例也不
+# 受影响（那是宿主发起的，走 OUTPUT），发布到宿主回环的实例端口同样不受影响。
+HARDEN_CHAIN=dsh-cloud-input
+HARDEN_UNIT=/etc/systemd/system/dsh-cloud-harden.service
+
+harden_host() {
+  STEP='宿主侧加固（--harden-host）'
+  have iptables || die "--harden-host 需要 iptables，这台机器上没有。"
+
+  # 规则单独落成脚本：systemd 单元开机直接跑它，安装脚本和开机走的是同一份逻辑。
+  cat >"$STATE_DIR/harden-host.sh" <<'EOS'
+#!/usr/bin/env bash
+# 由 scripts/install.sh --harden-host 生成。**可重复执行**（每次先清空自己的链再重建）。
+#
+# 拦住「容器 → 宿主自己」的入站。出网不受影响（走 FORWARD），宿主发起的转发也不受影响（走 OUTPUT）。
+set -euo pipefail
+CHAIN=dsh-cloud-input
+command -v iptables >/dev/null 2>&1 || { echo "缺 iptables" >&2; exit 1; }
+
+if ! iptables -L "$CHAIN" -n >/dev/null 2>&1; then iptables -N "$CHAIN"; fi
+iptables -F "$CHAIN"
+# `docker+` 盖 docker0 / docker_gwbridge；`br-+` 盖每实例一个的 `br-<网络ID前12位>`。
+# **故意不写 `br+`**：那会连 `br0`（宿主自己的 LAN 桥）一起匹配，把整个局域网拦在门外。
+iptables -A "$CHAIN" -i docker+ -j DROP
+iptables -A "$CHAIN" -i br-+ -j DROP
+# INPUT 里只留一条跳转，并且放在**最前面**：前面若有一条 ACCEPT，就轮不到这条链了。
+while iptables -D INPUT -j "$CHAIN" 2>/dev/null; do :; done
+iptables -I INPUT 1 -j "$CHAIN"
+EOS
+  chmod 755 "$STATE_DIR/harden-host.sh"
+  "$STATE_DIR/harden-host.sh"
+  log "规则已生效（链 $HARDEN_CHAIN）。看现状：iptables -L $HARDEN_CHAIN -n"
+
+  # iptables 规则不落盘，重启就没了 —— 一个"重启后静默失效"的加固比没有这个开关更坏。
+  # 用 systemd 单元而不是 iptables-persistent：不引新包，也不去改操作者自己那份防火墙配置。
+  if have systemctl; then
+    cat >"$HARDEN_UNIT" <<EOS
+[Unit]
+Description=dsh-cloud：拦住「实例容器 → 宿主自己」的入站（--harden-host）
+# 规则按**接口名**匹配，接口存不存在都能装，所以不依赖 docker.service
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=$STATE_DIR/harden-host.sh
+
+[Install]
+WantedBy=multi-user.target
+EOS
+    systemctl daemon-reload
+    if ! systemctl enable --now dsh-cloud-harden.service >/dev/null 2>&1; then
+      warn "启用 dsh-cloud-harden.service 失败：规则这次已生效，但**重启后会丢**。查：systemctl status dsh-cloud-harden"
+    fi
+  else
+    warn "这台机器上没有 systemctl：规则这次生效了，但**重启后会丢**。"
+  fi
+
+  warn "代价：这台机器上**所有**容器（不只是本平台的）都再也够不到宿主的监听。要撤：iptables -D INPUT -j $HARDEN_CHAIN && systemctl disable --now dsh-cloud-harden（或跑 install.sh uninstall）。"
+  warn "firewalld / ufw 一 reload 有可能把这条链冲掉 —— 复查：iptables -L $HARDEN_CHAIN -n"
+}
+
+# 撤掉加固。**只在 uninstall 调**，而且不限于 --purge：这套规则会误伤这台机器上别的容器，
+# 平台都不在了就不该留着。
+harden_host_down() {
+  local had=0
+  if [ -f "$HARDEN_UNIT" ]; then had=1; fi
+  if have iptables; then
+    if iptables -L "$HARDEN_CHAIN" -n >/dev/null 2>&1; then had=1; fi
+  fi
+  if [ "$had" = 0 ]; then return 0; fi
+
+  if have systemctl; then
+    systemctl disable --now dsh-cloud-harden.service >/dev/null 2>&1 || true
+  fi
+  if have iptables; then
+    iptables -D INPUT -j "$HARDEN_CHAIN" 2>/dev/null || true
+    iptables -F "$HARDEN_CHAIN" 2>/dev/null || true
+    iptables -X "$HARDEN_CHAIN" 2>/dev/null || true
+  fi
+  rm -f "$HARDEN_UNIT"
+  if have systemctl; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+  fi
+  rm -f "$STATE_DIR/harden-host.sh"
+  log "  宿主侧加固已撤（链 $HARDEN_CHAIN）"
 }
 
 # ── ③ 部署资产与配置渲染 ────────────────────────────────────────────────
@@ -503,6 +645,10 @@ cmd_install() {
   pick_ports
   provision_pool
   fetch_assets
+  # 放在 fetch_assets 之后：它把 $STATE_DIR 建出来，而加固脚本落在那里。
+  # 重跑**不会**因为这次没带 --harden-host 就把上次的规则撤掉 —— 那是操作者显式开过的开关，
+  # 一次普通 upgrade 把它悄悄关掉是最坏的行为（撤法见 harden_host 打印的那行）。
+  if [ "$HARDEN_HOST" = 1 ]; then harden_host; fi
   write_env
   render_configs
   start_services
@@ -521,6 +667,12 @@ cmd_update() {
 # 没有入口也没有控制面，纯白吃 CPU/内存。用平台**自己的 label** 找，别按名字猜。
 managed_instance_ids() {
   docker ps -aq --filter 'label=dsh.cloud/managed=true' 2>/dev/null || true
+}
+
+# 每实例一个网络（label 见 instance-spec 的渲染器）。同样不属于 compose 项目，`compose down`
+# 碰不到它们；留着会一直占着 Docker 的地址池（默认池能分的网络数很少）。
+managed_network_ids() {
+  docker network ls -q --filter 'label=dsh.cloud/managed=true' 2>/dev/null || true
 }
 
 # 这个路径会被直接 rm -rf，而它来自 .env（可能被截断或手工改过）。先过一遍形状检查。
@@ -578,7 +730,7 @@ cmd_uninstall() {
   local degraded=0
   [ -f "$STATE_DIR/prod.yml" ] || degraded=1
 
-  local ids root=''
+  local ids root='' nets
   ids=$(managed_instance_ids)
   root=$(env_get HOST_STORAGE_ROOT)
 
@@ -599,6 +751,12 @@ cmd_uninstall() {
       # 未加引号是有意的：$ids 是多行 id 列表，这里就是要按空白拆开。
       # shellcheck disable=SC2086
       docker rm -f $ids >/dev/null && log "  工作空间容器已删"
+    fi
+    nets=$(managed_network_ids)
+    if [ -n "$nets" ]; then
+      # 顺序不能反：网络里还有端点时 Docker 拒绝删 —— 上面那批容器删完，这里才删得掉。
+      # shellcheck disable=SC2086
+      docker network rm $nets >/dev/null && log "  实例网络已删"
     fi
     if [ -n "$root" ] && pool_root_is_removable "$root"; then
       teardown_pool "$root"
@@ -626,6 +784,10 @@ cmd_uninstall() {
     fi
     printf '  连数据一起删：install.sh uninstall --purge\n'
   fi
+
+  # 两条路都撤。放在最后、且在 `rm -rf $STATE_DIR` 之后也照样成立：它认的是 systemd 单元和
+  # iptables 链，不认状态目录。**平台都不在了就不该留着这条链** —— 它会误伤这台机器上别的容器。
+  harden_host_down
 }
 
 case "$CMD" in
