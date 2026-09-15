@@ -19,7 +19,7 @@
                ▼                          ▼
     ┌──────────────────────────┐  ┌──────────────────────────────┐
     │ 控制面（host 网络）      │  │ 实例容器 dsh-instance-<slug> │
-    │ Fastify + 管理台静态文件 │  │ Docker 默认 bridge（可出网） │
+    │ Fastify + 管理台静态文件 │  │ 网络 dsh-net-<slug>（D37）   │
     │ （同一个进程，同源）     │  │ caddy :8080 ──► dsh          │
     └──────────────────────────┘  │           127.0.0.1:3080     │
                                   │ 池子里的目录挂到 /data       │
@@ -39,9 +39,11 @@
 - **生产**：Traefik 与控制面都在 **host 网络**上，上游就是字面意义的 `127.0.0.1`（见 D33）。这也是被逼出来的唯一可行档 —— Linux 上容器够不到宿主回环（2026-09-12 实测：全部 `ECONNREFUSED`，见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) #4）。
 - **本地开发**：Traefik 是容器，它的 `127.0.0.1` 不是宿主，于是走 `host.docker.internal:<hostPort>`（`INSTANCE_UPSTREAM_HOST`，见 [docker/compose/README.md](../docker/compose/README.md)）。**这一档只在 Docker Desktop 上成立**。
 
-**Linux 上这就是有效的网络隔离** —— 容器够不到宿主回环上的监听、也够不到**别的容器**发布的回环端口。
+**这条挡的是局域网与宿主，不是邻居** —— 实例之间靠**每实例一个自己的网络**（`dsh-net-<slug>`，D37）分开。**2026-09-15 之前不是这样**：那时所有实例接在同一个默认 `bridge` 上、同处一个 L2 广播域，在实例里 ARP 扫 `172.17.0.0/16` 就能看到 `172.17.0.2:8080` / `172.17.0.3:8080` 有响应 —— 直连、端口扫描、ARP 欺骗三条一起成立，而桥上转发的是明文（TLS 在入口就终结了），门 token 骗得走。分段之后这些同时消失：跨网段的容器 IP 不可达，实例里 `ip neigh` 连邻居的表项都没有。
 
-> ⚠️ **Docker Desktop（macOS/Windows）上不是**：它的 `host.docker.internal` 是**代理到宿主 localhost** 的别名，于是宿主回环上的**任何**监听（实例端口、控制面 API、Postgres）对所有容器开放。这是**开发机特有**，生产 Linux 不受影响（同 #4 实测）。跨实例那条最后仍有**每实例门 token** 兜底 —— 但拦住它的是门，不是网络。
+**Linux 上两条一起 = 有效的网络隔离** —— 容器够不到宿主回环上的监听、够不到**别的容器**发布的回环端口、也够不到别的实例的网络。
+
+> ⚠️ **Docker Desktop（macOS/Windows）上「发布到回环」这半条不是边界**：它的 `host.docker.internal` 是**代理到宿主 localhost** 的别名，于是宿主回环上的**任何**监听（实例端口、控制面 API、Postgres）对所有容器开放 —— 包括**别的实例发布到 `127.0.0.1:<hostPort>` 的桥端口**（2026-09-15 实测：容器里连得通）。也就是说开发机上实例之间**仍有一条路**（网络分段挡的是容器 IP，挡不住这条代理）。这是**开发机特有**，生产 Linux 不受影响（同 #4 实测）。跨实例那条最后仍有**每实例门 token** 兜底 —— 但拦住它的是门，不是网络。
 
 ## 二、四个角色
 
@@ -66,7 +68,7 @@
 4. caddy 校验签名：缺 / 错 → **403**；正确 → `127.0.0.1:3080`
 5. WebSocket / SSE 同链路（forward-auth 对升级请求同样生效；需关缓冲、拉长超时）
 
-## 四、隔离模型：跨实例不可达
+## 四、隔离模型：跨实例不可达（Linux 宿主；开发机上有一条例外，见 §一）
 
 **前提假设：实例 = 不可信代码执行环境。** dsh 的 agent 会 spawn 进程、跑 shell、写文件——这是它的本职工作。所有设计从"一个被攻陷或被滥用的实例"出发。
 
@@ -77,7 +79,7 @@
 
 | 通道 | 堵法 |
 |---|---|
-| **网络** | 实例的桥端口只发布到**宿主回环** `127.0.0.1`，不对局域网暴露。**Linux 宿主上这是硬边界** —— 容器够不到宿主回环、也够不到**别的容器**发布的回环端口（2026-09-12 实测，见 #4）。⚠️ **Docker Desktop 上不是**：那里的 `host.docker.internal` 代理到宿主 localhost，宿主的回环端口对所有容器开放。所以每实例门 token 无论哪档都在 —— `HMAC(secret, "dsh-cloud:gate:<slug>")`，见 `instance/gate-token.ts`：A 拿自己的 token 打 B 会被 403。Linux 上它是**纵深防御**，开发机上是**最后一道** |
+| **网络** | ① 实例**各占一个自己的 Docker 网络**（`dsh-net-<slug>`，D37）—— 不同网段、不同广播域，直连 / 端口扫描 / ARP 欺骗三条一起消失（2026-09-15 实测：默认 bridge 上 `172.17.0.2:8080` 有响应，分段后不可达）；② 桥端口**只发布到宿主回环** `127.0.0.1`，不对局域网暴露。⚠️ **Docker Desktop 上 ② 不是边界**：`host.docker.internal` 代理到宿主 localhost，宿主的回环端口（含**别的实例发布出来的桥端口**）对所有容器开放。所以每实例门 token 无论哪档都在 —— `HMAC(secret, "dsh-cloud:gate:<slug>")`，见 `instance/gate-token.ts`：A 拿自己的 token 打 B 会被 403。Linux 上它是**纵深防御**，开发机上是**最后一道** |
 | **文件** | 每实例一份**独立的数据目录** —— 池子里的 `<pool>/<key>`，带自己的 project quota（配额落不了地的宿主上退回命名卷，见下），按 `storage_key` 定位，不能靠复用 slug 接管。删容器不删数据 → 重建不丢数据 |
 | **凭据** | 实例里零跨实例凭据：无 DB 凭据、无平台密钥、无 Docker socket、无全局共享 HMAC |
 | **控制面** | 入口（Traefik）经**宿主回环端口**转发；日志 / 用量等观测全部来自平台侧 |
@@ -99,6 +101,11 @@
 - **宿主回环上的「无门」服务对容器可见 —— 但只在 Docker Desktop 上**：控制面 API 与 Postgres 都只听宿主
   回环、且没有门，所以开发机上一个租户容器能直连它们。**Linux 宿主上实测不通**（#4：`host-gateway`
   指向网桥网关，够不到绑 `127.0.0.1` 的 socket），这条是开发机特有的，不是 Docker 通例
+- **实例够得到宿主上绑非回环地址的服务** —— 这与实例之间分段是两件事。Linux 上容器访问宿主走的是
+  INPUT 那条路径：实测（2026-09-12）容器够得到宿主网关 IP，只是够不到绑 `127.0.0.1` 的 socket。
+  于是宿主的 `ssh`、任何 `0.0.0.0` 监听都在实例的射程内。挡它只能靠宿主侧 INPUT 规则，**Docker 没有
+  原生开关**（`gateway_mode=isolated` 必须配 `--internal`，而实例要出网装包，出网一起就没了）。
+  `install.sh --harden-host` 把这件事做成了**可选的一步**、**默认不写** —— 它改的是宿主的防火墙
 
 **运行时接缝**：[`apps/server/src/runtime/driver.ts`](../apps/server/src/runtime/driver.ts) 是**唯一**
 接触具体运行时的接口；业务层（`provisioner` / `boot` / `reconciler` / `routes-sync`）不认识任何具体运行时。
@@ -119,7 +126,7 @@
 | pids 限制 | `HostConfig.PidsLimit = spec.quota.pidsLimit`（默认 512）—— 2026-09-13 才真正接上：此前 schema 里有这个字段、界面上也能调，但驱动没往下带，**改了不生效** |
 | 内存 / CPU | `HostConfig.Memory` / `NanoCpus`（上限而非预留） |
 | `no-new-privileges` / seccomp | ⚠️ **没做**（Docker 默认 seccomp profile 生效，但没有额外收紧） |
-| 网络 | 桥端口**只发布到宿主回环**；Linux 上容器够不到它（[OPEN-QUESTIONS #4](OPEN-QUESTIONS.md) 实测） |
+| 网络 | ① 每实例一个自己的 Docker 网络 `dsh-net-<slug>`（D37）—— 实例之间不同网段、不同广播域；② 桥端口**只发布到宿主回环**（[OPEN-QUESTIONS #4](OPEN-QUESTIONS.md) 实测）。⚠️ 容器仍够得到宿主上绑**非回环**地址的服务（INPUT 路径），要挡得靠宿主侧规则：`install.sh --harden-host`（可选，默认不写） |
 | `--privileged` | **没用**，也不该用（那等于宿主 root） |
 
 > **与 D29 / D30 冲突时以本表为准。** 那两条 ADR 写的是 microVM 回退**之前**的配置

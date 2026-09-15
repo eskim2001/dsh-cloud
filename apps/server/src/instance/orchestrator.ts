@@ -16,8 +16,9 @@ export type { InstanceLiveState }
  * 这一层**不认识任何具体运行时**。策略（只允许拉平台自己仓库的镜像、同一 ref 的拉取去重）
  * 留在这里；机制（create/start/stop/日志/状态）全在 driver 里。
  *
- * 与 Docker 时代的差别：不再有独立网络、不再有入口接入、不再有容器 id ——
- * 实例的身份就是 `machineName`，入口靠 `hostPort` 转发。
+ * 与 Docker 时代的差别：不再有入口接入、不再有容器 id ——
+ * 实例的身份就是 `machineName`，入口靠 `hostPort` 转发；网络仍按实例分开
+ * （`dsh-net-<slug>`，由驱动建/删），那层隔离不归这一层管。
  */
 export class InstanceOrchestrator {
   /** 正在拉的镜像，按 ref 去重——两个实例同时要同一版时只拉一次。 */

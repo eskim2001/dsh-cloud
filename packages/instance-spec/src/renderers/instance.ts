@@ -17,6 +17,17 @@ export const MACHINE_PREFIX = 'dsh-instance-'
 export const machineName = (slug: string): string => `${MACHINE_PREFIX}${slug}`
 export const instanceHostname = (slug: string, baseDomain: string): string => `${slug}.${baseDomain}`
 
+/**
+ * 每实例一个网络的名字（**由 slug 派生，一个 slug 恰好一个网络**）。
+ *
+ * 共享一个广播域就等于没隔离：同网段容器能直连邻居的端口、能扫、也能 ARP 欺骗，
+ * 而桥上转发的是明文（TLS 在入口就终结了）。所以实例各占一个网络，见 D37。
+ *
+ * 前缀与 `MACHINE_PREFIX` 同理：宿主上还有别的容器，得能一眼认出哪些是本平台的。
+ */
+export const NETWORK_PREFIX = 'dsh-net-'
+export const networkName = (slug: string): string => `${NETWORK_PREFIX}${slug}`
+
 /** 容器内环境：所有可写路径都指向 `/data`。 */
 function renderEnv(spec: InstanceSpec, ctx: RenderContext): string[] {
   return [

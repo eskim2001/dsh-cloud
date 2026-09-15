@@ -36,7 +36,7 @@
 | ① | **实例规格 + renderer** | `instance-spec` → Docker 资源；换 K8s / microVM 只换这层 |
 | ② | **升级 / 回滚 + 回归验证** | 换镜像 tag + 黄金路径测试集 |
 | ③ | **配额执行 + 用量统计** | 采集 → 落库 → 判定 |
-| ④ | **三道门编排** | 独立网络 + forward-auth + header 门 |
+| ④ | **三道门编排** | 每实例一个网络 + 发布到回环 + forward-auth + header 门 |
 | ⑤ | **管理台** | 实例列表 / 详情 / 打开 / 升级 / 配额 |
 | ⑥ | **插件目录规范 + 校验** | 只收标准 client 包 |
 
@@ -152,11 +152,27 @@ K8s renderer；microVM / gVisor renderer；更多形态（headless / acp / sdk�
 | 2 | 登录他人账号访问该实例 | 拒绝 |
 | 3 | 登录 owner 账号 | 正常打开 dsh，能对话 |
 | 4 | 无签名直连容器 `:8080` | **403** |
-| 5 | 从实例 A 容器内扫实例 B / 连 Postgres | **不通** |
+| 5 | 从实例 A 容器内按 IP 扫段找实例 B、连宿主的服务 | **不通**（跑法见下） |
 | 6 | 换新镜像 tag 重启 | workspace / 会话 / 插件 / 配置**全在** |
 | 7 | 容器内 `/data` 写入大文件 | 落进数据文件系统，重建容器后还在 |
 | 8 | 打开设置 → 模型提供方，填 key 保存 | 提供方目录正常加载、key 存得进（**D15**；每次升 dsh 必跑） |
 | 9 | 在宿主 `docker stop` 实例容器 / 让它 crash-loop | 10 秒内列表与详情显示「已停止」/「重启中」，不是「运行中」（**D16**） |
+| 10 | 加 `--harden-host` 之后 | 入口 / 实例出网 / 控制台都不受影响；宿主 INPUT 链按注释可识别；`uninstall` 干净回退 |
+
+**第 5 条的跑法**（真机。2026-09-15 起每实例一个自己的网络，见 D37）：
+
+```bash
+docker inspect dsh-instance-<b> --format '{{json .NetworkSettings.Networks}}'  # 只有一个键 dsh-net-<b>
+A_IP=$(docker inspect dsh-instance-<a> --format '{{(index .NetworkSettings.Networks "dsh-net-<a>").IPAddress}}')
+GW=$(docker network inspect dsh-net-<b> --format '{{(index .IPAM.Config 0).Gateway}}')
+docker exec dsh-instance-<b> sh -c "nc -z -w 2 $A_IP 8080; echo exit=$?"      # 非零
+docker exec dsh-instance-<b> ip neigh                                        # 没有 <a> 的表项（不同广播域）
+docker exec dsh-instance-<b> sh -c "nc -z -w 2 $GW 22; echo exit=$?"         # 默认可达；加 --harden-host 后非零
+docker exec dsh-instance-<b> sh -c "getent hosts registry.npmjs.org"         # 出网仍然通
+```
+
+⚠️ **存量实例**：升级上来的容器还在默认 bridge 上 —— 要**在控制台把实例重启一次**（重启 = 删容器重建）
+才会落到自己的网络上；不重启，第 5 条仍然通。
 
 自动化部分见 `apps/server/src/**/*.test.ts`。**池子（`apps/server/src/instance/pool.ts`）是例外：
 它没有自动化用例**，目前只有一台真机上的手动核对（步骤与实测数字见

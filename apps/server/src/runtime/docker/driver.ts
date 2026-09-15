@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import net from 'node:net'
 import type Docker from 'dockerode'
 import type { InstanceSpec, RenderContext, RenderedInstance } from '@dsh-cloud/instance-spec'
-import { MACHINE_PREFIX, renderInstance } from '@dsh-cloud/instance-spec'
+import { MACHINE_PREFIX, networkName, renderInstance } from '@dsh-cloud/instance-spec'
 import { createDocker, demuxFrames, isNotFound, isNotModified } from '../../docker/client.js'
 import {
   ProjectRegistry,
@@ -44,6 +44,8 @@ export interface DockerDriverOptions {
  *
  * 模型对齐 `docker/`（那份是铁律，本文件围绕它实现）：
  * - 实例 = 用 `docker/instance-image` 构建出来的镜像起的**容器**，名字 `dsh-instance-<slug>`；
+ * - 实例各占一个自己的网络 `dsh-net-<slug>`，**不共用默认 bridge** —— 共享一个广播域等于没隔离：
+ *   同网段容器能直连邻居的端口、能扫，也能 ARP 欺骗，而桥上转发的是明文。见 `ensureNetwork`；
  * - 入口（Traefik 跑在容器里）够容器的方式是**宿主回环上发布的端口**
  *   （`docker/compose/local.yml` 里写着 Traefik 走 `host.docker.internal:<hostPort>`），
  *   所以这里发布 `127.0.0.1:<hostPort> -> <guestPort>`；
@@ -365,6 +367,51 @@ export class DockerDriver implements RuntimeDriver {
     return Number.isFinite(declared) && declared > 0 ? declared : 128
   }
 
+  // ---------------- 网络 ----------------
+
+  /**
+   * 确保这个实例自己的网络在。幂等：先 inspect，在就直接用。
+   *
+   * **不能"建失败就当有"**：同名再建时 Docker 回的是 409（不是静默复用），把它当成功就等于
+   * 把"网络没建出来"记成建好了。
+   *
+   * 建不出来就**抛错，不退回默认 bridge**：那种降级是静默的，而降的正好是隔离本身 ——
+   * 实例看起来建好了、其实又跟所有实例同处一个广播域。
+   */
+  private async ensureNetwork(slug: string): Promise<string> {
+    const name = networkName(slug)
+    try {
+      await this.docker.getNetwork(name).inspect()
+      return name
+    } catch (err) {
+      if (!isNotFound(err)) throw err
+    }
+    try {
+      await this.docker.createNetwork({
+        Name: name,
+        Driver: 'bridge',
+        Labels: { 'dsh.cloud/managed': 'true', 'dsh.cloud/instance': slug },
+      })
+    } catch (err) {
+      throw networkCreateError(name, err)
+    }
+    return name
+  }
+
+  /**
+   * 删这个实例的网络。幂等。
+   *
+   * **必须在容器删掉之后调**：还有端点连着时 Docker 会拒绝删（那是正确的信号，别吞）。
+   * 一个实例一个网络，所以删实例就是删网络 —— 留着会一直占着 Docker 的地址池。
+   */
+  private async removeNetwork(slug: string): Promise<void> {
+    try {
+      await this.docker.getNetwork(networkName(slug)).remove()
+    } catch (err) {
+      if (!isNotFound(err)) throw err
+    }
+  }
+
   // ---------------- 生命周期 ----------------
 
   /**
@@ -378,7 +425,11 @@ export class DockerDriver implements RuntimeDriver {
 
     for (const m of r.mounts) await this.ensureStorage(m.storageKey)
 
-    await this.remove(r.machineName)
+    // **先确保网络、再动旧容器**：网络建不出来时（例如 Docker 地址池用尽）旧容器还在跑，
+    // 不会留下"旧的删了、新的没起来"的半截状态。
+    const network = await this.ensureNetwork(spec.slug)
+
+    await this.removeContainer(r.machineName)
 
     const container = await this.docker.createContainer({
       name: r.machineName,
@@ -389,6 +440,10 @@ export class DockerDriver implements RuntimeDriver {
       WorkingDir: r.workingDir,
       ExposedPorts: { [`${r.guestPort}/tcp`]: {} },
       HostConfig: {
+        // 每个实例各占一个网络 = 各占一个广播域。**只设 NetworkMode 就够**（实测：容器真的
+        // 落到这个网络上，inspect 出来的 NetworkMode 与事实一致）；不需要 NetworkingConfig，
+        // 别名也不用给 —— Docker 自己会把容器名加进这个网络的 DNS 名里。
+        NetworkMode: network,
         // 只发到宿主回环：入口够得着，局域网够不着。
         PortBindings: {
           [`${r.guestPort}/tcp`]: [{ HostIp: '127.0.0.1', HostPort: String(r.hostPort) }],
@@ -434,7 +489,23 @@ export class DockerDriver implements RuntimeDriver {
     }
   }
 
+  /**
+   * 删容器**和它自己的网络**。幂等。
+   *
+   * 顺序不能反：还有端点连着时 Docker 会拒绝删网络。机器名去掉前缀就是 slug，网络名由 slug
+   * 派生 —— 一个 slug 恰好一个网络，所以这里不用再回 Docker 查一遍。
+   */
   async remove(machineName: string): Promise<void> {
+    await this.removeContainer(machineName)
+    await this.removeNetwork(machineName.slice(MACHINE_PREFIX.length))
+  }
+
+  /**
+   * 只删容器。**`create` 必须走这条，不能走上面的 `remove`** —— 它在删旧容器之前刚
+   * `ensureNetwork` 过，网络被一起删掉的话，紧跟着的 `createContainer` 会因为
+   * "网络不存在"直接失败。
+   */
+  private async removeContainer(machineName: string): Promise<void> {
     try {
       await this.docker.getContainer(machineName).remove({ force: true })
     } catch (err) {
@@ -541,6 +612,9 @@ export class DockerDriver implements RuntimeDriver {
       Cmd: argv,
       HostConfig: {
         Binds: Object.entries(binds).map(([key, guest]) => `${key}:${guest}`),
+        // 它只挂卷跑 `du` / `cp`，不需要网络。不给网络，也就没有"辅助容器能当跳板"这一说；
+        // 默认 bridge 上待着反而会跟降级/历史容器同处一个广播域。
+        NetworkMode: 'none',
       },
     })
     try {
@@ -571,6 +645,22 @@ async function pathExists(p: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+/**
+ * 建实例网络失败的报错。
+ *
+ * **Docker 的原文必须带出去** —— 最常见的那种失败（地址池用尽）只能从原文里认出来，而它的原文
+ * 是句底层黑话，操作者拿到手不知道该改哪个文件。所以这里既保留原文，又补一句可照做的动作。
+ */
+function networkCreateError(name: string, err: unknown): Error {
+  const raw = err instanceof Error ? err.message : String(err)
+  // 一个实例一个网络 → 网络数 = 实例数，地址池用尽是迟早的事（默认池能分的网络数很少）。
+  const hint = /fully subnetted|address pool/i.test(raw)
+    ? '\n→ Docker 的地址池用完了。在 /etc/docker/daemon.json 里把 default-address-pools 的 size 调小' +
+      '（例如 {"base":"172.17.0.0/12","size":26}，按 /26 切就是 16384 个）再重启 docker。'
+    : ''
+  return new Error(`建实例网络 ${name} 失败：${raw}${hint}`)
 }
 
 /** `docker stop` 的宽限期（秒）：够 dsh 把会话落盘。 */

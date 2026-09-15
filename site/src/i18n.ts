@@ -33,7 +33,7 @@ const zh = {
   boundaryIntro: 'Agent 会运行 shell、安装依赖、写入文件。每个工作空间的容器因此被视为不可信代码执行环境，而不是普通的应用进程。',
   flow: ['浏览器', '平台认证', '所有者校验', '实例入口'],
   boundaryItems: [
-    ['入口先行', '工作空间只把端口发布到宿主回环，不对局域网暴露。平台先认证，再核对你是不是它的主人，然后把平台 cookie 滤掉再转发给实例——页面、API 与 WebSocket 握手走同一条入口。'],
+    ['入口先行', '每个工作空间有自己的容器网络和数据目录，互相够不到；端口只发布到宿主回环，不对局域网暴露。平台先认证，再核对你是不是它的主人，然后把平台 cookie 滤掉再转发给实例——页面、API 与 WebSocket 握手走同一条入口。'],
     ['运维与内容分开', '管理员可查看状态和容器日志，但平台不提供用户 /data 的浏览接口。日志仍可能包含敏感内容。'],
     ['明确隔离的限度', '容器共享宿主内核，不等于虚拟机隔离。拥有宿主或 Docker 权限的运营者可访问底层存储。'],
   ],
@@ -109,7 +109,7 @@ const en: Dictionary = {
   boundaryIntro: 'Agents run shell commands, install dependencies and write files. Every workspace container is treated as an untrusted code execution environment, not an ordinary application process.',
   flow: ['Browser', 'Authentication', 'Owner check', 'Instance gate'],
   boundaryItems: [
-    ['The ingress comes first', 'Workspaces publish ports only to the host loopback, never to the LAN. The platform authenticates, checks that you own the workspace, then strips the platform cookie before forwarding — pages, APIs and WebSocket handshakes share the same entry path.'],
+    ['The ingress comes first', 'Each workspace has its own container network and data directory, unreachable from the others; ports are published only to the host loopback, never to the LAN. The platform authenticates, checks that you own the workspace, then strips the platform cookie before forwarding — pages, APIs and WebSocket handshakes share the same entry path.'],
     ['Operations are not file access', 'Administrators can inspect status and container logs, but the platform provides no browser for user /data. Logs may still contain sensitive content.'],
     ['Know the limits of isolation', 'Containers share the host kernel. This is not VM-level isolation. Host or Docker operators can access the underlying storage.'],
   ],
