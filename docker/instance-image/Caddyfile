@@ -3,6 +3,23 @@
 	auto_https off
 }
 
+# dsh 下发 `dsh-auth-*` 时带的是 `SameSite=Strict`，这里把它降成 `Lax`。
+#
+# Strict 的语义是「**跨站**的顶层导航也不发这个 cookie」。而从别人的页点点链接
+# 进来（GitHub README、论坛、IM 里的链接）**正是**跨站导航 —— 于是：
+#   入口没有 cookie → 下面 `@first` 命中 → 改写带 token → dsh 下发新 cookie 并 303 回 `/`
+#   → 还在同一条跨站导航链里，浏览器**照样扣着**这个 Strict cookie 不发 → 回到第一步。
+# 实测（2026-09-15，真浏览器）：19 跳 303 后 ERR_TOO_MANY_REDIRECTS。地址栏直接输入算
+# **同站**，所以那条路是好的 —— 症状因此长成「单独打开没问题，从 README 点进不去」。
+#
+# Lax 只放开「跨站的顶层 GET 导航」这一档；跨站的 POST、iframe、子资源请求照旧不发，
+# CSRF 该拦的还拦着。平台自己的会话 cookie（`dsh_cloud.session_token`）本来就是 Lax。
+#
+# 属性是 dsh（上游）定的，我们改不了上游，所以在反代这一层改写。
+(cookie-lax) {
+	header_down Set-Cookie "SameSite=Strict" "SameSite=Lax"
+}
+
 :{$BRIDGE_PORT:8080} {
 	# route 是必须的：Caddy 默认会按自己的指令顺序重排，而 handle/respond/reverse_proxy
 	# 的相对顺序直接决定「门还在不在」——用 handle 包反代时门会被排到后面，等于门没了。
@@ -46,6 +63,7 @@
 		reverse_proxy @heal 127.0.0.1:{$DSH_PORT:3080} {
 			# dsh 大量用流式输出（SSE），不要缓冲
 			flush_interval -1
+			import cookie-lax
 			@unauth status 401
 			handle_response @unauth {
 				header Location /?token={env.DSH_LAUNCH_TOKEN}
@@ -56,6 +74,7 @@
 		# 其余（带 token 的、/api 的）：直通，不做自愈
 		reverse_proxy 127.0.0.1:{$DSH_PORT:3080} {
 			flush_interval -1
+			import cookie-lax
 		}
 	}
 }
