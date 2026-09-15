@@ -30,7 +30,7 @@ import {
   setInstanceImage,
   type InstanceSummary,
 } from '@/lib/api.js'
-import { formatMb } from '@/lib/format.js'
+import { formatMb, imageTagOf } from '@/lib/format.js'
 import { invalidateInstances, keys } from '@/lib/query-keys.js'
 
 /**
@@ -80,7 +80,7 @@ export function VersionCard({ id, instance }: { id: string; instance: InstanceSu
             <div className="flex items-end gap-2">
               <InfoField label={t('instanceDetail.upgradeTo')}>
                 <Select
-                  items={options.map((tag) => ({ value: tag, label: tag }))}
+                  items={options.map((tag) => ({ value: tag, label: imageTagOf(tag) }))}
                   value={target}
                   onValueChange={(value) => {
                     if (typeof value === 'string') setTarget(value)
@@ -93,7 +93,7 @@ export function VersionCard({ id, instance }: { id: string; instance: InstanceSu
                     <SelectGroup>
                       {options.map((tag) => (
                         <SelectItem key={tag} value={tag}>
-                          {tag}
+                          {imageTagOf(tag)}
                         </SelectItem>
                       ))}
                     </SelectGroup>

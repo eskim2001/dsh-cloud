@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatMb, hostOf } from './format.js'
+import { formatMb, hostOf, imageTagOf } from './format.js'
 
 describe('formatMb', () => {
   it('不到 1 GB 用 MB（四舍五入）', () => {
@@ -23,5 +23,21 @@ describe('hostOf', () => {
   it('不是 URL 就原样返回（宁可显示原值，也不抛）', () => {
     expect(hostOf('telegram.lvh.me')).toBe('telegram.lvh.me')
     expect(hostOf('')).toBe('')
+  })
+})
+
+describe('imageTagOf', () => {
+  it('只取 tag —— 升级候选的仓库前缀全都一样，显示整串会把差异挤没', () => {
+    expect(imageTagOf('ghcr.io/eskim2001/dsh-instance:0.1.6-alpha.1_1')).toBe('0.1.6-alpha.1_1')
+    expect(imageTagOf('ghcr.io/eskim2001/dsh-instance:0.1.5-rc.2_4')).toBe('0.1.5-rc.2_4')
+  })
+
+  it('没有 tag 就原样返回', () => {
+    expect(imageTagOf('ghcr.io/eskim2001/dsh-instance')).toBe('ghcr.io/eskim2001/dsh-instance')
+  })
+
+  it('带端口的 registry 不算 tag（ImageRefSchema 允许这种写法）', () => {
+    expect(imageTagOf('reg.example.com:5000/dsh-instance')).toBe('reg.example.com:5000/dsh-instance')
+    expect(imageTagOf('reg.example.com:5000/dsh-instance:1.0')).toBe('1.0')
   })
 })
