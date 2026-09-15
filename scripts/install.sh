@@ -354,6 +354,12 @@ write_env() {
   # 所以控制面必然以引导态起来，这枚 token 就是那个页面的唯一凭证。
   [ -n "$SETUP_TOKEN" ] || SETUP_TOKEN=$(rand_hex)
 
+  # 登录页上的演示账号。**从既有 .env 或调用者环境透传**（环境优先），不在这里生成 ——
+  # 这份 .env 每次 update 都是整份重写，不显式透传的话操作者手加的两行会被无声抹掉，
+  # 症状是「登录页那块提示突然不见了」。普通部署留空 = 登录页什么都不多出来。
+  DEMO_EMAIL=${DEMO_EMAIL:-$(env_get DEMO_EMAIL)}
+  DEMO_PASSWORD=${DEMO_PASSWORD:-$(env_get DEMO_PASSWORD)}
+
   local tmp="$STATE_DIR/.env.new"
   cat >"$tmp" <<EOF
 # 由 scripts/install.sh 生成。手改要小心：secret 一换，实例的门 token 全废（桥 403）。
@@ -362,7 +368,7 @@ POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_PORT=${POSTGRES_PORT}
 
 # 域名**不在这里**。装机不配域名：控制面以引导态起来，域名由操作者在引导页里填、写进
-# platform_setting；之后要改也是写那张表（镜像里的 `domain` 子命令）。所以这份 .env 里
+# platform_setting；之后要改也是写那张表（镜像里的 domain 子命令）。所以这份 .env 里
 # 刻意**不留** BASE_DOMAIN / CONSOLE_DOMAIN 两个键 —— env 有值会压过 DB（见 env.ts），
 # 而这个脚本每次都会整份重写 .env，留一个"看着能改、一重跑就被抹平"的旋钮只会误导人。
 PUBLIC_SCHEME=https
@@ -389,6 +395,12 @@ TRAEFIK_ROUTES_PATH=/etc/traefik/dynamic/routes.yml
 FORWARD_AUTH_ADDRESS=http://127.0.0.1:${CONTROL_PORT}/auth/verify
 
 MAX_INSTANCES_PER_USER=3
+
+# 登录页上的演示账号提示（两个都填才显示）。只有对外提供试用入口的部署才设；
+# 普通部署留空 —— 那时登录页上什么都不多出来。这里只是把它落盘，
+# 值在上面的 write_env 里从既有 .env / 调用者环境透传过来。
+DEMO_EMAIL=${DEMO_EMAIL}
+DEMO_PASSWORD=${DEMO_PASSWORD}
 EOF
   install -m 600 "$tmp" "$STATE_DIR/.env"
   rm -f "$tmp"
